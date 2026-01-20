@@ -19,6 +19,15 @@
 
 **Goal:** System can parse technical EPUBs, chunk content intelligently, and store structured data with full text for later retrieval.
 
+**Plans:** 5 plans
+
+Plans:
+- [ ] 01-01-project-setup-PLAN.md — Python package structure and core data models
+- [ ] 01-02-epub-parser-PLAN.md — EPUB parsing with metadata, TOC, and content type detection
+- [ ] 01-03-sqlite-storage-PLAN.md — SQLite storage with FTS5 and cascade deletes
+- [ ] 01-04-chunker-PLAN.md — Smart chunking with code block preservation
+- [ ] 01-05-integration-PLAN.md — End-to-end pipeline and verification
+
 **Requirements:**
 - EPUB-01: System extracts text content from valid EPUB files
 - EPUB-02: System preserves chapter/section hierarchy from EPUB TOC
@@ -137,7 +146,7 @@ Unmapped: **None**
 
 | Phase | Status | Progress |
 |-------|--------|----------|
-| 1 - Foundation | Pending | 0% |
+| 1 - Foundation | Planned | 0% |
 | 2 - Vector Pipeline | Pending | 0% |
 | 3 - Search & MCP | Pending | 0% |
 | 4 - CLI & Integration | Pending | 0% |
