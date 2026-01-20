@@ -103,45 +103,45 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| EPUB-01 | TBD | Pending |
-| EPUB-02 | TBD | Pending |
-| EPUB-03 | TBD | Pending |
-| EPUB-04 | TBD | Pending |
-| EPUB-05 | TBD | Pending |
-| CHUNK-01 | TBD | Pending |
-| CHUNK-02 | TBD | Pending |
-| CHUNK-03 | TBD | Pending |
-| CHUNK-04 | TBD | Pending |
-| EMBED-01 | TBD | Pending |
-| EMBED-02 | TBD | Pending |
-| EMBED-03 | TBD | Pending |
-| EMBED-04 | TBD | Pending |
-| STORE-01 | TBD | Pending |
-| STORE-02 | TBD | Pending |
-| STORE-03 | TBD | Pending |
-| STORE-04 | TBD | Pending |
-| SRCH-01 | TBD | Pending |
-| SRCH-02 | TBD | Pending |
-| SRCH-03 | TBD | Pending |
-| SRCH-04 | TBD | Pending |
-| SRCH-05 | TBD | Pending |
-| SRCH-06 | TBD | Pending |
-| MCP-01 | TBD | Pending |
-| MCP-02 | TBD | Pending |
-| MCP-03 | TBD | Pending |
-| MCP-04 | TBD | Pending |
-| MCP-05 | TBD | Pending |
-| CLI-01 | TBD | Pending |
-| CLI-02 | TBD | Pending |
-| CLI-03 | TBD | Pending |
-| CLI-04 | TBD | Pending |
-| CLI-05 | TBD | Pending |
+| EPUB-01 | Phase 1 | Pending |
+| EPUB-02 | Phase 1 | Pending |
+| EPUB-03 | Phase 1 | Pending |
+| EPUB-04 | Phase 1 | Pending |
+| EPUB-05 | Phase 1 | Pending |
+| CHUNK-01 | Phase 1 | Pending |
+| CHUNK-02 | Phase 1 | Pending |
+| CHUNK-03 | Phase 1 | Pending |
+| CHUNK-04 | Phase 1 | Pending |
+| EMBED-01 | Phase 2 | Pending |
+| EMBED-02 | Phase 2 | Pending |
+| EMBED-03 | Phase 2 | Pending |
+| EMBED-04 | Phase 2 | Pending |
+| STORE-01 | Phase 2 | Pending |
+| STORE-02 | Phase 1 | Pending |
+| STORE-03 | Phase 1 | Pending |
+| STORE-04 | Phase 1 | Pending |
+| SRCH-01 | Phase 3 | Pending |
+| SRCH-02 | Phase 3 | Pending |
+| SRCH-03 | Phase 3 | Pending |
+| SRCH-04 | Phase 3 | Pending |
+| SRCH-05 | Phase 3 | Pending |
+| SRCH-06 | Phase 3 | Pending |
+| MCP-01 | Phase 3 | Pending |
+| MCP-02 | Phase 3 | Pending |
+| MCP-03 | Phase 3 | Pending |
+| MCP-04 | Phase 3 | Pending |
+| MCP-05 | Phase 3 | Pending |
+| CLI-01 | Phase 4 | Pending |
+| CLI-02 | Phase 4 | Pending |
+| CLI-03 | Phase 4 | Pending |
+| CLI-04 | Phase 4 | Pending |
+| CLI-05 | Phase 4 | Pending |
 
 **Coverage:**
 - v1 requirements: 33 total
-- Mapped to phases: 0
-- Unmapped: 33 ⚠️
+- Mapped to phases: 33
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-01-19*
-*Last updated: 2026-01-19 after initial definition*
+*Last updated: 2026-01-19 after roadmap creation*
