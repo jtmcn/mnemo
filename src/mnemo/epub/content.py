@@ -7,12 +7,16 @@ Extracts content blocks from EPUB HTML items, detecting content types
 from __future__ import annotations
 
 import re
+import warnings
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from bs4 import BeautifulSoup, NavigableString, Tag
+from bs4 import BeautifulSoup, NavigableString, Tag, XMLParsedAsHTMLWarning
 
 from mnemo.models import ContentType
+
+# EPUB content is XHTML but lxml HTML parser handles real-world EPUBs better
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 if TYPE_CHECKING:
     from ebooklib.epub import EpubBook

@@ -44,6 +44,9 @@ packages = ["src/mnemo"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+filterwarnings = [
+    "ignore::bs4.XMLParsedAsHTMLWarning",
+]
 
 [tool.ruff]
 line-length = 100
