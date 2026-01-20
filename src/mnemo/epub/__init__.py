@@ -10,6 +10,14 @@ Main exports:
 - extract_content: Content extraction with type detection
 """
 
+# Suppress BeautifulSoup warnings about using HTML parser on XHTML
+# This must be done before any BeautifulSoup imports in submodules
+import warnings
+
+from bs4 import XMLParsedAsHTMLWarning
+
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
+
 from mnemo.epub.content import ContentBlock, extract_content
 from mnemo.epub.metadata import extract_metadata
 from mnemo.epub.parser import EPUBParser
