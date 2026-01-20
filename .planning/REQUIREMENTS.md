@@ -9,18 +9,18 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### EPUB Parsing
 
-- [ ] **EPUB-01**: System extracts text content from valid EPUB files
-- [ ] **EPUB-02**: System preserves chapter/section hierarchy from EPUB TOC
-- [ ] **EPUB-03**: System detects and preserves code blocks with language hints
-- [ ] **EPUB-04**: System extracts Dublin Core metadata (title, authors, ISBN)
-- [ ] **EPUB-05**: System handles tables, converting to searchable text
+- [x] **EPUB-01**: System extracts text content from valid EPUB files
+- [x] **EPUB-02**: System preserves chapter/section hierarchy from EPUB TOC
+- [x] **EPUB-03**: System detects and preserves code blocks with language hints
+- [x] **EPUB-04**: System extracts Dublin Core metadata (title, authors, ISBN)
+- [x] **EPUB-05**: System handles tables, converting to searchable text
 
 ### Chunking
 
-- [ ] **CHUNK-01**: System splits text into chunks of 400-800 tokens with overlap
-- [ ] **CHUNK-02**: System keeps code blocks intact (never splits mid-block)
-- [ ] **CHUNK-03**: System preserves chapter/section context per chunk
-- [ ] **CHUNK-04**: System labels chunks by content type (text, code, table)
+- [x] **CHUNK-01**: System splits text into chunks of 400-800 tokens with overlap
+- [x] **CHUNK-02**: System keeps code blocks intact (never splits mid-block)
+- [x] **CHUNK-03**: System preserves chapter/section context per chunk
+- [x] **CHUNK-04**: System labels chunks by content type (text, code, table)
 
 ### Embedding
 
@@ -32,9 +32,9 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Storage
 
 - [ ] **STORE-01**: System stores vectors in ChromaDB with book/chapter metadata
-- [ ] **STORE-02**: System tracks books and chunks in SQLite
-- [ ] **STORE-03**: System cascades deletes (remove book removes all chunks)
-- [ ] **STORE-04**: System stores full text for keyword search (hybrid)
+- [x] **STORE-02**: System tracks books and chunks in SQLite
+- [x] **STORE-03**: System cascades deletes (remove book removes all chunks)
+- [x] **STORE-04**: System stores full text for keyword search (hybrid)
 
 ### Search
 
@@ -103,23 +103,23 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| EPUB-01 | Phase 1 | Pending |
-| EPUB-02 | Phase 1 | Pending |
-| EPUB-03 | Phase 1 | Pending |
-| EPUB-04 | Phase 1 | Pending |
-| EPUB-05 | Phase 1 | Pending |
-| CHUNK-01 | Phase 1 | Pending |
-| CHUNK-02 | Phase 1 | Pending |
-| CHUNK-03 | Phase 1 | Pending |
-| CHUNK-04 | Phase 1 | Pending |
+| EPUB-01 | Phase 1 | Complete |
+| EPUB-02 | Phase 1 | Complete |
+| EPUB-03 | Phase 1 | Complete |
+| EPUB-04 | Phase 1 | Complete |
+| EPUB-05 | Phase 1 | Complete |
+| CHUNK-01 | Phase 1 | Complete |
+| CHUNK-02 | Phase 1 | Complete |
+| CHUNK-03 | Phase 1 | Complete |
+| CHUNK-04 | Phase 1 | Complete |
 | EMBED-01 | Phase 2 | Pending |
 | EMBED-02 | Phase 2 | Pending |
 | EMBED-03 | Phase 2 | Pending |
 | EMBED-04 | Phase 2 | Pending |
 | STORE-01 | Phase 2 | Pending |
-| STORE-02 | Phase 1 | Pending |
-| STORE-03 | Phase 1 | Pending |
-| STORE-04 | Phase 1 | Pending |
+| STORE-02 | Phase 1 | Complete |
+| STORE-03 | Phase 1 | Complete |
+| STORE-04 | Phase 1 | Complete |
 | SRCH-01 | Phase 3 | Pending |
 | SRCH-02 | Phase 3 | Pending |
 | SRCH-03 | Phase 3 | Pending |
@@ -144,4 +144,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-01-19*
-*Last updated: 2026-01-19 after roadmap creation*
+*Last updated: 2026-01-20 — Phase 1 requirements complete*
