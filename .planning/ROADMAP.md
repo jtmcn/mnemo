@@ -22,11 +22,11 @@
 **Plans:** 5 plans
 
 Plans:
-- [ ] 01-01-project-setup-PLAN.md — Python package structure and core data models
-- [ ] 01-02-epub-parser-PLAN.md — EPUB parsing with metadata, TOC, and content type detection
-- [ ] 01-03-sqlite-storage-PLAN.md — SQLite storage with FTS5 and cascade deletes
-- [ ] 01-04-chunker-PLAN.md — Smart chunking with code block preservation
-- [ ] 01-05-integration-PLAN.md — End-to-end pipeline and verification
+- [x] 01-01-project-setup-PLAN.md — Python package structure and core data models
+- [x] 01-02-epub-parser-PLAN.md — EPUB parsing with metadata, TOC, and content type detection
+- [x] 01-03-sqlite-storage-PLAN.md — SQLite storage with FTS5 and cascade deletes
+- [x] 01-04-chunker-PLAN.md — Smart chunking with code block preservation
+- [x] 01-05-integration-PLAN.md — End-to-end pipeline and verification
 
 **Requirements:**
 - EPUB-01: System extracts text content from valid EPUB files
@@ -146,10 +146,11 @@ Unmapped: **None**
 
 | Phase | Status | Progress |
 |-------|--------|----------|
-| 1 - Foundation | Planned | 0% |
+| 1 - Foundation | ✓ Complete | 100% |
 | 2 - Vector Pipeline | Pending | 0% |
 | 3 - Search & MCP | Pending | 0% |
 | 4 - CLI & Integration | Pending | 0% |
 
 ---
 *Roadmap created: 2026-01-19*
+*Phase 1 completed: 2026-01-20*
