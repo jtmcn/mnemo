@@ -7,11 +7,15 @@ to produce structured data from EPUB files.
 from __future__ import annotations
 
 import logging
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 from ebooklib import epub
+
+# EPUB content is XHTML but lxml HTML parser handles real-world EPUBs better
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 from mnemo.epub.content import ContentBlock, extract_content
 from mnemo.epub.metadata import extract_metadata
