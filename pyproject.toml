@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mnemo"
+version = "0.1.0"
+description = "Personal technical book library with semantic search via MCP"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [
+    { name = "Joel" }
+]
+keywords = ["epub", "ebook", "semantic-search", "mcp", "embeddings"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "ebooklib>=0.18",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+    "tiktoken>=0.5",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.1",
+    "mypy>=1.8",
+]
+
+[project.scripts]
+mnemo = "mnemo.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mnemo"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
