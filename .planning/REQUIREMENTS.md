@@ -24,14 +24,14 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Embedding
 
-- [ ] **EMBED-01**: System generates embeddings via Databricks GTE-large-en API
-- [ ] **EMBED-02**: System batches embedding requests (50 texts per batch)
-- [ ] **EMBED-03**: System handles rate limiting with exponential backoff
-- [ ] **EMBED-04**: System prefixes queries for BGE instruction format
+- [x] **EMBED-01**: System generates embeddings via Databricks GTE-large-en API
+- [x] **EMBED-02**: System batches embedding requests (50 texts per batch)
+- [x] **EMBED-03**: System handles rate limiting with exponential backoff
+- [x] **EMBED-04**: System uses appropriate query format for embedding model (GTE requires no prefix)
 
 ### Storage
 
-- [ ] **STORE-01**: System stores vectors in ChromaDB with book/chapter metadata
+- [x] **STORE-01**: System stores vectors in ChromaDB with book/chapter metadata
 - [x] **STORE-02**: System tracks books and chunks in SQLite
 - [x] **STORE-03**: System cascades deletes (remove book removes all chunks)
 - [x] **STORE-04**: System stores full text for keyword search (hybrid)
@@ -112,11 +112,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CHUNK-02 | Phase 1 | Complete |
 | CHUNK-03 | Phase 1 | Complete |
 | CHUNK-04 | Phase 1 | Complete |
-| EMBED-01 | Phase 2 | Pending |
-| EMBED-02 | Phase 2 | Pending |
-| EMBED-03 | Phase 2 | Pending |
-| EMBED-04 | Phase 2 | Pending |
-| STORE-01 | Phase 2 | Pending |
+| EMBED-01 | Phase 2 | Complete |
+| EMBED-02 | Phase 2 | Complete |
+| EMBED-03 | Phase 2 | Complete |
+| EMBED-04 | Phase 2 | Complete |
+| STORE-01 | Phase 2 | Complete |
 | STORE-02 | Phase 1 | Complete |
 | STORE-03 | Phase 1 | Complete |
 | STORE-04 | Phase 1 | Complete |
@@ -144,4 +144,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-01-19*
-*Last updated: 2026-01-20 — Phase 1 requirements complete*
+*Last updated: 2026-01-21 — Phase 2 requirements complete*
