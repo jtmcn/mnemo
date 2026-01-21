@@ -1,52 +1,52 @@
 # Project State: Mnemo
 
 **Last Updated:** 2026-01-21
-**Current Phase:** 2 of 4 (Vector Pipeline) - IN PROGRESS
-**Overall Progress:** 44%
+**Current Phase:** 2 of 4 (Vector Pipeline) - COMPLETE
+**Overall Progress:** 50%
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 **Core value:** Ask Claude a question, get answers from your book collection.
-**Current focus:** Phase 2 - Building embedding and vector storage pipeline
+**Current focus:** Phase 2 Complete - Ready for Phase 3
 
 ## Phase Status
 
 | Phase | Name | Status | Progress |
 |-------|------|--------|----------|
 | 1 | Foundation | **Complete** | 100% (5/5 plans) |
-| 2 | Vector Pipeline | **In Progress** | 67% (2/3 plans) |
+| 2 | Vector Pipeline | **Complete** | 100% (3/3 plans) |
 | 3 | Search & MCP | Pending | 0% |
 | 4 | CLI & Integration | Pending | 0% |
 
 ## Current Plan
 
-**Completed:** 02-02-PLAN.md (ChromaDB vector store)
-**Next:** 02-03-PLAN.md (Integration: wire embeddings into ingest)
+**Completed:** 02-03-PLAN.md (Integration: wire embeddings into ingest)
+**Next:** Phase 3 - Search & MCP
 
-Progress: [████████░░░░░░░░░░░░] 44% (7/16 total plans)
+Progress: [████████░░░░░░░░░░░░] 50% (8/16 total plans)
 
 ## Recent Activity
 
+- 2026-01-21: Completed 02-03 (Integration: wire embeddings into ingest pipeline)
 - 2026-01-21: Completed 02-02 (ChromaDB vector store with L2 normalization)
 - 2026-01-21: Completed 02-01 (Databricks embedding client with retry logic)
 - 2026-01-20: Completed 01-05-integration (end-to-end pipeline + 99 tests)
 - 2026-01-20: Completed 01-04-chunker (smart chunking with code preservation)
-- 2026-01-20: Completed 01-02-epub-parser (EPUB parsing + content type detection)
-- 2026-01-20: Completed 01-03-sqlite-storage (SQLite + FTS5 + repositories)
 
-## Phase 2 Progress
+## Phase 2 Complete
 
-**Vector Pipeline - Building embedding and storage infrastructure**
+**Vector Pipeline - Complete**
 
 | Plan | Name | Key Deliverable | Status |
 |------|------|-----------------|--------|
 | 02-01 | Embedding Client | DatabricksEmbedder with retry logic | **Complete** |
 | 02-02 | Vector Store | ChromaDB with L2 normalization | **Complete** |
-| 02-03 | Integration | Wire embeddings into ingest pipeline | Pending |
+| 02-03 | Integration | Wire embeddings into ingest pipeline | **Complete** |
 
 **New imports available:**
 ```python
+from mnemo import ingest_book, embed_book, remove_book
 from mnemo.embeddings import DatabricksEmbedder, EmbeddingConfig
 from mnemo.vectors import VectorStore, VectorConfig, QueryResult
 ```
@@ -74,6 +74,8 @@ from mnemo.vectors import VectorStore, VectorConfig, QueryResult
 | Tenacity retry predicates | Only retry transient failures (429, 5xx, timeout) | 2026-01-21 |
 | Explicit embeddings in ChromaDB | No embedding function - embeddings provided explicitly | 2026-01-21 |
 | L2 distance with normalization | GTE returns unnormalized vectors, normalize before storage | 2026-01-21 |
+| Lazy imports for embeddings | Avoid hard dependency on Databricks credentials | 2026-01-21 |
+| 50 chunks per batch | Matches Databricks API recommendation | 2026-01-21 |
 
 ### Technical Notes
 - Pin FastMCP to `<3` to avoid breaking changes
@@ -86,15 +88,15 @@ from mnemo.vectors import VectorStore, VectorConfig, QueryResult
 
 ### Open Questions
 - Code chunking heuristics need tuning with real data
-- Similarity score thresholds need empirical calibration (Phase 2)
+- Similarity score thresholds need empirical calibration (Phase 3)
 
 ### Blockers
 None
 
 ## Session Continuity
 
-**Last session:** 2026-01-21T17:31:01Z
-**Stopped at:** Completed 02-02-PLAN.md
+**Last session:** 2026-01-21T17:36:23Z
+**Stopped at:** Completed Phase 2 (02-03-PLAN.md)
 **Resume file:** None
 
 ---
