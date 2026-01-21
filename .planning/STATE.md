@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-01-21
 **Current Phase:** 2 of 4 (Vector Pipeline) - IN PROGRESS
-**Overall Progress:** 38%
+**Overall Progress:** 44%
 
 ## Project Reference
 
@@ -15,25 +15,25 @@ See: .planning/PROJECT.md
 | Phase | Name | Status | Progress |
 |-------|------|--------|----------|
 | 1 | Foundation | **Complete** | 100% (5/5 plans) |
-| 2 | Vector Pipeline | **In Progress** | 33% (1/3 plans) |
+| 2 | Vector Pipeline | **In Progress** | 67% (2/3 plans) |
 | 3 | Search & MCP | Pending | 0% |
 | 4 | CLI & Integration | Pending | 0% |
 
 ## Current Plan
 
-**Completed:** 02-01-PLAN.md (Databricks embedding client)
-**Next:** 02-02-PLAN.md (ChromaDB vector store)
+**Completed:** 02-02-PLAN.md (ChromaDB vector store)
+**Next:** 02-03-PLAN.md (Integration: wire embeddings into ingest)
 
-Progress: [██████░░░░░░░░░░░░░░] 38% (6/16 total plans)
+Progress: [████████░░░░░░░░░░░░] 44% (7/16 total plans)
 
 ## Recent Activity
 
+- 2026-01-21: Completed 02-02 (ChromaDB vector store with L2 normalization)
 - 2026-01-21: Completed 02-01 (Databricks embedding client with retry logic)
 - 2026-01-20: Completed 01-05-integration (end-to-end pipeline + 99 tests)
 - 2026-01-20: Completed 01-04-chunker (smart chunking with code preservation)
 - 2026-01-20: Completed 01-02-epub-parser (EPUB parsing + content type detection)
 - 2026-01-20: Completed 01-03-sqlite-storage (SQLite + FTS5 + repositories)
-- 2026-01-20: Completed 01-01-project-setup (Python package + data models)
 
 ## Phase 2 Progress
 
@@ -42,12 +42,13 @@ Progress: [██████░░░░░░░░░░░░░░] 38% (6/
 | Plan | Name | Key Deliverable | Status |
 |------|------|-----------------|--------|
 | 02-01 | Embedding Client | DatabricksEmbedder with retry logic | **Complete** |
-| 02-02 | Vector Store | ChromaDB with L2 normalization | Pending |
+| 02-02 | Vector Store | ChromaDB with L2 normalization | **Complete** |
 | 02-03 | Integration | Wire embeddings into ingest pipeline | Pending |
 
 **New imports available:**
 ```python
 from mnemo.embeddings import DatabricksEmbedder, EmbeddingConfig
+from mnemo.vectors import VectorStore, VectorConfig, QueryResult
 ```
 
 ## Accumulated Context
@@ -71,6 +72,8 @@ from mnemo.embeddings import DatabricksEmbedder, EmbeddingConfig
 | force=True for re-indexing | Explicit intent required to replace existing book | 2026-01-20 |
 | Sync httpx for embeddings | Simpler than async for CLI/batch context | 2026-01-21 |
 | Tenacity retry predicates | Only retry transient failures (429, 5xx, timeout) | 2026-01-21 |
+| Explicit embeddings in ChromaDB | No embedding function - embeddings provided explicitly | 2026-01-21 |
+| L2 distance with normalization | GTE returns unnormalized vectors, normalize before storage | 2026-01-21 |
 
 ### Technical Notes
 - Pin FastMCP to `<3` to avoid breaking changes
@@ -79,6 +82,7 @@ from mnemo.embeddings import DatabricksEmbedder, EmbeddingConfig
 - WAL mode enabled for SQLite concurrency
 - BeautifulSoup XML warning suppressed in pyproject.toml
 - GTE-large-en returns unnormalized embeddings - L2 normalize before storage
+- ChromaDB PersistentClient stores to ~/.mnemo/chroma by default
 
 ### Open Questions
 - Code chunking heuristics need tuning with real data
@@ -89,8 +93,8 @@ None
 
 ## Session Continuity
 
-**Last session:** 2026-01-21T17:29:46Z
-**Stopped at:** Completed 02-01-PLAN.md
+**Last session:** 2026-01-21T17:31:01Z
+**Stopped at:** Completed 02-02-PLAN.md
 **Resume file:** None
 
 ---
