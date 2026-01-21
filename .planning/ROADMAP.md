@@ -61,8 +61,8 @@ Plans:
 
 Plans:
 - [x] 02-01-PLAN.md — Databricks embedding client with retry logic (Wave 1)
-- [ ] 02-02-PLAN.md — ChromaDB vector store with L2 normalization (Wave 1)
-- [ ] 02-03-PLAN.md — Integration: wire embeddings into ingest pipeline (Wave 2)
+- [x] 02-02-PLAN.md — ChromaDB vector store with L2 normalization (Wave 1)
+- [x] 02-03-PLAN.md — Integration: wire embeddings into ingest pipeline (Wave 2)
 
 **Requirements:**
 - EMBED-01: System generates embeddings via Databricks GTE-large-en API
@@ -154,12 +154,11 @@ Unmapped: **None**
 | Phase | Status | Progress |
 |-------|--------|----------|
 | 1 - Foundation | Complete | 100% |
-| 2 - Vector Pipeline | In Progress | 33% (1/3 plans) |
+| 2 - Vector Pipeline | Complete | 100% (3/3 plans) |
 | 3 - Search & MCP | Pending | 0% |
 | 4 - CLI & Integration | Pending | 0% |
 
 ---
 *Roadmap created: 2026-01-19*
 *Phase 1 completed: 2026-01-20*
-*Phase 2 planned: 2026-01-20*
-*02-01 completed: 2026-01-21*
+*Phase 2 completed: 2026-01-21*
