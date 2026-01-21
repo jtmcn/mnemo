@@ -1,61 +1,53 @@
 # Project State: Mnemo
 
-**Last Updated:** 2026-01-20
-**Current Phase:** 1 of 4 (Foundation) - COMPLETE
-**Overall Progress:** 25%
+**Last Updated:** 2026-01-21
+**Current Phase:** 2 of 4 (Vector Pipeline) - IN PROGRESS
+**Overall Progress:** 38%
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 **Core value:** Ask Claude a question, get answers from your book collection.
-**Current focus:** Phase 1 Complete - Ready for Phase 2
+**Current focus:** Phase 2 - Building embedding and vector storage pipeline
 
 ## Phase Status
 
 | Phase | Name | Status | Progress |
 |-------|------|--------|----------|
 | 1 | Foundation | **Complete** | 100% (5/5 plans) |
-| 2 | Vector Pipeline | Pending | 0% |
+| 2 | Vector Pipeline | **In Progress** | 33% (1/3 plans) |
 | 3 | Search & MCP | Pending | 0% |
 | 4 | CLI & Integration | Pending | 0% |
 
 ## Current Plan
 
-**Completed:** 01-05-integration-PLAN.md (Phase 1 complete!)
-**Next:** Phase 2 planning needed
+**Completed:** 02-01-PLAN.md (Databricks embedding client)
+**Next:** 02-02-PLAN.md (ChromaDB vector store)
 
-Progress: [█████░░░░░░░░░░░░░░░] 25% (5/~20 total plans)
+Progress: [██████░░░░░░░░░░░░░░] 38% (6/16 total plans)
 
 ## Recent Activity
 
+- 2026-01-21: Completed 02-01 (Databricks embedding client with retry logic)
 - 2026-01-20: Completed 01-05-integration (end-to-end pipeline + 99 tests)
 - 2026-01-20: Completed 01-04-chunker (smart chunking with code preservation)
 - 2026-01-20: Completed 01-02-epub-parser (EPUB parsing + content type detection)
 - 2026-01-20: Completed 01-03-sqlite-storage (SQLite + FTS5 + repositories)
 - 2026-01-20: Completed 01-01-project-setup (Python package + data models)
-- 2026-01-19: Phase 1 plans created (5 plans)
-- 2026-01-19: Roadmap created (4 phases, 33 requirements)
-- 2026-01-19: Project initialized
 
-## Phase 1 Completion Summary
+## Phase 2 Progress
 
-**Foundation layer complete with 99 passing tests and 83% code coverage.**
+**Vector Pipeline - Building embedding and storage infrastructure**
 
-| Plan | Name | Key Deliverable |
-|------|------|-----------------|
-| 01-01 | Project Setup | Pydantic models (Book, Chunk, ContentType) |
-| 01-02 | EPUB Parser | EPUBParser with content type detection |
-| 01-03 | SQLite Storage | Repositories + FTS5 search |
-| 01-04 | Chunker | Token-based splitting with code preservation |
-| 01-05 | Integration | `ingest_book()` end-to-end pipeline |
+| Plan | Name | Key Deliverable | Status |
+|------|------|-----------------|--------|
+| 02-01 | Embedding Client | DatabricksEmbedder with retry logic | **Complete** |
+| 02-02 | Vector Store | ChromaDB with L2 normalization | Pending |
+| 02-03 | Integration | Wire embeddings into ingest pipeline | Pending |
 
-**All imports work:**
+**New imports available:**
 ```python
-from mnemo.ingest import ingest_book, remove_book
-from mnemo.models import Book, Chunk, ContentType
-from mnemo.storage import BookRepository, ChunkRepository, init_db
-from mnemo.epub import EPUBParser, ContentBlock
-from mnemo.chunking import Chunker, ChunkerConfig, count_tokens
+from mnemo.embeddings import DatabricksEmbedder, EmbeddingConfig
 ```
 
 ## Accumulated Context
@@ -77,6 +69,8 @@ from mnemo.chunking import Chunker, ChunkerConfig, count_tokens
 | Atomic code chunks | CODE/DIAGRAM/MATH/TABLE never split regardless of size | 2026-01-20 |
 | Duplicate detection by file_hash | Prevents accidental re-indexing of same book | 2026-01-20 |
 | force=True for re-indexing | Explicit intent required to replace existing book | 2026-01-20 |
+| Sync httpx for embeddings | Simpler than async for CLI/batch context | 2026-01-21 |
+| Tenacity retry predicates | Only retry transient failures (429, 5xx, timeout) | 2026-01-21 |
 
 ### Technical Notes
 - Pin FastMCP to `<3` to avoid breaking changes
@@ -84,6 +78,7 @@ from mnemo.chunking import Chunker, ChunkerConfig, count_tokens
 - Publisher-specific EPUB quirks need real-book testing
 - WAL mode enabled for SQLite concurrency
 - BeautifulSoup XML warning suppressed in pyproject.toml
+- GTE-large-en returns unnormalized embeddings - L2 normalize before storage
 
 ### Open Questions
 - Code chunking heuristics need tuning with real data
@@ -94,10 +89,10 @@ None
 
 ## Session Continuity
 
-**Last session:** 2026-01-20T07:18:51Z
-**Stopped at:** Completed 01-05-integration-PLAN.md (Phase 1 complete)
+**Last session:** 2026-01-21T17:29:46Z
+**Stopped at:** Completed 02-01-PLAN.md
 **Resume file:** None
 
 ---
 *State initialized: 2026-01-19*
-*Last updated: 2026-01-20*
+*Last updated: 2026-01-21*
