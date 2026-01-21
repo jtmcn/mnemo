@@ -1,17 +1,99 @@
 """End-to-end EPUB ingestion pipeline.
 
-Wires together the parser, chunker, and storage components to provide
-a simple API for adding and removing books from the database.
+Wires together the parser, chunker, storage, and optionally embedding
+components to provide a simple API for adding and removing books.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Iterator
 
 from mnemo.chunking import Chunker, ChunkerConfig
 from mnemo.epub import EPUBParser
-from mnemo.models import Book
+from mnemo.models import Book, Chunk
 from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_db
+
+
+def _batch_items(items: list, batch_size: int = 50) -> Iterator[list]:
+    """Yield successive batches of items."""
+    for i in range(0, len(items), batch_size):
+        yield items[i : i + batch_size]
+
+
+def embed_book(
+    book_id: str,
+    db_path: Path | None = None,
+    chroma_path: Path | None = None,
+    batch_size: int = 50,
+) -> int:
+    """Generate and store embeddings for an already-ingested book.
+
+    Retrieves chunks from SQLite, generates embeddings via Databricks,
+    and stores vectors in ChromaDB.
+
+    Args:
+        book_id: 6-char hex book identifier
+        db_path: SQLite database path (default: ~/.mnemo/mnemo.db)
+        chroma_path: ChromaDB path (default: ~/.mnemo/chroma)
+        batch_size: Chunks per embedding API call (default: 50)
+
+    Returns:
+        Number of chunks embedded
+
+    Raises:
+        ValueError: Book not found or embedding credentials not configured
+    """
+    # Lazy imports to avoid hard dependency on embedding modules
+    from mnemo.embeddings import DatabricksEmbedder, EmbeddingConfig
+    from mnemo.vectors import VectorStore, VectorConfig
+
+    # Load chunks from SQLite
+    init_db(db_path)
+    conn = get_connection(db_path)
+    chunk_repo = ChunkRepository(conn)
+    chunks = chunk_repo.get_by_book(book_id)
+    conn.close()
+
+    if not chunks:
+        raise ValueError(f"No chunks found for book: {book_id}")
+
+    # Initialize embedder (will raise if no credentials)
+    embedder = DatabricksEmbedder()
+
+    # Initialize vector store
+    vector_config = VectorConfig(persist_path=chroma_path)
+    store = VectorStore(vector_config)
+
+    # Delete any existing vectors for this book (re-embedding case)
+    store.delete_by_book(book_id)
+
+    # Process in batches
+    embedded_count = 0
+    for batch in _batch_items(chunks, batch_size):
+        texts = [chunk.content for chunk in batch]
+        embeddings = embedder.embed_batch(texts)
+
+        ids = [chunk.id for chunk in batch]
+        metadatas = [
+            {
+                "book_id": chunk.book_id,
+                "content_type": chunk.content_type.value,
+                "section_path": " > ".join(chunk.section_path) if chunk.section_path else "",
+                "sequence": chunk.sequence,
+            }
+            for chunk in batch
+        ]
+
+        store.add(
+            ids=ids,
+            embeddings=embeddings,
+            metadatas=metadatas,
+            documents=texts,  # Store original text for debugging
+        )
+        embedded_count += len(batch)
+
+    return embedded_count
 
 
 def ingest_book(
@@ -19,25 +101,28 @@ def ingest_book(
     db_path: Path | None = None,
     chunker_config: ChunkerConfig | None = None,
     force: bool = False,
+    embed: bool = False,
+    chroma_path: Path | None = None,
 ) -> tuple[Book, int]:
     """Ingest an EPUB file into the database.
 
-    Parses the EPUB, chunks the content, and stores everything in SQLite.
-    Detects duplicates by content hash and prevents re-indexing unless
-    force=True is specified.
+    Parses the EPUB, chunks the content, stores in SQLite, and optionally
+    generates embeddings for vector search.
 
     Args:
         epub_path: Path to EPUB file
         db_path: Database path (default: ~/.mnemo/mnemo.db)
         chunker_config: Chunking configuration
         force: If True, re-ingest even if duplicate detected
+        embed: If True, generate embeddings after storing chunks
+        chroma_path: ChromaDB path for vectors (default: ~/.mnemo/chroma)
 
     Returns:
         Tuple of (Book, chunk_count)
 
     Raises:
         FileNotFoundError: EPUB doesn't exist
-        ValueError: Duplicate book (unless force=True)
+        ValueError: Duplicate book (unless force=True) or embedding fails
     """
     # 1. Validate input
     epub_path = Path(epub_path)
@@ -62,9 +147,18 @@ def ingest_book(
             f"Book already indexed (id: {existing.id}). Use force=True to re-index."
         )
 
-    # 5. If force and exists, delete old version
+    # 5. If force and exists, delete old version (including vectors)
     if existing and force:
         book_repo.delete(existing.id)
+        # Also delete vectors if they exist
+        try:
+            from mnemo.vectors import VectorStore, VectorConfig
+
+            vector_config = VectorConfig(persist_path=chroma_path)
+            store = VectorStore(vector_config)
+            store.delete_by_book(existing.id)
+        except ImportError:
+            pass  # Vectors module not available
 
     # 6. Chunk content
     chunker = Chunker(chunker_config)
@@ -76,22 +170,31 @@ def ingest_book(
     conn.commit()
     conn.close()
 
+    # 8. Optionally embed
+    if embed:
+        embed_book(book.id, db_path=db_path, chroma_path=chroma_path)
+
     return book, len(chunks)
 
 
-def remove_book(book_id: str, db_path: Path | None = None) -> bool:
-    """Remove a book and all its chunks.
+def remove_book(
+    book_id: str,
+    db_path: Path | None = None,
+    chroma_path: Path | None = None,
+) -> bool:
+    """Remove a book and all its chunks and vectors.
 
-    Uses cascade delete - removing the book automatically removes
-    all associated chunks from both the main table and FTS index.
+    Uses cascade delete in SQLite and deletes vectors from ChromaDB.
 
     Args:
         book_id: 6-char hex book identifier
         db_path: Database path (default: ~/.mnemo/mnemo.db)
+        chroma_path: ChromaDB path (default: ~/.mnemo/chroma)
 
     Returns:
         True if book was found and removed, False if not found
     """
+    # Delete from SQLite
     init_db(db_path)
     conn = get_connection(db_path)
     book_repo = BookRepository(conn)
@@ -99,4 +202,15 @@ def remove_book(book_id: str, db_path: Path | None = None) -> bool:
     result = book_repo.delete(book_id)
     conn.commit()
     conn.close()
+
+    # Delete vectors (if any)
+    try:
+        from mnemo.vectors import VectorStore, VectorConfig
+
+        vector_config = VectorConfig(persist_path=chroma_path)
+        store = VectorStore(vector_config)
+        store.delete_by_book(book_id)
+    except ImportError:
+        pass  # Vectors module not available
+
     return result
