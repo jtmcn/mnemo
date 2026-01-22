@@ -85,6 +85,12 @@ Plans:
 
 **Goal:** Claude can search the book library via MCP and receive properly attributed results.
 
+**Plans:** 2 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — Search service with RRF hybrid fusion (Wave 1)
+- [ ] 03-02-PLAN.md — FastMCP server with search/list/info tools (Wave 2)
+
 **Requirements:**
 - SRCH-01: System performs semantic search returning top-k relevant chunks
 - SRCH-02: System supports filtering by book
@@ -155,10 +161,11 @@ Unmapped: **None**
 |-------|--------|----------|
 | 1 - Foundation | Complete | 100% |
 | 2 - Vector Pipeline | Complete | 100% (3/3 plans) |
-| 3 - Search & MCP | Pending | 0% |
+| 3 - Search & MCP | Planned | 0% (0/2 plans) |
 | 4 - CLI & Integration | Pending | 0% |
 
 ---
 *Roadmap created: 2026-01-19*
 *Phase 1 completed: 2026-01-20*
 *Phase 2 completed: 2026-01-21*
+*Phase 3 planned: 2026-01-21*
