@@ -3,10 +3,12 @@
 Each tool is registered with FastMCP via decorator.
 Docstrings become tool descriptions for Claude.
 Type hints generate JSON schema for parameters.
+
+Note: Implementation functions are prefixed with _ and exposed for testing.
+The @mcp.tool decorated versions are the actual MCP tools.
 """
 
 import logging
-import sys
 from typing import Literal
 
 from mnemo.mcp.server import mcp
@@ -37,29 +39,17 @@ def _get_book_repo() -> BookRepository:
     return BookRepository(_db_connection)
 
 
-@mcp.tool
-def search_books(
+# Implementation functions (testable directly)
+
+
+def _search_books_impl(
     query: str,
     book_id: str | None = None,
     content_type: Literal["text", "code", "table", "diagram", "math"] | None = None,
     top_k: int = 10,
     mode: Literal["hybrid", "semantic", "keyword"] = "hybrid",
 ) -> str:
-    """Search your book library for relevant content.
-
-    Finds passages from your indexed technical books using hybrid search
-    (combines keyword matching with semantic understanding).
-
-    Args:
-        query: Search query - can be natural language or specific terms
-        book_id: Optional 6-char book ID to search within one book
-        content_type: Optional filter for content type
-        top_k: Maximum results to return (default 10, max 50)
-        mode: Search mode - hybrid (default), semantic, or keyword
-
-    Returns:
-        Markdown-formatted search results with source attribution
-    """
+    """Search implementation - see search_books for docs."""
     logger.info(f"search_books: query={query!r}, book_id={book_id}, top_k={top_k}")
 
     # Validate inputs
@@ -88,16 +78,8 @@ def search_books(
         return f"Search error: {e}"
 
 
-@mcp.tool
-def list_available_books() -> str:
-    """List all books in your library.
-
-    Shows all indexed books with their IDs, titles, authors, and chunk counts.
-    Use the book_id to filter searches to a specific book.
-
-    Returns:
-        Markdown table of available books
-    """
+def _list_available_books_impl() -> str:
+    """List implementation - see list_available_books for docs."""
     logger.info("list_available_books called")
 
     try:
@@ -120,16 +102,8 @@ def list_available_books() -> str:
         return f"Error listing books: {e}"
 
 
-@mcp.tool
-def get_book_info(book_id: str) -> str:
-    """Get detailed information about a specific book.
-
-    Args:
-        book_id: 6-character book identifier (from list_available_books)
-
-    Returns:
-        Book details including title, authors, ISBN, and chapter count
-    """
+def _get_book_info_impl(book_id: str) -> str:
+    """Get book info implementation - see get_book_info for docs."""
     logger.info(f"get_book_info: book_id={book_id}")
 
     if not book_id or len(book_id) != 6:
@@ -207,3 +181,58 @@ def _format_search_results(results: list) -> str:
         lines.append("")
 
     return "\n".join(lines)
+
+
+# MCP tool registrations (delegate to implementations)
+
+
+@mcp.tool
+def search_books(
+    query: str,
+    book_id: str | None = None,
+    content_type: Literal["text", "code", "table", "diagram", "math"] | None = None,
+    top_k: int = 10,
+    mode: Literal["hybrid", "semantic", "keyword"] = "hybrid",
+) -> str:
+    """Search your book library for relevant content.
+
+    Finds passages from your indexed technical books using hybrid search
+    (combines keyword matching with semantic understanding).
+
+    Args:
+        query: Search query - can be natural language or specific terms
+        book_id: Optional 6-char book ID to search within one book
+        content_type: Optional filter for content type
+        top_k: Maximum results to return (default 10, max 50)
+        mode: Search mode - hybrid (default), semantic, or keyword
+
+    Returns:
+        Markdown-formatted search results with source attribution
+    """
+    return _search_books_impl(query, book_id, content_type, top_k, mode)
+
+
+@mcp.tool
+def list_available_books() -> str:
+    """List all books in your library.
+
+    Shows all indexed books with their IDs, titles, authors, and chunk counts.
+    Use the book_id to filter searches to a specific book.
+
+    Returns:
+        Markdown table of available books
+    """
+    return _list_available_books_impl()
+
+
+@mcp.tool
+def get_book_info(book_id: str) -> str:
+    """Get detailed information about a specific book.
+
+    Args:
+        book_id: 6-character book identifier (from list_available_books)
+
+    Returns:
+        Book details including title, authors, ISBN, and chapter count
+    """
+    return _get_book_info_impl(book_id)
