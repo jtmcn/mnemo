@@ -29,6 +29,7 @@ dependencies = [
     "tenacity>=8.3",
     "numpy>=1.26",
     "chromadb>=1.0.0",
+    "fastmcp>=2.14,<3",
 ]
 
 [project.optional-dependencies]
