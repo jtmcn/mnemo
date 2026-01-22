@@ -1,14 +1,14 @@
 # Project State: Mnemo
 
-**Last Updated:** 2026-01-21
-**Current Phase:** 2 of 4 (Vector Pipeline) - COMPLETE
-**Overall Progress:** 50%
+**Last Updated:** 2026-01-22
+**Current Phase:** 3 of 4 (Search & MCP) - In Progress
+**Overall Progress:** 56%
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 **Core value:** Ask Claude a question, get answers from your book collection.
-**Current focus:** Phase 2 Complete - Ready for Phase 3
+**Current focus:** Phase 3 - Search & MCP
 
 ## Phase Status
 
@@ -16,39 +16,38 @@ See: .planning/PROJECT.md
 |-------|------|--------|----------|
 | 1 | Foundation | **Complete** | 100% (5/5 plans) |
 | 2 | Vector Pipeline | **Complete** | 100% (3/3 plans) |
-| 3 | Search & MCP | Pending | 0% |
+| 3 | Search & MCP | **In Progress** | 33% (1/3 plans) |
 | 4 | CLI & Integration | Pending | 0% |
 
 ## Current Plan
 
-**Completed:** 02-03-PLAN.md (Integration: wire embeddings into ingest)
-**Next:** Phase 3 - Search & MCP
+**Completed:** 03-01-PLAN.md (Search Service with RRF hybrid search)
+**Next:** 03-02-PLAN.md (MCP Server)
 
-Progress: [████████░░░░░░░░░░░░] 50% (8/16 total plans)
+Progress: [█████████░░░░░░░░░░░] 56% (9/16 total plans)
 
 ## Recent Activity
 
+- 2026-01-22: Completed 03-01 (SearchService with RRF hybrid search)
 - 2026-01-21: Completed 02-03 (Integration: wire embeddings into ingest pipeline)
 - 2026-01-21: Completed 02-02 (ChromaDB vector store with L2 normalization)
 - 2026-01-21: Completed 02-01 (Databricks embedding client with retry logic)
 - 2026-01-20: Completed 01-05-integration (end-to-end pipeline + 99 tests)
-- 2026-01-20: Completed 01-04-chunker (smart chunking with code preservation)
 
-## Phase 2 Complete
+## Phase 3 Progress
 
-**Vector Pipeline - Complete**
+**Search & MCP - In Progress**
 
 | Plan | Name | Key Deliverable | Status |
 |------|------|-----------------|--------|
-| 02-01 | Embedding Client | DatabricksEmbedder with retry logic | **Complete** |
-| 02-02 | Vector Store | ChromaDB with L2 normalization | **Complete** |
-| 02-03 | Integration | Wire embeddings into ingest pipeline | **Complete** |
+| 03-01 | Search Service | SearchService with RRF hybrid search | **Complete** |
+| 03-02 | MCP Server | FastMCP server with search tools | Pending |
+| 03-03 | Advanced Tools | Context expansion, book info tools | Pending |
 
 **New imports available:**
 ```python
-from mnemo import ingest_book, embed_book, remove_book
-from mnemo.embeddings import DatabricksEmbedder, EmbeddingConfig
-from mnemo.vectors import VectorStore, VectorConfig, QueryResult
+from mnemo.search import SearchService, SearchResult, SearchFilter
+from mnemo.search import reciprocal_rank_fusion
 ```
 
 ## Accumulated Context
@@ -76,6 +75,9 @@ from mnemo.vectors import VectorStore, VectorConfig, QueryResult
 | L2 distance with normalization | GTE returns unnormalized vectors, normalize before storage | 2026-01-21 |
 | Lazy imports for embeddings | Avoid hard dependency on Databricks credentials | 2026-01-21 |
 | 50 chunks per batch | Matches Databricks API recommendation | 2026-01-21 |
+| RRF k=60 | Standard smoothing constant per literature | 2026-01-22 |
+| Lazy SearchService init | Avoid credential requirements at import time | 2026-01-22 |
+| 2x fetch for hybrid | More candidates for RRF fusion improves quality | 2026-01-22 |
 
 ### Technical Notes
 - Pin FastMCP to `<3` to avoid breaking changes
@@ -85,20 +87,21 @@ from mnemo.vectors import VectorStore, VectorConfig, QueryResult
 - BeautifulSoup XML warning suppressed in pyproject.toml
 - GTE-large-en returns unnormalized embeddings - L2 normalize before storage
 - ChromaDB PersistentClient stores to ~/.mnemo/chroma by default
+- SearchService caches book title lookups for performance
 
 ### Open Questions
 - Code chunking heuristics need tuning with real data
-- Similarity score thresholds need empirical calibration (Phase 3)
+- Similarity score thresholds need empirical calibration (ongoing)
 
 ### Blockers
 None
 
 ## Session Continuity
 
-**Last session:** 2026-01-21T17:36:23Z
-**Stopped at:** Completed Phase 2 (02-03-PLAN.md)
+**Last session:** 2026-01-22T21:25:27Z
+**Stopped at:** Completed 03-01-PLAN.md (Search Service)
 **Resume file:** None
 
 ---
 *State initialized: 2026-01-19*
-*Last updated: 2026-01-21*
+*Last updated: 2026-01-22*
