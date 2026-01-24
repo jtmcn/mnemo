@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 
 mcp = FastMCP("mnemo")
 
-# Import tools to register them
-from mnemo.mcp import tools  # noqa: F401, E402
+# Import tools to register them (use full path to avoid circular import when running as -m)
+import mnemo.mcp.tools  # noqa: F401, E402
 
 if __name__ == "__main__":
     mcp.run()  # STDIO transport
