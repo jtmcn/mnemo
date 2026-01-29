@@ -38,20 +38,20 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Search
 
-- [ ] **SRCH-01**: System performs semantic search returning top-k relevant chunks
-- [ ] **SRCH-02**: System supports filtering by book
-- [ ] **SRCH-03**: System supports filtering by content type (text/code/table)
-- [ ] **SRCH-04**: System returns source attribution (book, chapter, section)
-- [ ] **SRCH-05**: System performs keyword search for exact matches
-- [ ] **SRCH-06**: System combines semantic and keyword results (hybrid)
+- [x] **SRCH-01**: System performs semantic search returning top-k relevant chunks
+- [x] **SRCH-02**: System supports filtering by book
+- [x] **SRCH-03**: System supports filtering by content type (text/code/table)
+- [x] **SRCH-04**: System returns source attribution (book, chapter, section)
+- [x] **SRCH-05**: System performs keyword search for exact matches
+- [x] **SRCH-06**: System combines semantic and keyword results (hybrid)
 
 ### MCP Server
 
-- [ ] **MCP-01**: System exposes `search_books` tool via MCP
-- [ ] **MCP-02**: System exposes `list_available_books` tool via MCP
-- [ ] **MCP-03**: System exposes `get_book_info` tool via MCP
-- [ ] **MCP-04**: System supports stdio transport for Claude Desktop/Code
-- [ ] **MCP-05**: Search results include chapter/section path in attribution
+- [x] **MCP-01**: System exposes `search_books` tool via MCP
+- [x] **MCP-02**: System exposes `list_available_books` tool via MCP
+- [x] **MCP-03**: System exposes `get_book_info` tool via MCP
+- [x] **MCP-04**: System supports stdio transport for Claude Desktop/Code
+- [x] **MCP-05**: Search results include chapter/section path in attribution
 
 ### CLI
 
@@ -120,17 +120,17 @@ Which phases cover which requirements. Updated during roadmap creation.
 | STORE-02 | Phase 1 | Complete |
 | STORE-03 | Phase 1 | Complete |
 | STORE-04 | Phase 1 | Complete |
-| SRCH-01 | Phase 3 | Pending |
-| SRCH-02 | Phase 3 | Pending |
-| SRCH-03 | Phase 3 | Pending |
-| SRCH-04 | Phase 3 | Pending |
-| SRCH-05 | Phase 3 | Pending |
-| SRCH-06 | Phase 3 | Pending |
-| MCP-01 | Phase 3 | Pending |
-| MCP-02 | Phase 3 | Pending |
-| MCP-03 | Phase 3 | Pending |
-| MCP-04 | Phase 3 | Pending |
-| MCP-05 | Phase 3 | Pending |
+| SRCH-01 | Phase 3 | Complete |
+| SRCH-02 | Phase 3 | Complete |
+| SRCH-03 | Phase 3 | Complete |
+| SRCH-04 | Phase 3 | Complete |
+| SRCH-05 | Phase 3 | Complete |
+| SRCH-06 | Phase 3 | Complete |
+| MCP-01 | Phase 3 | Complete |
+| MCP-02 | Phase 3 | Complete |
+| MCP-03 | Phase 3 | Complete |
+| MCP-04 | Phase 3 | Complete |
+| MCP-05 | Phase 3 | Complete |
 | CLI-01 | Phase 4 | Pending |
 | CLI-02 | Phase 4 | Pending |
 | CLI-03 | Phase 4 | Pending |
@@ -144,4 +144,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-01-19*
-*Last updated: 2026-01-21 — Phase 2 requirements complete*
+*Last updated: 2026-01-24 — Phase 3 requirements complete*
