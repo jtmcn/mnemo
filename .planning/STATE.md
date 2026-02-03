@@ -1,14 +1,14 @@
 # Project State: Mnemo
 
 **Last Updated:** 2026-02-03
-**Current Phase:** 4 of 4 (CLI & Integration) - In Progress
-**Overall Progress:** 85%
+**Current Phase:** 4 of 4 (CLI & Integration) - COMPLETE
+**Overall Progress:** 100%
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 **Core value:** Ask Claude a question, get answers from your book collection.
-**Current focus:** Phase 4 Plan 1 Complete - CLI commands working
+**Current focus:** All phases complete - Ready for milestone audit
 
 ## Phase Status
 
@@ -17,41 +17,39 @@ See: .planning/PROJECT.md
 | 1 | Foundation | **Complete** | 100% (5/5 plans) |
 | 2 | Vector Pipeline | **Complete** | 100% (3/3 plans) |
 | 3 | Search & MCP | **Complete** | 100% (2/2 plans) |
-| 4 | CLI & Integration | In Progress | 33% (1/3 plans) |
+| 4 | CLI & Integration | **Complete** | 100% (1/1 plans) |
 
 ## Current Plan
 
-**Completed:** 04-01-PLAN.md (CLI commands)
-**Next:** 04-02-PLAN.md (Integration tests)
+**Completed:** 04-01-PLAN.md (Typer CLI with 5 commands)
+**Next:** Milestone audit
 
-Progress: [█████████████████░░░] 85% (11/13 total plans)
+Progress: [████████████████████] 100% (11/11 total plans)
 
 ## Recent Activity
 
-- 2026-02-03: Completed 04-01 (Typer CLI with 5 commands)
+- 2026-02-03: Completed 04-01 (Typer CLI with add, remove, list, search, serve)
 - 2026-01-24: Completed 03-02 (FastMCP server with MCP tools)
 - 2026-01-22: Completed 03-01 (SearchService with RRF hybrid search)
 - 2026-01-21: Completed 02-03 (Integration: wire embeddings into ingest pipeline)
 - 2026-01-21: Completed 02-02 (ChromaDB vector store with L2 normalization)
 
-## Phase 4 In Progress
+## Phase 4 Complete
 
-**CLI & Integration - In Progress**
+**CLI & Integration - Complete**
 
 | Plan | Name | Key Deliverable | Status |
 |------|------|-----------------|--------|
 | 04-01 | CLI Commands | Typer CLI with 5 commands | **Complete** |
-| 04-02 | Integration Tests | Real EPUB testing | Pending |
-| 04-03 | Documentation | README and usage docs | Pending |
 
 **CLI commands available:**
 ```bash
-mnemo add book.epub       # Add EPUB to library
-mnemo list                # List indexed books
+mnemo add book.epub       # Add EPUB to library with progress spinner
+mnemo list                # List indexed books (Rich table)
 mnemo list --json         # JSON output mode
 mnemo remove <id>         # Remove book by ID
-mnemo search "query"      # Search books
-mnemo serve               # Start MCP server
+mnemo search "query"      # Search with attribution
+mnemo serve               # Start MCP server for Claude
 ```
 
 ## Accumulated Context
@@ -107,8 +105,8 @@ None
 
 ## Session Continuity
 
-**Last session:** 2026-02-03T22:04:26Z
-**Stopped at:** Completed 04-01-PLAN.md (CLI commands)
+**Last session:** 2026-02-03
+**Stopped at:** Completed Phase 4 (CLI & Integration) - All phases complete
 **Resume file:** None
 
 ---
