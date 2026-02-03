@@ -65,14 +65,14 @@ def add(
         # Validate file exists
         if not path.exists():
             if json_output:
-                console.print(json.dumps({"error": f"File not found: {path}"}))
+                print(json.dumps({"error": f"File not found: {path}"}))
             else:
                 console.print(f"[red]File not found: {path}[/red]")
             raise typer.Exit(1)
 
         if not path.suffix.lower() == ".epub":
             if json_output:
-                console.print(json.dumps({"error": f"Not an EPUB file: {path}"}))
+                print(json.dumps({"error": f"Not an EPUB file: {path}"}))
             else:
                 console.print(f"[red]Not an EPUB file: {path}[/red]")
             raise typer.Exit(1)
@@ -102,7 +102,7 @@ def add(
                     continue
             else:
                 if json_output:
-                    console.print(json.dumps({
+                    print(json.dumps({
                         "error": "Book exists. Use --force to re-index.",
                         "existing_id": existing.id,
                     }))
@@ -140,25 +140,25 @@ def add(
 
         except FileNotFoundError as e:
             if json_output:
-                console.print(json.dumps({"error": str(e)}))
+                print(json.dumps({"error": str(e)}))
             else:
                 console.print(f"[red]Error: {e}[/red]")
             raise typer.Exit(1)
         except ValueError as e:
             if json_output:
-                console.print(json.dumps({"error": str(e)}))
+                print(json.dumps({"error": str(e)}))
             else:
                 console.print(f"[red]Error: {e}[/red]")
             raise typer.Exit(1)
         except Exception as e:
             if json_output:
-                console.print(json.dumps({"error": f"Failed to add {path}: {e}"}))
+                print(json.dumps({"error": f"Failed to add {path}: {e}"}))
             else:
                 console.print(f"[red]Failed to add {path}: {e}[/red]")
             raise typer.Exit(1)
 
     if json_output:
-        console.print(json.dumps(results))
+        print(json.dumps(results))
 
 
 @app.command(name="list")
@@ -189,7 +189,7 @@ def list_books(
             }
             for book in books
         ]
-        console.print(json.dumps(result))
+        print(json.dumps(result))
         return
 
     if not books:
@@ -228,7 +228,7 @@ def remove(
     result = remove_book(book_id)
 
     if json_output:
-        console.print(json.dumps({"removed": result, "book_id": book_id}))
+        print(json.dumps({"removed": result, "book_id": book_id}))
         return
 
     if result:
@@ -276,7 +276,7 @@ def search(
             }
             for r in results
         ]
-        console.print(json.dumps(output))
+        print(json.dumps(output))
         return
 
     if not results:
