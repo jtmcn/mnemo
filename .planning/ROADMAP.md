@@ -121,7 +121,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 04-01-PLAN.md — Typer CLI with add, remove, list, search, serve commands
+- [x] 04-01-PLAN.md — Typer CLI with add, remove, list, search, serve commands
 
 **Requirements:**
 - CLI-01: User can add EPUB via `mnemo add <path>`
@@ -167,11 +167,11 @@ Unmapped: **None**
 | 1 - Foundation | Complete | 100% |
 | 2 - Vector Pipeline | Complete | 100% (3/3 plans) |
 | 3 - Search & MCP | Complete | 100% (2/2 plans) |
-| 4 - CLI & Integration | Planned | 0% (0/1 plans) |
+| 4 - CLI & Integration | Complete | 100% (1/1 plans) |
 
 ---
 *Roadmap created: 2026-01-19*
 *Phase 1 completed: 2026-01-20*
 *Phase 2 completed: 2026-01-21*
 *Phase 3 completed: 2026-01-24*
-*Phase 4 planned: 2026-02-03*
+*Phase 4 completed: 2026-02-03*

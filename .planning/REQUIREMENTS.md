@@ -55,11 +55,11 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### CLI
 
-- [ ] **CLI-01**: User can add EPUB via `mnemo add <path>`
-- [ ] **CLI-02**: User can remove book via `mnemo remove <book_id>`
-- [ ] **CLI-03**: User can list books via `mnemo list`
-- [ ] **CLI-04**: User can search via `mnemo search <query>` (for testing)
-- [ ] **CLI-05**: User can start MCP server via `mnemo serve`
+- [x] **CLI-01**: User can add EPUB via `mnemo add <path>`
+- [x] **CLI-02**: User can remove book via `mnemo remove <book_id>`
+- [x] **CLI-03**: User can list books via `mnemo list`
+- [x] **CLI-04**: User can search via `mnemo search <query>` (for testing)
+- [x] **CLI-05**: User can start MCP server via `mnemo serve`
 
 ## v2 Requirements
 
@@ -131,11 +131,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MCP-03 | Phase 3 | Complete |
 | MCP-04 | Phase 3 | Complete |
 | MCP-05 | Phase 3 | Complete |
-| CLI-01 | Phase 4 | Pending |
-| CLI-02 | Phase 4 | Pending |
-| CLI-03 | Phase 4 | Pending |
-| CLI-04 | Phase 4 | Pending |
-| CLI-05 | Phase 4 | Pending |
+| CLI-01 | Phase 4 | Complete |
+| CLI-02 | Phase 4 | Complete |
+| CLI-03 | Phase 4 | Complete |
+| CLI-04 | Phase 4 | Complete |
+| CLI-05 | Phase 4 | Complete |
 
 **Coverage:**
 - v1 requirements: 33 total
@@ -144,4 +144,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-01-19*
-*Last updated: 2026-01-24 — Phase 3 requirements complete*
+*Last updated: 2026-02-03 — Phase 4 requirements complete (all v1 complete)*
