@@ -1,14 +1,14 @@
 # Project State: Mnemo
 
-**Last Updated:** 2026-01-24
-**Current Phase:** 3 of 4 (Search & MCP) - COMPLETE
-**Overall Progress:** 75%
+**Last Updated:** 2026-02-03
+**Current Phase:** 4 of 4 (CLI & Integration) - In Progress
+**Overall Progress:** 85%
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 **Core value:** Ask Claude a question, get answers from your book collection.
-**Current focus:** Phase 3 Complete - Ready for Phase 4
+**Current focus:** Phase 4 Plan 1 Complete - CLI commands working
 
 ## Phase Status
 
@@ -17,43 +17,42 @@ See: .planning/PROJECT.md
 | 1 | Foundation | **Complete** | 100% (5/5 plans) |
 | 2 | Vector Pipeline | **Complete** | 100% (3/3 plans) |
 | 3 | Search & MCP | **Complete** | 100% (2/2 plans) |
-| 4 | CLI & Integration | Pending | 0% |
+| 4 | CLI & Integration | In Progress | 33% (1/3 plans) |
 
 ## Current Plan
 
-**Completed:** 03-02-PLAN.md (FastMCP Server with MCP tools)
-**Next:** Phase 4 - CLI & Integration
+**Completed:** 04-01-PLAN.md (CLI commands)
+**Next:** 04-02-PLAN.md (Integration tests)
 
-Progress: [███████████████░░░░░] 75% (10/13 total plans)
+Progress: [█████████████████░░░] 85% (11/13 total plans)
 
 ## Recent Activity
 
+- 2026-02-03: Completed 04-01 (Typer CLI with 5 commands)
 - 2026-01-24: Completed 03-02 (FastMCP server with MCP tools)
 - 2026-01-22: Completed 03-01 (SearchService with RRF hybrid search)
 - 2026-01-21: Completed 02-03 (Integration: wire embeddings into ingest pipeline)
 - 2026-01-21: Completed 02-02 (ChromaDB vector store with L2 normalization)
-- 2026-01-21: Completed 02-01 (Databricks embedding client with retry logic)
 
-## Phase 3 Complete
+## Phase 4 In Progress
 
-**Search & MCP - Complete**
+**CLI & Integration - In Progress**
 
 | Plan | Name | Key Deliverable | Status |
 |------|------|-----------------|--------|
-| 03-01 | Search Service | SearchService with RRF hybrid search | **Complete** |
-| 03-02 | MCP Server | FastMCP server with 3 tools | **Complete** |
+| 04-01 | CLI Commands | Typer CLI with 5 commands | **Complete** |
+| 04-02 | Integration Tests | Real EPUB testing | Pending |
+| 04-03 | Documentation | README and usage docs | Pending |
 
-**New imports available:**
-```python
-from mnemo.search import SearchService, SearchResult, SearchFilter
-from mnemo.search import reciprocal_rank_fusion
-from mnemo.mcp import mcp  # FastMCP server
+**CLI commands available:**
+```bash
+mnemo add book.epub       # Add EPUB to library
+mnemo list                # List indexed books
+mnemo list --json         # JSON output mode
+mnemo remove <id>         # Remove book by ID
+mnemo search "query"      # Search books
+mnemo serve               # Start MCP server
 ```
-
-**MCP tools available:**
-- `search_books` - Hybrid search with attribution
-- `list_available_books` - List indexed books
-- `get_book_info` - Book details by ID
 
 ## Accumulated Context
 
@@ -85,6 +84,8 @@ from mnemo.mcp import mcp  # FastMCP server
 | 2x fetch for hybrid | More candidates for RRF fusion improves quality | 2026-01-22 |
 | __main__.py for MCP | Avoid circular imports when running as -m | 2026-01-24 |
 | Full Python path in config | Claude Desktop has limited PATH | 2026-01-24 |
+| print() for JSON output | Rich console adds formatting/wrapping, use plain print | 2026-02-03 |
+| Remove nonexistent exits 0 | Idempotent operation, not an error condition | 2026-02-03 |
 
 ### Technical Notes
 - Pin FastMCP to `<3` to avoid breaking changes
@@ -95,6 +96,7 @@ from mnemo.mcp import mcp  # FastMCP server
 - ChromaDB PersistentClient stores to ~/.mnemo/chroma by default
 - SearchService caches book title lookups for performance
 - MCP server runs via `python -m mnemo.mcp` (not mnemo.mcp.server)
+- CLI entry point: `mnemo = "mnemo.cli:main"` in pyproject.toml
 
 ### Open Questions
 - Code chunking heuristics need tuning with real data
@@ -105,10 +107,10 @@ None
 
 ## Session Continuity
 
-**Last session:** 2026-01-24T22:19:00Z
-**Stopped at:** Completed Phase 3 (Search & MCP)
+**Last session:** 2026-02-03T22:04:26Z
+**Stopped at:** Completed 04-01-PLAN.md (CLI commands)
 **Resume file:** None
 
 ---
 *State initialized: 2026-01-19*
-*Last updated: 2026-01-24*
+*Last updated: 2026-02-03*
