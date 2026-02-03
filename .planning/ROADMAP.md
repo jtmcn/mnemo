@@ -118,6 +118,11 @@ Plans:
 
 **Goal:** User can manage their book library via command line and connect Claude to the MCP server.
 
+**Plans:** 1 plan
+
+Plans:
+- [ ] 04-01-PLAN.md — Typer CLI with add, remove, list, search, serve commands
+
 **Requirements:**
 - CLI-01: User can add EPUB via `mnemo add <path>`
 - CLI-02: User can remove book via `mnemo remove <book_id>`
@@ -162,10 +167,11 @@ Unmapped: **None**
 | 1 - Foundation | Complete | 100% |
 | 2 - Vector Pipeline | Complete | 100% (3/3 plans) |
 | 3 - Search & MCP | Complete | 100% (2/2 plans) |
-| 4 - CLI & Integration | Pending | 0% |
+| 4 - CLI & Integration | Planned | 0% (0/1 plans) |
 
 ---
 *Roadmap created: 2026-01-19*
 *Phase 1 completed: 2026-01-20*
 *Phase 2 completed: 2026-01-21*
 *Phase 3 completed: 2026-01-24*
+*Phase 4 planned: 2026-02-03*
