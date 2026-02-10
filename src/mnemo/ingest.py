@@ -93,6 +93,7 @@ def embed_book(
         )
         embedded_count += len(batch)
 
+    store.close()
     return embedded_count
 
 
@@ -157,6 +158,7 @@ def ingest_book(
             vector_config = VectorConfig(persist_path=chroma_path)
             store = VectorStore(vector_config)
             store.delete_by_book(existing.id)
+            store.close()
         except ImportError:
             pass  # Vectors module not available
 
@@ -210,6 +212,7 @@ def remove_book(
         vector_config = VectorConfig(persist_path=chroma_path)
         store = VectorStore(vector_config)
         store.delete_by_book(book_id)
+        store.close()
     except ImportError:
         pass  # Vectors module not available
 
