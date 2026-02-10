@@ -2,10 +2,21 @@
 
 from pathlib import Path
 
+import chromadb
 import numpy as np
 import pytest
 
 from mnemo.vectors import QueryResult, VectorConfig, VectorStore
+
+
+@pytest.fixture
+def ephemeral_store():
+    """Create a vector store backed by EphemeralClient (no file descriptors)."""
+    client = chromadb.EphemeralClient()
+    config = VectorConfig(collection_name="test")
+    store = VectorStore(config, client=client)
+    yield store
+    store.close()
 
 
 class TestVectorConfig:
@@ -34,13 +45,8 @@ class TestVectorStore:
     """Tests for VectorStore."""
 
     @pytest.fixture
-    def store(self, tmp_path):
-        """Create a temporary vector store."""
-        config = VectorConfig(
-            persist_path=tmp_path / "test_chroma",
-            collection_name="test",
-        )
-        return VectorStore(config)
+    def store(self, ephemeral_store):
+        return ephemeral_store
 
     @pytest.fixture
     def sample_embedding(self):
@@ -125,13 +131,11 @@ class TestVectorStoreQuery:
     """Tests for query functionality."""
 
     @pytest.fixture
-    def populated_store(self, tmp_path):
+    def populated_store(self):
         """Store with sample vectors."""
-        config = VectorConfig(
-            persist_path=tmp_path / "test_chroma",
-            collection_name="test",
-        )
-        store = VectorStore(config)
+        client = chromadb.EphemeralClient()
+        config = VectorConfig(collection_name="test")
+        store = VectorStore(config, client=client)
 
         # Add vectors with different metadata
         store.add(
@@ -148,7 +152,8 @@ class TestVectorStoreQuery:
             ],
             documents=["First chunk", "Second chunk", "Third chunk"],
         )
-        return store
+        yield store
+        store.close()
 
     def test_query_returns_results(self, populated_store):
         """Query returns QueryResult objects."""
@@ -232,13 +237,11 @@ class TestVectorStoreDelete:
     """Tests for delete functionality."""
 
     @pytest.fixture
-    def populated_store(self, tmp_path):
+    def populated_store(self):
         """Store with vectors from multiple books."""
-        config = VectorConfig(
-            persist_path=tmp_path / "test_chroma",
-            collection_name="test",
-        )
-        store = VectorStore(config)
+        client = chromadb.EphemeralClient()
+        config = VectorConfig(collection_name="test")
+        store = VectorStore(config, client=client)
 
         store.add(
             ids=["book1-1", "book1-2", "book2-1"],
@@ -253,7 +256,8 @@ class TestVectorStoreDelete:
                 {"book_id": "book2"},
             ],
         )
-        return store
+        yield store
+        store.close()
 
     def test_delete_by_book(self, populated_store):
         """Can delete all vectors for a book."""
@@ -278,9 +282,8 @@ class TestNormalization:
     """Tests for L2 normalization."""
 
     @pytest.fixture
-    def store(self, tmp_path):
-        config = VectorConfig(persist_path=tmp_path / "test_chroma")
-        return VectorStore(config)
+    def store(self, ephemeral_store):
+        return ephemeral_store
 
     def test_normalize_unit_vector(self, store):
         """Unit vectors remain unit vectors."""
@@ -330,8 +333,9 @@ class TestPersistence:
             embeddings=[[0.1] * 1024],
             metadatas=[{"book_id": "abc123"}],
         )
-        del store1
+        store1.close()
 
         # Recreate store and verify
         store2 = VectorStore(config)
         assert store2.count() == 1
+        store2.close()

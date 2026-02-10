@@ -62,6 +62,7 @@ class TestEmbedBook:
         config = VectorConfig(persist_path=db_with_book["chroma_path"])
         store = VectorStore(config)
         assert store.count(book_id=db_with_book["book_id"]) == count
+        store.close()
 
     def test_embed_book_batches_requests(self, db_with_book):
         """embed_book calls API in batches."""
@@ -121,6 +122,7 @@ class TestEmbedBook:
         config = VectorConfig(persist_path=db_with_book["chroma_path"])
         store = VectorStore(config)
         assert store.count(book_id=db_with_book["book_id"]) == count
+        store.close()
 
 
 class TestIngestWithEmbed:
@@ -147,6 +149,7 @@ class TestIngestWithEmbed:
         config = VectorConfig(persist_path=chroma_path)
         store = VectorStore(config)
         assert store.count(book_id=book.id) == chunk_count
+        store.close()
 
     def test_ingest_without_embed(self, tmp_path):
         """ingest_book with embed=False doesn't create vectors."""
@@ -166,6 +169,7 @@ class TestIngestWithEmbed:
         config = VectorConfig(persist_path=chroma_path)
         store = VectorStore(config)
         assert store.count(book_id=book.id) == 0
+        store.close()
 
 
 class TestRemoveBookWithVectors:
@@ -198,6 +202,7 @@ class TestRemoveBookWithVectors:
 
         # Vectors should be gone
         assert store.count(book_id=book.id) == 0
+        store.close()
 
 
 class TestMetadataInVectors:
@@ -235,3 +240,4 @@ class TestMetadataInVectors:
         assert "content_type" in metadata
         assert "section_path" in metadata
         assert "sequence" in metadata
+        store.close()

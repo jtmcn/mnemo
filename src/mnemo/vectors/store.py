@@ -37,16 +37,28 @@ class VectorStore:
 
     EMBEDDING_DIM = 1024
 
-    def __init__(self, config: VectorConfig | None = None):
+    def __init__(
+        self,
+        config: VectorConfig | None = None,
+        client: chromadb.ClientAPI | None = None,
+    ):
         self.config = config or VectorConfig()
-        persist_path = self.config.get_persist_path()
 
-        self.client = chromadb.PersistentClient(path=str(persist_path))
+        if client is not None:
+            self.client = client
+        else:
+            persist_path = self.config.get_persist_path()
+            self.client = chromadb.PersistentClient(path=str(persist_path))
+
         # No embedding_function - we provide embeddings explicitly
         self.collection = self.client.get_or_create_collection(
             name=self.config.collection_name,
             metadata={"hnsw:space": "l2"},  # L2 distance
         )
+
+    def close(self) -> None:
+        """Release ChromaDB resources (file descriptors)."""
+        self.client.clear_system_cache()
 
     def add(
         self,
