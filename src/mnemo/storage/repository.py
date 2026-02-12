@@ -180,7 +180,8 @@ class BookRepository:
             values.append(json.dumps(authors))
         if isbn is not None:
             fields.append("isbn = ?")
-            values.append(isbn)
+            # Empty string means "clear ISBN" (store as NULL)
+            values.append(isbn if isbn else None)
 
         if not fields:
             raise ValueError(
