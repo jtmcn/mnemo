@@ -23,13 +23,13 @@ Requirements for book management MCP tools. Each maps to roadmap phases.
 
 ### Metadata
 
-- [ ] **META-01**: Claude can update book title via `update_book_metadata` MCP tool
-- [ ] **META-02**: Claude can update book authors via `update_book_metadata` MCP tool
-- [ ] **META-03**: Claude can update book ISBN via `update_book_metadata` MCP tool
-- [ ] **META-04**: `update_book_metadata` requires at least one field provided
-- [ ] **META-05**: `update_book_metadata` returns updated book info on success
-- [ ] **META-06**: `update_book_metadata` returns not-found error for invalid book_id
-- [ ] **META-07**: Metadata changes reflected in search results and `get_book_info`
+- [x] **META-01**: Claude can update book title via `update_book_metadata` MCP tool
+- [x] **META-02**: Claude can update book authors via `update_book_metadata` MCP tool
+- [x] **META-03**: Claude can update book ISBN via `update_book_metadata` MCP tool
+- [x] **META-04**: `update_book_metadata` requires at least one field provided
+- [x] **META-05**: `update_book_metadata` returns updated book info on success
+- [x] **META-06**: `update_book_metadata` returns not-found error for invalid book_id
+- [x] **META-07**: Metadata changes reflected in search results and `get_book_info`
 
 ### Tool Quality
 
@@ -84,13 +84,13 @@ Deferred to later milestones.
 | REMOVE-01 | Phase 6 | Pending |
 | REMOVE-02 | Phase 6 | Pending |
 | REMOVE-03 | Phase 6 | Pending |
-| META-01 | Phase 5 | Pending |
-| META-02 | Phase 5 | Pending |
-| META-03 | Phase 5 | Pending |
-| META-04 | Phase 5 | Pending |
-| META-05 | Phase 5 | Pending |
-| META-06 | Phase 5 | Pending |
-| META-07 | Phase 5 | Pending |
+| META-01 | Phase 5 | Complete |
+| META-02 | Phase 5 | Complete |
+| META-03 | Phase 5 | Complete |
+| META-04 | Phase 5 | Complete |
+| META-05 | Phase 5 | Complete |
+| META-06 | Phase 5 | Complete |
+| META-07 | Phase 5 | Complete |
 | TOOL-01 | Phase 7 | Pending |
 | TOOL-02 | Phase 7 | Pending |
 | TOOL-03 | Phase 7 | Pending |
