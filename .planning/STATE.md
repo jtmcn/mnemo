@@ -1,8 +1,8 @@
 # Project State: Mnemo
 
 **Last Updated:** 2026-02-11
-**Current Phase:** Defining requirements for v1.1
-**Overall Progress:** v1.0 shipped, v1.1 in definition
+**Current Phase:** Phase 5 — Metadata Updates
+**Overall Progress:** v1.0 shipped, v1.1 roadmap defined
 
 ## Project Reference
 
@@ -11,46 +11,53 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 **Core value:** Ask Claude a question, get answers from your book collection.
 **Current focus:** v1.1 Book Management — MCP tools for add/remove/edit
 
-## Phase Status
+## Current Position
 
-| Phase | Name | Milestone | Status |
-|-------|------|-----------|--------|
-| 1 | Foundation | v1.0 | **Shipped** |
-| 2 | Vector Pipeline | v1.0 | **Shipped** |
-| 3 | Search & MCP | v1.0 | **Shipped** |
-| 4 | CLI & Integration | v1.0 | **Shipped** |
+Phase: 5 of 7 (Metadata Updates) — first phase of v1.1
+Plan: 0 of TBD in current phase
+Status: Ready to plan
+Last activity: 2026-02-11 — v1.1 roadmap created (3 phases, 19 requirements)
 
-## Current Plan
+Progress: [##########..........] 57% (4/7 phases, v1.0 complete)
 
-**Completed:** v1.0 MVP (all 11 plans across 4 phases)
-**Next:** Defining v1.1 requirements and roadmap
+## Performance Metrics
 
-Progress: Defining requirements
+**Velocity:**
+- Total plans completed: 11 (v1.0)
+- Average duration: varies
+- Total execution time: ~15 days (v1.0)
+
+**By Phase (v1.0):**
+
+| Phase | Plans | Status |
+|-------|-------|--------|
+| 1. Foundation | 5 | Complete |
+| 2. Vector Pipeline | 3 | Complete |
+| 3. Search & MCP | 2 | Complete |
+| 4. CLI & Integration | 1 | Complete |
 
 ## Accumulated Context
 
-### Key Decisions
+### Decisions
 See PROJECT.md for full decision log (11 decisions with outcomes).
+Recent decisions affecting current work:
 
-### Technical Notes
-- Pin FastMCP to `<3` to avoid breaking changes
-- GTE-large-en returns unnormalized embeddings — L2 normalize before storage
-- ChromaDB PersistentClient stores to ~/.mnemo/chroma
-- MCP server runs via `python -m mnemo.mcp`
-- CLI entry point: `mnemo = "mnemo.cli:main"` in pyproject.toml
+- v1.1: Direct delegation pattern — MCP tools call ingest.py functions directly (no service layer)
+- v1.1: Sync tools (def, not async def) — ingest pipeline is sync, no concurrency benefit for STDIO
+- v1.1: MNEMO_BOOKS_DIR descoped to future milestone (PATH-01, PATH-02)
 
-### Open Questions
-- Code chunking heuristics need tuning with real data
-- Similarity score thresholds need empirical calibration
+### Pending Todos
+None yet.
 
-### Blockers
-None
+### Blockers/Concerns
+- Embedding timeout during add_book for large books (30-120s) — design decision needed in Phase 6
+- Code chunking heuristics need tuning with real data (carried from v1.0)
 
 ## Session Continuity
 
-**Last session:** 2026-02-11
-**Stopped at:** v1.1 milestone definition started
-**Resume file:** None
+Last session: 2026-02-11
+Stopped at: v1.1 roadmap created, ready to plan Phase 5
+Resume file: None
 
 ---
 *State initialized: 2026-01-19*
