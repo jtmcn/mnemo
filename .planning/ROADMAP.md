@@ -36,7 +36,9 @@
   2. Calling `update_book_metadata` with no fields returns a clear validation error
   3. Calling `update_book_metadata` with a nonexistent book ID returns a not-found error
   4. After updating metadata, `search_books` and `get_book_info` reflect the new values
-**Plans**: TBD
+**Plans:** 1 plan
+Plans:
+- [ ] 05-01-PLAN.md — Add update_book_metadata MCP tool (repository + tool + cache invalidation + tests)
 
 ### Phase 6: Book Lifecycle Tools
 **Goal**: Claude can ingest new EPUBs and remove existing books entirely through MCP tools, replacing the need for CLI context-switching
@@ -69,7 +71,7 @@
 | 2. Vector Pipeline | v1.0 | 3/3 | Complete | 2026-01-21 |
 | 3. Search & MCP | v1.0 | 2/2 | Complete | 2026-01-24 |
 | 4. CLI & Integration | v1.0 | 1/1 | Complete | 2026-02-03 |
-| 5. Metadata Updates | v1.1 | 0/TBD | Not started | - |
+| 5. Metadata Updates | v1.1 | 0/1 | In progress | - |
 | 6. Book Lifecycle Tools | v1.1 | 0/TBD | Not started | - |
 | 7. Tool Polish & Integration | v1.1 | 0/TBD | Not started | - |
 
