@@ -76,31 +76,31 @@ Deferred to later milestones.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INGEST-01 | — | Pending |
-| INGEST-02 | — | Pending |
-| INGEST-03 | — | Pending |
-| INGEST-04 | — | Pending |
-| INGEST-05 | — | Pending |
-| REMOVE-01 | — | Pending |
-| REMOVE-02 | — | Pending |
-| REMOVE-03 | — | Pending |
-| META-01 | — | Pending |
-| META-02 | — | Pending |
-| META-03 | — | Pending |
-| META-04 | — | Pending |
-| META-05 | — | Pending |
-| META-06 | — | Pending |
-| META-07 | — | Pending |
-| TOOL-01 | — | Pending |
-| TOOL-02 | — | Pending |
-| TOOL-03 | — | Pending |
-| TOOL-04 | — | Pending |
+| INGEST-01 | Phase 6 | Pending |
+| INGEST-02 | Phase 6 | Pending |
+| INGEST-03 | Phase 6 | Pending |
+| INGEST-04 | Phase 6 | Pending |
+| INGEST-05 | Phase 6 | Pending |
+| REMOVE-01 | Phase 6 | Pending |
+| REMOVE-02 | Phase 6 | Pending |
+| REMOVE-03 | Phase 6 | Pending |
+| META-01 | Phase 5 | Pending |
+| META-02 | Phase 5 | Pending |
+| META-03 | Phase 5 | Pending |
+| META-04 | Phase 5 | Pending |
+| META-05 | Phase 5 | Pending |
+| META-06 | Phase 5 | Pending |
+| META-07 | Phase 5 | Pending |
+| TOOL-01 | Phase 7 | Pending |
+| TOOL-02 | Phase 7 | Pending |
+| TOOL-03 | Phase 7 | Pending |
+| TOOL-04 | Phase 7 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 19 total
-- Mapped to phases: 0
-- Unmapped: 19 (pending roadmap)
+- Mapped to phases: 19
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-11*
-*Last updated: 2026-02-11 after initial definition*
+*Last updated: 2026-02-11 after roadmap creation*
