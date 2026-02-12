@@ -140,6 +140,55 @@ def _get_book_info_impl(book_id: str) -> str:
         return f"Error: {e}"
 
 
+def _update_book_metadata_impl(
+    book_id: str,
+    title: str | None = None,
+    authors: list[str] | None = None,
+    isbn: str | None = None,
+) -> str:
+    """Update book metadata implementation - see update_book_metadata for docs."""
+    logger.info(
+        f"update_book_metadata: book_id={book_id}, title={title!r}, "
+        f"authors={authors!r}, isbn={isbn!r}"
+    )
+
+    # Validate book_id
+    if not book_id or len(book_id) != 6:
+        return "Error: book_id must be a 6-character identifier"
+
+    # Validate at least one field (before normalization so isbn="" counts)
+    if title is None and authors is None and isbn is None:
+        return "Error: At least one of title, authors, or isbn must be provided"
+
+    # Validate title not empty
+    if title is not None and not title.strip():
+        return "Error: title cannot be empty"
+
+    # Normalize empty isbn: treat "" as "clear ISBN" (store NULL in DB)
+    if isbn is not None and isbn.strip() == "":
+        isbn = ""  # Keep as empty string; repository will store as NULL
+
+    try:
+        book_repo = _get_book_repo()
+        updated = book_repo.update(
+            book_id=book_id, title=title, authors=authors, isbn=isbn
+        )
+
+        if updated is None:
+            return f"Book not found: {book_id}"
+
+        # Invalidate search cache so search_books reflects changes
+        global _search_service
+        if _search_service is not None:
+            _search_service._book_cache.clear()
+
+        return _get_book_info_impl(book_id)
+
+    except Exception as e:
+        logger.exception("update_book_metadata failed")
+        return f"Error: {e}"
+
+
 def _format_search_results(results: list) -> str:
     """Format search results as markdown with attribution.
 
@@ -236,3 +285,27 @@ def get_book_info(book_id: str) -> str:
         Book details including title, authors, ISBN, and chapter count
     """
     return _get_book_info_impl(book_id)
+
+
+@mcp.tool
+def update_book_metadata(
+    book_id: str,
+    title: str | None = None,
+    authors: list[str] | None = None,
+    isbn: str | None = None,
+) -> str:
+    """Update a book's metadata (title, authors, or ISBN).
+
+    Changes are saved to the database and immediately reflected in
+    search results and book info lookups.
+
+    Args:
+        book_id: 6-character book identifier (from list_available_books)
+        title: New title for the book
+        authors: New list of author names (replaces existing authors)
+        isbn: New ISBN for the book (empty string clears ISBN)
+
+    Returns:
+        Updated book details, or error message
+    """
+    return _update_book_metadata_impl(book_id, title, authors, isbn)
