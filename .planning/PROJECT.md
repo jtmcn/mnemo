@@ -25,17 +25,24 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 
 ### Active
 
-(None — define for next milestone with `/gsd:new-milestone`)
+- [ ] Add book via MCP tool (ingest EPUB by file path)
+- [ ] Remove book via MCP tool (delete book, chunks, and vectors)
+- [ ] Update book metadata via MCP tool (title, authors, ISBN in SQLite)
+- [ ] MNEMO_BOOKS_DIR environment config for ebook directory access
+- [ ] Backward compatibility with existing CLI and search tools
 
 ### Out of Scope
 
 - PDF or other formats — EPUB only, Calibre converts if needed
 - Web UI — CLI only for management, Claude is the interface
 - Multi-user authentication — personal use only
-- Book management through MCP — retrieval only, management via CLI
 - Real-time sync with external sources — batch is fine for ~10 books
 - HTTP transport for MCP — stdio sufficient for personal use
 - Offline mode — local-only by design
+- Tags/genre/comment metadata fields — future phase
+- External metadata lookup (Open Library, Google Books) — future phase
+- Modifying source .epub files — read-only by design
+- Bulk import / directory scanning — depends on add_book working well first
 
 ## Context
 
@@ -68,5 +75,16 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 | Lazy imports for embeddings | Avoid hard dependency on credentials | ✓ Good — CLI works without Databricks config |
 | print() for JSON output | Rich console adds formatting/wrapping | ✓ Good — clean machine-readable output |
 
+## Current Milestone: v1.1 Book Management
+
+**Goal:** Add MCP tools for book lifecycle management so Claude can add, remove, and edit ebook metadata without CLI context-switching.
+
+**Target features:**
+- `add_book` MCP tool — ingest EPUB by file path with duplicate detection
+- `remove_book` MCP tool — remove book and all associated data
+- `update_book_metadata` MCP tool — edit title, authors, ISBN in SQLite
+- `MNEMO_BOOKS_DIR` environment variable for ebook directory configuration
+- `BookRepository.update()` method for metadata writes
+
 ---
-*Last updated: 2026-02-10 after v1.0 milestone*
+*Last updated: 2026-02-11 after v1.1 milestone start*
