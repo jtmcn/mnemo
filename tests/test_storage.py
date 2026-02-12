@@ -288,6 +288,87 @@ class TestBookRepository:
             book_repo.add(duplicate)
 
 
+class TestBookRepositoryUpdate:
+    """Tests for BookRepository.update() method."""
+
+    def test_update_title(
+        self, book_repo: BookRepository, sample_book: Book
+    ):
+        """update() with title should change title and leave authors unchanged."""
+        book_repo.add(sample_book)
+
+        updated = book_repo.update(sample_book.id, title="New Title")
+
+        assert updated is not None
+        assert updated.title == "New Title"
+        assert updated.authors == sample_book.authors
+
+    def test_update_authors(
+        self, book_repo: BookRepository, sample_book: Book
+    ):
+        """update() with authors should change authors and leave title unchanged."""
+        book_repo.add(sample_book)
+
+        updated = book_repo.update(sample_book.id, authors=["New Author"])
+
+        assert updated is not None
+        assert updated.authors == ["New Author"]
+        assert updated.title == sample_book.title
+
+    def test_update_isbn(
+        self, book_repo: BookRepository, sample_book: Book
+    ):
+        """update() with isbn should change isbn."""
+        book_repo.add(sample_book)
+
+        updated = book_repo.update(sample_book.id, isbn="978-0000000000")
+
+        assert updated is not None
+        assert updated.isbn == "978-0000000000"
+
+    def test_update_multiple_fields(
+        self, book_repo: BookRepository, sample_book: Book
+    ):
+        """update() with title + authors should change both."""
+        book_repo.add(sample_book)
+
+        updated = book_repo.update(
+            sample_book.id, title="Updated Title", authors=["Alice", "Bob"]
+        )
+
+        assert updated is not None
+        assert updated.title == "Updated Title"
+        assert updated.authors == ["Alice", "Bob"]
+
+    def test_update_no_fields_raises(
+        self, book_repo: BookRepository, sample_book: Book
+    ):
+        """update() with no fields should raise ValueError."""
+        book_repo.add(sample_book)
+
+        with pytest.raises(ValueError, match="At least one field"):
+            book_repo.update(sample_book.id)
+
+    def test_update_nonexistent_returns_none(
+        self, book_repo: BookRepository
+    ):
+        """update() for nonexistent book_id should return None."""
+        result = book_repo.update("notfnd", title="New Title")
+        assert result is None
+
+    def test_update_persists(
+        self, book_repo: BookRepository, sample_book: Book
+    ):
+        """update() changes should persist (verified by separate get)."""
+        book_repo.add(sample_book)
+
+        book_repo.update(sample_book.id, title="Persisted Title")
+
+        refetched = book_repo.get(sample_book.id)
+        assert refetched is not None
+        assert refetched.title == "Persisted Title"
+
+
 class TestChunkRepository:
     """Tests for ChunkRepository operations."""
 
