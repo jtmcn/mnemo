@@ -144,6 +144,60 @@ class BookRepository:
 
         return similar
 
+    def update(
+        self,
+        book_id: str,
+        title: str | None = None,
+        authors: list[str] | None = None,
+        isbn: str | None = None,
+    ) -> Book | None:
+        """Update a book's metadata fields.
+
+        Only provided (non-None) fields are updated. At least one field
+        must be provided.
+
+        Args:
+            book_id: 6-char hex book identifier
+            title: New title (if provided)
+            authors: New author list (if provided)
+            isbn: New ISBN (if provided)
+
+        Returns:
+            Updated Book instance, or None if book not found
+
+        Raises:
+            ValueError: If no fields are provided
+        """
+        # Build dynamic SET clause for provided fields only
+        fields: list[str] = []
+        values: list[str | None] = []
+
+        if title is not None:
+            fields.append("title = ?")
+            values.append(title)
+        if authors is not None:
+            fields.append("authors = ?")
+            values.append(json.dumps(authors))
+        if isbn is not None:
+            fields.append("isbn = ?")
+            values.append(isbn)
+
+        if not fields:
+            raise ValueError(
+                "At least one field (title, authors, isbn) must be provided"
+            )
+
+        values.append(book_id)
+        sql = f"UPDATE books SET {', '.join(fields)} WHERE id = ?"
+
+        cursor = self.conn.execute(sql, values)
+        self.conn.commit()
+
+        if cursor.rowcount == 0:
+            return None
+
+        return self.get(book_id)
+
     def _row_to_book(self, row: sqlite3.Row) -> Book:
         """Convert a database row to a Book instance."""
         from datetime import datetime
