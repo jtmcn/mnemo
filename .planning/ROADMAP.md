@@ -50,7 +50,10 @@ Plans:
   3. `add_book` detects duplicate books by file hash and returns the existing book ID; `force=true` re-indexes
   4. `add_book` returns book ID, title, authors, and chunk count on success
   5. Claude can call `remove_book` with a book ID and the book, its chunks, and its vectors are all deleted
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 06-01-PLAN.md — Add remove_book MCP tool (validate, fetch info, delegate to pipeline, cache invalidation, tests)
+- [ ] 06-02-PLAN.md — Add add_book MCP tool (validation, duplicate detection, async timeout, failure cleanup, tests)
 
 ### Phase 7: Tool Polish & Integration
 **Goal**: All six MCP tools (three existing, three new) carry proper annotations and docstrings, follow consistent error conventions, and the full add-search-update-remove lifecycle works end-to-end
@@ -72,7 +75,7 @@ Plans:
 | 3. Search & MCP | v1.0 | 2/2 | Complete | 2026-01-24 |
 | 4. CLI & Integration | v1.0 | 1/1 | Complete | 2026-02-03 |
 | 5. Metadata Updates | v1.1 | 1/1 | Complete | 2026-02-11 |
-| 6. Book Lifecycle Tools | v1.1 | 0/TBD | Not started | - |
+| 6. Book Lifecycle Tools | v1.1 | 0/2 | Not started | - |
 | 7. Tool Polish & Integration | v1.1 | 0/TBD | Not started | - |
 
 ---
