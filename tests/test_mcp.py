@@ -27,7 +27,7 @@ class TestServerSetup:
         assert mcp.name == "mnemo"
 
     def test_tools_registered(self):
-        """Verify all four tools are registered with the server."""
+        """Verify all five tools are registered with the server."""
         from mnemo.mcp.server import mcp
 
         # FastMCP stores tools in _tool_manager
@@ -36,6 +36,7 @@ class TestServerSetup:
         assert "list_available_books" in tool_names
         assert "get_book_info" in tool_names
         assert "update_book_metadata" in tool_names
+        assert "remove_book" in tool_names
 
 
 class TestSearchBooksValidation:
@@ -637,5 +638,160 @@ class TestUpdateBookMetadataIntegration:
             result = tools._get_book_info_impl("abc123")
 
             assert "Not available" in result
+        finally:
+            tools._db_connection = original_conn
+
+
+class TestRemoveBookValidation:
+    """Tests for remove_book input validation."""
+
+    def test_remove_book_empty_id(self):
+        """Empty book_id should return error."""
+        from mnemo.mcp.tools import _remove_book_impl
+
+        result = _remove_book_impl("")
+        assert "Error" in result
+
+    def test_remove_book_short_id(self):
+        """book_id < 6 chars should return error."""
+        from mnemo.mcp.tools import _remove_book_impl
+
+        result = _remove_book_impl("abc")
+        assert "Error" in result
+
+    def test_remove_book_long_id(self):
+        """book_id > 6 chars should return error."""
+        from mnemo.mcp.tools import _remove_book_impl
+
+        result = _remove_book_impl("abcdefgh")
+        assert "Error" in result
+
+
+class TestRemoveBookIntegration:
+    """Integration tests for remove_book with temp database."""
+
+    @pytest.fixture
+    def temp_db(self, tmp_path):
+        """Create a temporary database with a test book."""
+        from mnemo.storage.database import get_connection, init_db
+
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        conn = get_connection(db_path)
+
+        from mnemo.storage import BookRepository, ChunkRepository
+
+        book_repo = BookRepository(conn)
+        chunk_repo = ChunkRepository(conn)
+
+        book = Book(
+            id="abc123",
+            title="Test Python Book",
+            authors=["John Doe"],
+            isbn="978-1234567890",
+            file_hash="a" * 64,
+            default_language="python",
+            structure_source="toc",
+            added_at=datetime(2026, 1, 20, tzinfo=timezone.utc),
+        )
+        book_repo.add(book)
+
+        chunks = [
+            Chunk(
+                id=f"chunk-{i}",
+                book_id="abc123",
+                content=f"Test content {i}",
+                content_type=ContentType.TEXT,
+                token_count=10,
+                section_path=["Chapter 1", f"Section {i}"],
+                sections=["Chapter 1"],
+                language=None,
+                sequence=i,
+            )
+            for i in range(3)
+        ]
+        chunk_repo.add_many(chunks)
+
+        yield {"path": db_path, "conn": conn, "book": book}
+
+        conn.close()
+
+    def test_remove_book_success(self, temp_db):
+        """Remove existing book returns confirmation with book details."""
+        from unittest.mock import patch
+
+        from mnemo.mcp import tools
+
+        original_conn = tools._db_connection
+        tools._db_connection = temp_db["conn"]
+
+        try:
+            with patch("mnemo.ingest.remove_book") as mock_pipeline:
+                mock_pipeline.return_value = True
+                result = tools._remove_book_impl("abc123")
+
+            assert "Removed" in result
+            assert "Test Python Book" in result
+            assert "John Doe" in result
+            assert "3 chunks deleted" in result
+        finally:
+            tools._db_connection = original_conn
+
+    def test_remove_book_not_found(self, temp_db):
+        """Remove nonexistent book returns not-found error."""
+        from mnemo.mcp import tools
+
+        original_conn = tools._db_connection
+        tools._db_connection = temp_db["conn"]
+
+        try:
+            result = tools._remove_book_impl("xyz789")
+
+            assert "Error" in result
+            assert "not found" in result.lower()
+        finally:
+            tools._db_connection = original_conn
+
+    def test_remove_book_clears_search_cache(self, temp_db):
+        """After removal, SearchService._book_cache should be cleared."""
+        from unittest.mock import patch
+
+        from mnemo.mcp import tools
+
+        original_conn = tools._db_connection
+        original_service = tools._search_service
+
+        tools._db_connection = temp_db["conn"]
+
+        # Set up a mock search service with a populated cache
+        mock_service = MagicMock()
+        mock_service._book_cache = {"abc123": "Old Title"}
+        tools._search_service = mock_service
+
+        try:
+            with patch("mnemo.ingest.remove_book") as mock_pipeline:
+                mock_pipeline.return_value = True
+                tools._remove_book_impl("abc123")
+
+            assert mock_service._book_cache == {}
+        finally:
+            tools._db_connection = original_conn
+            tools._search_service = original_service
+
+    def test_remove_book_delegates_to_pipeline(self, temp_db):
+        """remove_book should delegate to ingest.remove_book with correct book_id."""
+        from unittest.mock import patch
+
+        from mnemo.mcp import tools
+
+        original_conn = tools._db_connection
+        tools._db_connection = temp_db["conn"]
+
+        try:
+            with patch("mnemo.ingest.remove_book") as mock_pipeline:
+                mock_pipeline.return_value = True
+                tools._remove_book_impl("abc123")
+
+            mock_pipeline.assert_called_once_with("abc123")
         finally:
             tools._db_connection = original_conn
