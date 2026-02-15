@@ -208,14 +208,11 @@ def _add_book_impl(file_path: str, force: bool = False) -> str:
         return f"Error: Failed to read EPUB: {e}"
 
     # Check for hard duplicate (file hash match)
-    init_db()
-    conn = get_connection()
-    book_repo = BookRepository(conn)
+    book_repo = _get_book_repo()
     existing = book_repo.get_by_hash(pre_parsed.file_hash)
 
     if existing and not force:
         authors_str = ", ".join(existing.authors) if existing.authors else "Unknown"
-        conn.close()
         return (
             f'Error: Book already exists - "{existing.title}" '
             f"by {authors_str} (ID: `{existing.id}`). "
@@ -233,7 +230,6 @@ def _add_book_impl(file_path: str, force: bool = False) -> str:
                 f'\nNote: Similar book exists - "{sim.title}" '
                 f"by {sim_authors} (ID: `{sim.id}`)"
             )
-    conn.close()
 
     # Ingest with embedding
     from mnemo.ingest import ingest_book as pipeline_ingest
@@ -245,11 +241,8 @@ def _add_book_impl(file_path: str, force: bool = False) -> str:
         # Clean up partial data: if book was stored before embedding failed,
         # look it up by hash and remove it
         try:
-            init_db()
-            conn2 = get_connection()
-            repo2 = BookRepository(conn2)
+            repo2 = _get_book_repo()
             partial = repo2.get_by_hash(pre_parsed.file_hash)
-            conn2.close()
             if partial:
                 pipeline_remove(partial.id)
         except Exception:

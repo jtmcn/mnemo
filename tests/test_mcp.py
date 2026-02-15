@@ -9,7 +9,7 @@ Tests the FastMCP server setup and tool implementations:
 """
 
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -27,7 +27,7 @@ class TestServerSetup:
         assert mcp.name == "mnemo"
 
     def test_tools_registered(self):
-        """Verify all five tools are registered with the server."""
+        """Verify all six tools are registered with the server."""
         from mnemo.mcp.server import mcp
 
         # FastMCP stores tools in _tool_manager
@@ -37,6 +37,7 @@ class TestServerSetup:
         assert "get_book_info" in tool_names
         assert "update_book_metadata" in tool_names
         assert "remove_book" in tool_names
+        assert "add_book" in tool_names
 
 
 class TestSearchBooksValidation:
@@ -793,5 +794,256 @@ class TestRemoveBookIntegration:
                 tools._remove_book_impl("abc123")
 
             mock_pipeline.assert_called_once_with("abc123")
+        finally:
+            tools._db_connection = original_conn
+
+
+class TestAddBookValidation:
+    """Tests for add_book input validation (no DB or real files needed)."""
+
+    def test_add_book_file_not_found(self):
+        """Non-existent path should return file-not-found error."""
+        from mnemo.mcp.tools import _add_book_impl
+
+        result = _add_book_impl("/nonexistent/path/book.epub")
+        assert "Error" in result
+        assert "not found" in result.lower()
+
+    def test_add_book_not_epub(self, tmp_path):
+        """Non-EPUB file should return extension validation error."""
+        from mnemo.mcp.tools import _add_book_impl
+
+        txt_file = tmp_path / "notes.txt"
+        txt_file.write_text("some content")
+        result = _add_book_impl(str(txt_file))
+        assert "Error" in result
+        assert "epub" in result.lower()
+
+    def test_add_book_not_epub_case_insensitive(self, tmp_path):
+        """PDF file (not EPUB) should return extension validation error."""
+        from mnemo.mcp.tools import _add_book_impl
+
+        pdf_file = tmp_path / "book.PDF"
+        pdf_file.write_bytes(b"fake pdf content")
+        result = _add_book_impl(str(pdf_file))
+        assert "Error" in result
+
+
+class TestAddBookIntegration:
+    """Integration tests for add_book with mocked ingest pipeline."""
+
+    @pytest.fixture
+    def temp_db(self, tmp_path):
+        """Create a temporary database for add_book tests."""
+        from mnemo.storage.database import get_connection, init_db
+
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        conn = get_connection(db_path)
+
+        yield {"path": db_path, "conn": conn}
+
+        conn.close()
+
+    def _make_mock_book(self, **overrides):
+        """Create a mock Book object for testing."""
+        defaults = dict(
+            id="abc123",
+            title="Test Book",
+            authors=["Author One"],
+            isbn=None,
+            file_hash="a" * 64,
+            default_language=None,
+            structure_source="toc",
+            added_at=datetime(2026, 1, 20, tzinfo=timezone.utc),
+        )
+        defaults.update(overrides)
+        return Book(**defaults)
+
+    def test_add_book_success(self, tmp_path, temp_db):
+        """Successful add returns book details and chunk count."""
+        from mnemo.mcp import tools
+
+        epub_file = tmp_path / "book.epub"
+        epub_file.write_bytes(b"fake epub content")
+
+        mock_pre_parsed = self._make_mock_book(file_hash="b" * 64)
+        mock_result_book = self._make_mock_book(
+            id="de0456", file_hash="b" * 64, title="Test Book", authors=["Author One"]
+        )
+
+        original_conn = tools._db_connection
+        tools._db_connection = temp_db["conn"]
+
+        try:
+            with (
+                patch(
+                    "mnemo.epub.metadata.extract_metadata", return_value=mock_pre_parsed
+                ),
+                patch(
+                    "mnemo.ingest.ingest_book",
+                    return_value=(mock_result_book, 42),
+                ) as mock_ingest,
+            ):
+                result = tools._add_book_impl(str(epub_file))
+
+            assert "Added" in result
+            assert "Test Book" in result
+            assert "42 chunks" in result
+        finally:
+            tools._db_connection = original_conn
+
+    def test_add_book_duplicate_detected(self, tmp_path, temp_db):
+        """Duplicate book (same hash) returns error with existing book info."""
+        from mnemo.mcp import tools
+        from mnemo.storage import BookRepository
+
+        epub_file = tmp_path / "book.epub"
+        epub_file.write_bytes(b"fake epub content")
+
+        # Add an existing book with known hash
+        existing_book = self._make_mock_book(
+            id="eee111", title="Existing Book", authors=["Old Author"], file_hash="c" * 64
+        )
+        book_repo = BookRepository(temp_db["conn"])
+        book_repo.add(existing_book)
+
+        mock_pre_parsed = self._make_mock_book(file_hash="c" * 64)
+
+        original_conn = tools._db_connection
+        tools._db_connection = temp_db["conn"]
+
+        try:
+            with patch(
+                "mnemo.epub.metadata.extract_metadata", return_value=mock_pre_parsed
+            ):
+                result = tools._add_book_impl(str(epub_file))
+
+            assert "Error" in result
+            assert "already exists" in result.lower()
+            assert "Existing Book" in result
+            assert "eee111" in result
+            assert "force=true" in result.lower()
+        finally:
+            tools._db_connection = original_conn
+
+    def test_add_book_force_reindex(self, tmp_path, temp_db):
+        """force=True allows re-indexing of duplicate book."""
+        from mnemo.mcp import tools
+        from mnemo.storage import BookRepository
+
+        epub_file = tmp_path / "book.epub"
+        epub_file.write_bytes(b"fake epub content")
+
+        # Add an existing book with known hash
+        existing_book = self._make_mock_book(
+            id="eee111", title="Existing Book", authors=["Old Author"], file_hash="d" * 64
+        )
+        book_repo = BookRepository(temp_db["conn"])
+        book_repo.add(existing_book)
+
+        mock_pre_parsed = self._make_mock_book(file_hash="d" * 64)
+        mock_result_book = self._make_mock_book(
+            id="eee111", file_hash="d" * 64, title="Existing Book", authors=["Old Author"]
+        )
+
+        original_conn = tools._db_connection
+        tools._db_connection = temp_db["conn"]
+
+        try:
+            with (
+                patch(
+                    "mnemo.epub.metadata.extract_metadata", return_value=mock_pre_parsed
+                ),
+                patch(
+                    "mnemo.ingest.ingest_book",
+                    return_value=(mock_result_book, 42),
+                ),
+            ):
+                result = tools._add_book_impl(str(epub_file), force=True)
+
+            assert "Added" in result
+            assert "Error" not in result
+        finally:
+            tools._db_connection = original_conn
+
+    def test_add_book_clears_search_cache(self, tmp_path, temp_db):
+        """Successful add clears the search service cache."""
+        from mnemo.mcp import tools
+
+        epub_file = tmp_path / "book.epub"
+        epub_file.write_bytes(b"fake epub content")
+
+        mock_pre_parsed = self._make_mock_book(file_hash="e" * 64)
+        mock_result_book = self._make_mock_book(
+            id="aaa123", file_hash="e" * 64, title="New Book", authors=["Author"]
+        )
+
+        original_conn = tools._db_connection
+        original_service = tools._search_service
+        tools._db_connection = temp_db["conn"]
+
+        # Set up mock search service with populated cache
+        mock_service = MagicMock()
+        mock_service._book_cache = {"old_key": "old_value"}
+        tools._search_service = mock_service
+
+        try:
+            with (
+                patch(
+                    "mnemo.epub.metadata.extract_metadata", return_value=mock_pre_parsed
+                ),
+                patch(
+                    "mnemo.ingest.ingest_book",
+                    return_value=(mock_result_book, 10),
+                ),
+            ):
+                tools._add_book_impl(str(epub_file))
+
+            assert mock_service._book_cache == {}
+        finally:
+            tools._db_connection = original_conn
+            tools._search_service = original_service
+
+    def test_add_book_cleans_up_on_failure(self, tmp_path, temp_db):
+        """Failed ingestion cleans up partial data."""
+        from mnemo.mcp import tools
+        from mnemo.storage import BookRepository
+
+        epub_file = tmp_path / "book.epub"
+        epub_file.write_bytes(b"fake epub content")
+
+        mock_pre_parsed = self._make_mock_book(file_hash="f" * 64)
+
+        # Simulate ingest_book storing a partial book record before failing
+        # during embedding. The side_effect adds the book to the DB then raises.
+        partial_book = self._make_mock_book(
+            id="bbb001", file_hash="f" * 64, title="Partial Book"
+        )
+
+        def ingest_side_effect(*args, **kwargs):
+            book_repo = BookRepository(temp_db["conn"])
+            book_repo.add(partial_book)
+            raise Exception("Embedding failed")
+
+        original_conn = tools._db_connection
+        tools._db_connection = temp_db["conn"]
+
+        try:
+            with (
+                patch(
+                    "mnemo.epub.metadata.extract_metadata", return_value=mock_pre_parsed
+                ),
+                patch(
+                    "mnemo.ingest.ingest_book",
+                    side_effect=ingest_side_effect,
+                ),
+                patch("mnemo.ingest.remove_book") as mock_remove,
+            ):
+                result = tools._add_book_impl(str(epub_file))
+
+            assert "Error" in result
+            assert "Embedding failed" in result
+            mock_remove.assert_called_once_with("bbb001")
         finally:
             tools._db_connection = original_conn
