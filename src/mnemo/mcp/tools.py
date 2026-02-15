@@ -140,6 +140,47 @@ def _get_book_info_impl(book_id: str) -> str:
         return f"Error: {e}"
 
 
+def _remove_book_impl(book_id: str) -> str:
+    """Remove book implementation - see remove_book for docs."""
+    logger.info(f"remove_book: book_id={book_id}")
+
+    if not book_id or len(book_id) != 6:
+        return "Error: book_id must be a 6-character identifier"
+
+    try:
+        # Fetch book info BEFORE deletion (for the response message)
+        book_repo = _get_book_repo()
+        book = book_repo.get(book_id)
+
+        if not book:
+            return f"Error: Book not found: {book_id}"
+
+        # Get chunk count before deletion
+        chunk_repo = ChunkRepository(_db_connection)
+        chunk_count = chunk_repo.count_by_book(book_id)
+
+        # Perform deletion via existing pipeline
+        from mnemo.ingest import remove_book as pipeline_remove
+
+        pipeline_remove(book_id)
+
+        # Invalidate search cache
+        global _search_service
+        if _search_service is not None:
+            _search_service._book_cache.clear()
+
+        # Return success message with deleted book info
+        authors_str = ", ".join(book.authors) if book.authors else "Unknown"
+        return (
+            f"Removed: {book.title} by {authors_str} "
+            f"(ID: `{book.id}`) - {chunk_count} chunks deleted"
+        )
+
+    except Exception as e:
+        logger.exception("remove_book failed")
+        return f"Error: {e}"
+
+
 def _update_book_metadata_impl(
     book_id: str,
     title: str | None = None,
@@ -285,6 +326,22 @@ def get_book_info(book_id: str) -> str:
         Book details including title, authors, ISBN, and chapter count
     """
     return _get_book_info_impl(book_id)
+
+
+@mcp.tool
+def remove_book(book_id: str) -> str:
+    """Remove a book from your library.
+
+    Permanently deletes the book, all its chunks, and search vectors.
+    The original EPUB file on disk is not affected.
+
+    Args:
+        book_id: 6-character book identifier (from list_available_books)
+
+    Returns:
+        Confirmation with deleted book details, or error message
+    """
+    return _remove_book_impl(book_id)
 
 
 @mcp.tool
