@@ -9,17 +9,17 @@ Requirements for book management MCP tools. Each maps to roadmap phases.
 
 ### Ingestion
 
-- [ ] **INGEST-01**: Claude can add an EPUB by absolute file path via `add_book` MCP tool
-- [ ] **INGEST-02**: `add_book` validates file exists and has `.epub` extension
-- [ ] **INGEST-03**: `add_book` detects duplicates via file_hash and returns error with existing book ID
-- [ ] **INGEST-04**: `add_book` accepts `force=true` to re-index an existing book
-- [ ] **INGEST-05**: `add_book` returns book ID, title, authors, and chunk count on success
+- [x] **INGEST-01**: Claude can add an EPUB by absolute file path via `add_book` MCP tool
+- [x] **INGEST-02**: `add_book` validates file exists and has `.epub` extension
+- [x] **INGEST-03**: `add_book` detects duplicates via file_hash and returns error with existing book ID
+- [x] **INGEST-04**: `add_book` accepts `force=true` to re-index an existing book
+- [x] **INGEST-05**: `add_book` returns book ID, title, authors, and chunk count on success
 
 ### Removal
 
-- [ ] **REMOVE-01**: Claude can remove a book by ID via `remove_book` MCP tool
-- [ ] **REMOVE-02**: `remove_book` cascade deletes book, chunks (SQLite), and vectors (ChromaDB)
-- [ ] **REMOVE-03**: `remove_book` returns not-found error for invalid book_id
+- [x] **REMOVE-01**: Claude can remove a book by ID via `remove_book` MCP tool
+- [x] **REMOVE-02**: `remove_book` cascade deletes book, chunks (SQLite), and vectors (ChromaDB)
+- [x] **REMOVE-03**: `remove_book` returns not-found error for invalid book_id
 
 ### Metadata
 
@@ -76,14 +76,14 @@ Deferred to later milestones.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INGEST-01 | Phase 6 | Pending |
-| INGEST-02 | Phase 6 | Pending |
-| INGEST-03 | Phase 6 | Pending |
-| INGEST-04 | Phase 6 | Pending |
-| INGEST-05 | Phase 6 | Pending |
-| REMOVE-01 | Phase 6 | Pending |
-| REMOVE-02 | Phase 6 | Pending |
-| REMOVE-03 | Phase 6 | Pending |
+| INGEST-01 | Phase 6 | Complete |
+| INGEST-02 | Phase 6 | Complete |
+| INGEST-03 | Phase 6 | Complete |
+| INGEST-04 | Phase 6 | Complete |
+| INGEST-05 | Phase 6 | Complete |
+| REMOVE-01 | Phase 6 | Complete |
+| REMOVE-02 | Phase 6 | Complete |
+| REMOVE-03 | Phase 6 | Complete |
 | META-01 | Phase 5 | Complete |
 | META-02 | Phase 5 | Complete |
 | META-03 | Phase 5 | Complete |
@@ -103,4 +103,4 @@ Deferred to later milestones.
 
 ---
 *Requirements defined: 2026-02-11*
-*Last updated: 2026-02-11 after roadmap creation*
+*Last updated: 2026-02-14 after Phase 6 completion*

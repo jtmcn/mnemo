@@ -22,7 +22,7 @@
 **Milestone Goal:** Add MCP tools for book lifecycle management so Claude can add, remove, and edit ebook metadata without CLI context-switching.
 
 - [x] **Phase 5: Metadata Updates** - Claude can update book metadata via MCP tool — completed 2026-02-11
-- [ ] **Phase 6: Book Lifecycle Tools** - Claude can add and remove books via MCP tools
+- [x] **Phase 6: Book Lifecycle Tools** - Claude can add and remove books via MCP tools — completed 2026-02-14
 - [ ] **Phase 7: Tool Polish & Integration** - All tools meet quality standards with annotations, docstrings, and tests
 
 ## Phase Details
@@ -53,7 +53,7 @@ Plans:
 **Plans:** 2 plans
 Plans:
 - [x] 06-01-PLAN.md — Add remove_book MCP tool (validate, fetch info, delegate to pipeline, cache invalidation, tests)
-- [ ] 06-02-PLAN.md — Add add_book MCP tool (validation, duplicate detection, async timeout, failure cleanup, tests)
+- [x] 06-02-PLAN.md — Add add_book MCP tool (validation, duplicate detection, async timeout, failure cleanup, tests)
 
 ### Phase 7: Tool Polish & Integration
 **Goal**: All six MCP tools (three existing, three new) carry proper annotations and docstrings, follow consistent error conventions, and the full add-search-update-remove lifecycle works end-to-end
@@ -75,7 +75,7 @@ Plans:
 | 3. Search & MCP | v1.0 | 2/2 | Complete | 2026-01-24 |
 | 4. CLI & Integration | v1.0 | 1/1 | Complete | 2026-02-03 |
 | 5. Metadata Updates | v1.1 | 1/1 | Complete | 2026-02-11 |
-| 6. Book Lifecycle Tools | v1.1 | 1/2 | In progress | - |
+| 6. Book Lifecycle Tools | v1.1 | 2/2 | Complete | 2026-02-14 |
 | 7. Tool Polish & Integration | v1.1 | 0/TBD | Not started | - |
 
 ---
