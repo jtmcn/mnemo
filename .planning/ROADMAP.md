@@ -52,7 +52,7 @@ Plans:
   5. Claude can call `remove_book` with a book ID and the book, its chunks, and its vectors are all deleted
 **Plans:** 2 plans
 Plans:
-- [ ] 06-01-PLAN.md — Add remove_book MCP tool (validate, fetch info, delegate to pipeline, cache invalidation, tests)
+- [x] 06-01-PLAN.md — Add remove_book MCP tool (validate, fetch info, delegate to pipeline, cache invalidation, tests)
 - [ ] 06-02-PLAN.md — Add add_book MCP tool (validation, duplicate detection, async timeout, failure cleanup, tests)
 
 ### Phase 7: Tool Polish & Integration
@@ -75,7 +75,7 @@ Plans:
 | 3. Search & MCP | v1.0 | 2/2 | Complete | 2026-01-24 |
 | 4. CLI & Integration | v1.0 | 1/1 | Complete | 2026-02-03 |
 | 5. Metadata Updates | v1.1 | 1/1 | Complete | 2026-02-11 |
-| 6. Book Lifecycle Tools | v1.1 | 0/2 | Not started | - |
+| 6. Book Lifecycle Tools | v1.1 | 1/2 | In progress | - |
 | 7. Tool Polish & Integration | v1.1 | 0/TBD | Not started | - |
 
 ---
