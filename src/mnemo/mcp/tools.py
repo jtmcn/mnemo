@@ -8,8 +8,13 @@ Note: Implementation functions are prefixed with _ and exposed for testing.
 The @mcp.tool decorated versions are the actual MCP tools.
 """
 
+import asyncio
 import logging
+from pathlib import Path
 from typing import Literal
+
+from fastmcp import Context
+from fastmcp.dependencies import CurrentContext
 
 from mnemo.mcp.server import mcp
 from mnemo.search import SearchService
@@ -179,6 +184,89 @@ def _remove_book_impl(book_id: str) -> str:
     except Exception as e:
         logger.exception("remove_book failed")
         return f"Error: {e}"
+
+
+def _add_book_impl(file_path: str, force: bool = False) -> str:
+    """Add book implementation - see add_book for docs."""
+    logger.info(f"add_book: file_path={file_path!r}, force={force}")
+
+    # Validate path exists
+    path = Path(file_path)
+    if not path.exists():
+        return f"Error: File not found: {file_path}"
+
+    # Validate .epub extension
+    if path.suffix.lower() != ".epub":
+        return f"Error: Not an EPUB file: {file_path} (expected .epub extension)"
+
+    # Pre-parse metadata for duplicate detection
+    from mnemo.epub.metadata import extract_metadata
+
+    try:
+        pre_parsed = extract_metadata(path)
+    except Exception as e:
+        return f"Error: Failed to read EPUB: {e}"
+
+    # Check for hard duplicate (file hash match)
+    init_db()
+    conn = get_connection()
+    book_repo = BookRepository(conn)
+    existing = book_repo.get_by_hash(pre_parsed.file_hash)
+
+    if existing and not force:
+        authors_str = ", ".join(existing.authors) if existing.authors else "Unknown"
+        conn.close()
+        return (
+            f'Error: Book already exists - "{existing.title}" '
+            f"by {authors_str} (ID: `{existing.id}`). "
+            f"Use force=true to re-index."
+        )
+
+    # Check for soft duplicate (similar title)
+    soft_warning = ""
+    if not existing:  # Only check soft dups if not a hash match
+        similar = book_repo.find_similar_title(pre_parsed.title)
+        if similar:
+            sim = similar[0]
+            sim_authors = ", ".join(sim.authors) if sim.authors else "Unknown"
+            soft_warning = (
+                f'\nNote: Similar book exists - "{sim.title}" '
+                f"by {sim_authors} (ID: `{sim.id}`)"
+            )
+    conn.close()
+
+    # Ingest with embedding
+    from mnemo.ingest import ingest_book as pipeline_ingest
+    from mnemo.ingest import remove_book as pipeline_remove
+
+    try:
+        book, chunk_count = pipeline_ingest(path, embed=True, force=force)
+    except Exception as e:
+        # Clean up partial data: if book was stored before embedding failed,
+        # look it up by hash and remove it
+        try:
+            init_db()
+            conn2 = get_connection()
+            repo2 = BookRepository(conn2)
+            partial = repo2.get_by_hash(pre_parsed.file_hash)
+            conn2.close()
+            if partial:
+                pipeline_remove(partial.id)
+        except Exception:
+            pass  # Best effort cleanup
+        return f"Error: Failed to add book: {e}"
+
+    # Invalidate search cache
+    global _search_service
+    if _search_service is not None:
+        _search_service._book_cache.clear()
+
+    # Return success message
+    authors_str = ", ".join(book.authors) if book.authors else "Unknown"
+    result = f"Added: {book.title} by {authors_str} (ID: `{book.id}`) - {chunk_count} chunks"
+    if soft_warning:
+        result += soft_warning
+    return result
 
 
 def _update_book_metadata_impl(
@@ -366,3 +454,52 @@ def update_book_metadata(
         Updated book details, or error message
     """
     return _update_book_metadata_impl(book_id, title, authors, isbn)
+
+
+@mcp.tool
+async def add_book(
+    file_path: str,
+    force: bool = False,
+    ctx: Context = CurrentContext(),
+) -> str:
+    """Add an EPUB book to your library.
+
+    Parses the EPUB, chunks content, generates embeddings, and makes
+    the book searchable. This may take a few minutes for large books.
+
+    Args:
+        file_path: Absolute path to the EPUB file
+        force: If true, re-indexes even if the book already exists
+
+    Returns:
+        Book details on success, or error message
+    """
+    await ctx.info(f"Adding book from {file_path}...")
+    try:
+        result = await asyncio.wait_for(
+            asyncio.to_thread(_add_book_impl, file_path, force),
+            timeout=300,  # 5 minutes
+        )
+    except asyncio.TimeoutError:
+        # Best effort cleanup: check if partial data was stored
+        try:
+            from mnemo.epub.metadata import extract_metadata
+
+            pre_parsed = extract_metadata(Path(file_path))
+            init_db()
+            conn = get_connection()
+            repo = BookRepository(conn)
+            partial = repo.get_by_hash(pre_parsed.file_hash)
+            conn.close()
+            if partial:
+                from mnemo.ingest import remove_book as pipeline_remove
+
+                pipeline_remove(partial.id)
+        except Exception:
+            pass
+        return (
+            "Error: Book ingestion timed out after 5 minutes. "
+            "The book may be too large or the embedding service may be slow. "
+            "Please try again."
+        )
+    return result
