@@ -64,7 +64,10 @@ Plans:
   2. All six tools have LLM-tuned docstrings that help Claude discover when and why to use each tool
   3. All tools return structured error strings matching the existing convention (no unhandled exceptions leak through MCP)
   4. A full lifecycle test passes: add book, search for content, update metadata, verify metadata in search, remove book, verify removal
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 07-01-PLAN.md — Add ToolAnnotations, normalize error strings, enhance docstrings (TOOL-01, TOOL-02, TOOL-03, TOOL-04)
+- [ ] 07-02-PLAN.md — Add annotation verification tests and full lifecycle integration test
 
 ## Progress
 
@@ -76,7 +79,7 @@ Plans:
 | 4. CLI & Integration | v1.0 | 1/1 | Complete | 2026-02-03 |
 | 5. Metadata Updates | v1.1 | 1/1 | Complete | 2026-02-11 |
 | 6. Book Lifecycle Tools | v1.1 | 2/2 | Complete | 2026-02-14 |
-| 7. Tool Polish & Integration | v1.1 | 0/TBD | Not started | - |
+| 7. Tool Polish & Integration | v1.1 | 0/2 | Not started | - |
 
 ---
 *Roadmap created: 2026-01-19*
