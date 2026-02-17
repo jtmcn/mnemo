@@ -1,31 +1,31 @@
 # Project State: Mnemo
 
 **Last Updated:** 2026-02-17
-**Current Phase:** Phase 7 — Tool Polish & Integration (in progress)
-**Overall Progress:** v1.0 shipped, v1.1 Phase 7 plan 1 complete
+**Current Phase:** Phase 7 -- Tool Polish & Integration (complete)
+**Overall Progress:** v1.0 shipped, v1.1 complete
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-02-11)
 
 **Core value:** Ask Claude a question, get answers from your book collection.
-**Current focus:** v1.1 Tool Polish — annotations, error conventions, docstrings, response formatting
+**Current focus:** v1.1 complete -- all tool polish, lifecycle tests, and annotations delivered
 
 ## Current Position
 
 Phase: 7 of 7 (Tool Polish & Integration)
-Plan: 1 of 2 in current phase
-Status: In progress
-Last activity: 2026-02-17 — Completed 07-01-PLAN.md (tool annotations, errors, docstrings)
+Plan: 2 of 2 in current phase
+Status: Phase complete
+Last activity: 2026-02-17 -- Completed 07-02-PLAN.md (annotation verification + lifecycle tests)
 
-Progress: [###############.....] 75% (15/20 plans complete)
+Progress: [####################] 100% (16/16 plans complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 15 (11 v1.0 + 4 v1.1)
+- Total plans completed: 16 (11 v1.0 + 5 v1.1)
 - Average duration: varies
-- Total execution time: ~15 days (v1.0) + 12 min (v1.1 phases 5-7)
+- Total execution time: ~15 days (v1.0) + ~16 min (v1.1 phases 5-7)
 
 **By Phase (v1.0):**
 
@@ -42,7 +42,7 @@ Progress: [###############.....] 75% (15/20 plans complete)
 |-------|-------|--------|
 | 5. Metadata Updates | 1 | Complete |
 | 6. Book Lifecycle | 2/2 | Complete |
-| 7. Polish | 1/2 | In progress |
+| 7. Polish | 2/2 | Complete |
 
 ## Accumulated Context
 
@@ -50,28 +50,30 @@ Progress: [###############.....] 75% (15/20 plans complete)
 See PROJECT.md for full decision log (11 decisions with outcomes).
 Recent decisions affecting current work:
 
-- v1.1: Direct delegation pattern — MCP tools call ingest.py functions directly (no service layer)
-- v1.1: Sync tools (def, not async def) — ingest pipeline is sync, no concurrency benefit for STDIO
+- v1.1: Direct delegation pattern -- MCP tools call ingest.py functions directly (no service layer)
+- v1.1: Sync tools (def, not async def) -- ingest pipeline is sync, no concurrency benefit for STDIO
 - v1.1: MNEMO_BOOKS_DIR descoped to future milestone (PATH-01, PATH-02)
-- 05-01: isbn="" means "clear ISBN" — empty string normalized to NULL, displayed as "Not available"
+- 05-01: isbn="" means "clear ISBN" -- empty string normalized to NULL, displayed as "Not available"
 - 05-01: Cache invalidation uses _book_cache.clear() (full clear, not selective)
 - 06-01: Mock ingest.remove_book in tests (pipeline manages own DB connections, separate from test temp_db)
-- 06-01: Pre-deletion info fetch pattern — capture book details before pipeline deletes them
+- 06-01: Pre-deletion info fetch pattern -- capture book details before pipeline deletes them
 - 06-02: _get_book_repo() for add_book duplicate checking (testability over raw init_db/get_connection)
-- 06-02: Async timeout wrapper pattern — asyncio.wait_for(to_thread(sync_fn), timeout=300) for add_book
+- 06-02: Async timeout wrapper pattern -- asyncio.wait_for(to_thread(sync_fn), timeout=300) for add_book
 - 07-01: Omit idempotentHint for read-only tools (readOnlyHint suffices for safe re-invocation)
+- 07-02: Lifecycle test uses SearchService(db_path=temp, chroma_path=temp) for isolated FTS5 keyword search
+- 07-02: mock_remove with BookRepository.delete for real deletion in lifecycle verify-removal step
 
 ### Pending Todos
-None yet.
+None.
 
 ### Blockers/Concerns
-- Embedding timeout during add_book for large books (30-120s) — mitigated with 5-minute timeout in 06-02
+- Embedding timeout during add_book for large books (30-120s) -- mitigated with 5-minute timeout in 06-02
 - Code chunking heuristics need tuning with real data (carried from v1.0)
 
 ## Session Continuity
 
 Last session: 2026-02-17
-Stopped at: Completed 07-01-PLAN.md (tool annotations, errors, docstrings)
+Stopped at: Completed 07-02-PLAN.md (annotation verification + lifecycle tests) -- Phase 7 and v1.1 complete
 Resume file: None
 
 ---
