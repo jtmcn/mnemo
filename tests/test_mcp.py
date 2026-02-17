@@ -491,7 +491,7 @@ class TestSearchBooksIntegration:
         try:
             result = tools._search_books_impl("test query")
 
-            assert "Search error" in result
+            assert "Search failed" in result
             assert "Database connection failed" in result
         finally:
             tools._search_service = original_service

@@ -15,6 +15,7 @@ from typing import Literal
 
 from fastmcp import Context
 from fastmcp.dependencies import CurrentContext
+from mcp.types import ToolAnnotations
 
 from mnemo.mcp.server import mcp
 from mnemo.search import SearchService
@@ -80,7 +81,7 @@ def _search_books_impl(
 
     except Exception as e:
         logger.exception("search_books failed")
-        return f"Search error: {e}"
+        return f"Error: Search failed: {e}"
 
 
 def _list_available_books_impl() -> str:
@@ -104,7 +105,7 @@ def _list_available_books_impl() -> str:
 
     except Exception as e:
         logger.exception("list_available_books failed")
-        return f"Error listing books: {e}"
+        return f"Error: Failed to list books: {e}"
 
 
 def _get_book_info_impl(book_id: str) -> str:
@@ -119,7 +120,7 @@ def _get_book_info_impl(book_id: str) -> str:
         book = book_repo.get(book_id)
 
         if not book:
-            return f"Book not found: {book_id}"
+            return f"Error: Book not found: {book_id}"
 
         chunk_repo = ChunkRepository(_db_connection)
         chunk_count = chunk_repo.count_by_book(book_id)
@@ -297,7 +298,7 @@ def _update_book_metadata_impl(
         )
 
         if updated is None:
-            return f"Book not found: {book_id}"
+            return f"Error: Book not found: {book_id}"
 
         # Invalidate search cache so search_books reflects changes
         global _search_service
@@ -357,7 +358,13 @@ def _format_search_results(results: list) -> str:
 # MCP tool registrations (delegate to implementations)
 
 
-@mcp.tool
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True,
+        destructiveHint=False,
+        openWorldHint=False,
+    )
+)
 def search_books(
     query: str,
     book_id: str | None = None,
@@ -383,7 +390,13 @@ def search_books(
     return _search_books_impl(query, book_id, content_type, top_k, mode)
 
 
-@mcp.tool
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True,
+        destructiveHint=False,
+        openWorldHint=False,
+    )
+)
 def list_available_books() -> str:
     """List all books in your library.
 
@@ -396,7 +409,13 @@ def list_available_books() -> str:
     return _list_available_books_impl()
 
 
-@mcp.tool
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True,
+        destructiveHint=False,
+        openWorldHint=False,
+    )
+)
 def get_book_info(book_id: str) -> str:
     """Get detailed information about a specific book.
 
@@ -409,7 +428,13 @@ def get_book_info(book_id: str) -> str:
     return _get_book_info_impl(book_id)
 
 
-@mcp.tool
+@mcp.tool(
+    annotations=ToolAnnotations(
+        destructiveHint=True,
+        idempotentHint=False,
+        openWorldHint=False,
+    )
+)
 def remove_book(book_id: str) -> str:
     """Remove a book from your library.
 
@@ -425,7 +450,12 @@ def remove_book(book_id: str) -> str:
     return _remove_book_impl(book_id)
 
 
-@mcp.tool
+@mcp.tool(
+    annotations=ToolAnnotations(
+        idempotentHint=True,
+        openWorldHint=False,
+    )
+)
 def update_book_metadata(
     book_id: str,
     title: str | None = None,
@@ -449,7 +479,11 @@ def update_book_metadata(
     return _update_book_metadata_impl(book_id, title, authors, isbn)
 
 
-@mcp.tool
+@mcp.tool(
+    annotations=ToolAnnotations(
+        openWorldHint=False,
+    )
+)
 async def add_book(
     file_path: str,
     force: bool = False,
