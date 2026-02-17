@@ -374,18 +374,22 @@ def search_books(
 ) -> str:
     """Search your book library for relevant content.
 
-    Finds passages from your indexed technical books using hybrid search
-    (combines keyword matching with semantic understanding).
+    Finds passages, code examples, and explanations from your indexed books
+    using hybrid search (combines keyword matching with semantic understanding).
+    Use this when the user asks about a topic, concept, API, or code pattern
+    that might be covered in their books.
 
     Args:
-        query: Search query - can be natural language or specific terms
-        book_id: Optional 6-char book ID to search within one book
-        content_type: Optional filter for content type
+        query: Search query - can be natural language questions, specific terms,
+               or code patterns
+        book_id: Optional 6-char book ID to search within one book only
+        content_type: Optional filter - "text", "code", "table", "diagram", or "math"
         top_k: Maximum results to return (default 10, max 50)
-        mode: Search mode - hybrid (default), semantic, or keyword
+        mode: Search mode - hybrid (default, recommended), semantic, or keyword
 
     Returns:
-        Markdown-formatted search results with source attribution
+        Markdown-formatted search results with source attribution,
+        or an error message starting with "Error:"
     """
     return _search_books_impl(query, book_id, content_type, top_k, mode)
 
@@ -400,11 +404,12 @@ def search_books(
 def list_available_books() -> str:
     """List all books in your library.
 
-    Shows all indexed books with their IDs, titles, authors, and chunk counts.
-    Use the book_id to filter searches to a specific book.
+    Shows all indexed books with their IDs, titles, authors, and date added.
+    Call this first to discover book IDs for filtering searches or looking up
+    details with get_book_info.
 
     Returns:
-        Markdown table of available books
+        Markdown table of available books, or a message if the library is empty
     """
     return _list_available_books_impl()
 
@@ -419,11 +424,15 @@ def list_available_books() -> str:
 def get_book_info(book_id: str) -> str:
     """Get detailed information about a specific book.
 
+    Returns title, authors, ISBN, chunk count, structure info, and language
+    for one book. Use this to inspect a book's metadata before updating it
+    or to check how many chunks a book was split into.
+
     Args:
         book_id: 6-character book identifier (from list_available_books)
 
     Returns:
-        Book details including title, authors, ISBN, and chapter count
+        Markdown-formatted book details, or an error message starting with "Error:"
     """
     return _get_book_info_impl(book_id)
 
@@ -439,13 +448,13 @@ def remove_book(book_id: str) -> str:
     """Remove a book from your library.
 
     Permanently deletes the book, all its chunks, and search vectors.
-    The original EPUB file on disk is not affected.
+    This action cannot be undone. The original EPUB file on disk is not affected.
 
     Args:
         book_id: 6-character book identifier (from list_available_books)
 
     Returns:
-        Confirmation with deleted book details, or error message
+        Confirmation with deleted book details, or an error message starting with "Error:"
     """
     return _remove_book_impl(book_id)
 
@@ -464,17 +473,18 @@ def update_book_metadata(
 ) -> str:
     """Update a book's metadata (title, authors, or ISBN).
 
-    Changes are saved to the database and immediately reflected in
-    search results and book info lookups.
+    Changes are saved immediately and reflected in search results and book info
+    lookups. Pass isbn as an empty string to clear it. At least one field must
+    be provided.
 
     Args:
         book_id: 6-character book identifier (from list_available_books)
         title: New title for the book
-        authors: New list of author names (replaces existing authors)
+        authors: New list of author names (replaces all existing authors)
         isbn: New ISBN for the book (empty string clears ISBN)
 
     Returns:
-        Updated book details, or error message
+        Updated book details, or an error message starting with "Error:"
     """
     return _update_book_metadata_impl(book_id, title, authors, isbn)
 
@@ -491,15 +501,17 @@ async def add_book(
 ) -> str:
     """Add an EPUB book to your library.
 
-    Parses the EPUB, chunks content, generates embeddings, and makes
-    the book searchable. This may take a few minutes for large books.
+    Parses the EPUB, chunks the content, generates embeddings, and makes the
+    book searchable. May take 1-5 minutes for large books due to embedding
+    generation. Detects duplicates by file hash; use force=true to re-index.
 
     Args:
         file_path: Absolute path to the EPUB file
         force: If true, re-indexes even if the book already exists
 
     Returns:
-        Book details on success, or error message
+        Book details (ID, title, authors, chunk count) on success,
+        or an error message starting with "Error:"
     """
     await ctx.info(f"Adding book from {file_path}...")
     try:
