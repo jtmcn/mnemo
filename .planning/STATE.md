@@ -1,31 +1,31 @@
 # Project State: Mnemo
 
-**Last Updated:** 2026-02-14
-**Current Phase:** Phase 6 — Book Lifecycle Tools (complete)
-**Overall Progress:** v1.0 shipped, v1.1 Phase 6 complete
+**Last Updated:** 2026-02-17
+**Current Phase:** Phase 7 — Tool Polish & Integration (in progress)
+**Overall Progress:** v1.0 shipped, v1.1 Phase 7 plan 1 complete
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-02-11)
 
 **Core value:** Ask Claude a question, get answers from your book collection.
-**Current focus:** v1.1 Book Management — MCP tools for add/remove/edit
+**Current focus:** v1.1 Tool Polish — annotations, error conventions, docstrings, response formatting
 
 ## Current Position
 
-Phase: 6 of 7 (Book Lifecycle Tools)
-Plan: 2 of 2 in current phase
-Status: Phase complete
-Last activity: 2026-02-14 — Completed 06-02-PLAN.md (add_book MCP tool)
+Phase: 7 of 7 (Tool Polish & Integration)
+Plan: 1 of 2 in current phase
+Status: In progress
+Last activity: 2026-02-17 — Completed 07-01-PLAN.md (tool annotations, errors, docstrings)
 
-Progress: [##############......] 70% (14/20 plans complete)
+Progress: [###############.....] 75% (15/20 plans complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 14 (11 v1.0 + 3 v1.1)
+- Total plans completed: 15 (11 v1.0 + 4 v1.1)
 - Average duration: varies
-- Total execution time: ~15 days (v1.0) + 9 min (v1.1 phases 5-6)
+- Total execution time: ~15 days (v1.0) + 12 min (v1.1 phases 5-7)
 
 **By Phase (v1.0):**
 
@@ -42,7 +42,7 @@ Progress: [##############......] 70% (14/20 plans complete)
 |-------|-------|--------|
 | 5. Metadata Updates | 1 | Complete |
 | 6. Book Lifecycle | 2/2 | Complete |
-| 7. Polish | TBD | Not started |
+| 7. Polish | 1/2 | In progress |
 
 ## Accumulated Context
 
@@ -59,6 +59,7 @@ Recent decisions affecting current work:
 - 06-01: Pre-deletion info fetch pattern — capture book details before pipeline deletes them
 - 06-02: _get_book_repo() for add_book duplicate checking (testability over raw init_db/get_connection)
 - 06-02: Async timeout wrapper pattern — asyncio.wait_for(to_thread(sync_fn), timeout=300) for add_book
+- 07-01: Omit idempotentHint for read-only tools (readOnlyHint suffices for safe re-invocation)
 
 ### Pending Todos
 None yet.
@@ -69,10 +70,10 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-14
-Stopped at: Completed 06-02-PLAN.md (add_book MCP tool) — Phase 6 complete
+Last session: 2026-02-17
+Stopped at: Completed 07-01-PLAN.md (tool annotations, errors, docstrings)
 Resume file: None
 
 ---
 *State initialized: 2026-01-19*
-*Last updated: 2026-02-14*
+*Last updated: 2026-02-17*
