@@ -1092,3 +1092,137 @@ class TestAddBookIntegration:
             mock_remove.assert_called_once_with("bbb001")
         finally:
             tools._db_connection = original_conn
+
+
+class TestLifecycle:
+    """End-to-end lifecycle: add -> search -> update -> verify update in info -> remove -> verify removal."""
+
+    @pytest.fixture
+    def temp_db(self, tmp_path):
+        """Create a temporary database."""
+        from mnemo.storage.database import get_connection, init_db
+
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        conn = get_connection(db_path)
+        yield {"path": db_path, "conn": conn}
+        conn.close()
+
+    def test_full_lifecycle(self, tmp_path, temp_db):
+        """Full lifecycle: add, search, update, verify, remove, verify gone."""
+        from mnemo.mcp import tools
+        from mnemo.storage import BookRepository, ChunkRepository
+
+        # Prepare a fake EPUB file
+        epub_file = tmp_path / "lifecycle.epub"
+        epub_file.write_bytes(b"fake epub content")
+
+        # Mock book that ingest_book "creates"
+        lifecycle_book = Book(
+            id="aaa001",
+            title="Lifecycle Test Book",
+            authors=["Test Author"],
+            isbn="978-0000000000",
+            file_hash="a" * 64,
+            default_language="python",
+            structure_source="toc",
+            added_at=datetime(2026, 2, 16, tzinfo=timezone.utc),
+        )
+
+        # Mock pre-parsed metadata (extract_metadata result)
+        mock_pre_parsed = MagicMock()
+        mock_pre_parsed.file_hash = lifecycle_book.file_hash
+        mock_pre_parsed.title = lifecycle_book.title
+
+        # --- Setup: wire tools to temp DB ---
+        original_conn = tools._db_connection
+        original_service = tools._search_service
+        tools._db_connection = temp_db["conn"]
+        tools._search_service = None  # Reset so it gets replaced below
+
+        try:
+            # --- Step 1: Add book ---
+            # Mock ingest_book to insert the book into our temp DB and return it
+            def mock_ingest(path, embed=True, force=False):
+                book_repo = BookRepository(temp_db["conn"])
+                book_repo.add(lifecycle_book)
+                # Also add chunks so search and get_book_info work
+                chunk_repo = ChunkRepository(temp_db["conn"])
+                chunks = [
+                    Chunk(
+                        id=f"lc-chunk-{i}",
+                        book_id="aaa001",
+                        content=f"Lifecycle content about Python decorators part {i}",
+                        content_type=ContentType.TEXT,
+                        token_count=10,
+                        section_path=["Chapter 1", f"Section {i}"],
+                        sections=["Chapter 1"],
+                        language=None,
+                        sequence=i,
+                    )
+                    for i in range(3)
+                ]
+                chunk_repo.add_many(chunks)
+                return lifecycle_book, 3
+
+            with (
+                patch(
+                    "mnemo.epub.metadata.extract_metadata",
+                    return_value=mock_pre_parsed,
+                ),
+                patch("mnemo.ingest.ingest_book", side_effect=mock_ingest),
+            ):
+                add_result = tools._add_book_impl(str(epub_file))
+
+            assert "Added" in add_result
+            assert "Lifecycle Test Book" in add_result
+            assert "3 chunks" in add_result
+
+            # --- Step 2: Search for content ---
+            # Use keyword search against the real FTS5 table (no embeddings needed)
+            from mnemo.search.service import SearchService
+
+            temp_search = SearchService(
+                db_path=temp_db["path"],
+                chroma_path=tmp_path / "chroma",
+            )
+            tools._search_service = temp_search
+
+            search_result = tools._search_books_impl(
+                "Python decorators", mode="keyword"
+            )
+            assert "decorators" in search_result.lower()
+            assert "aaa001" in search_result
+
+            # --- Step 3: Update metadata ---
+            update_result = tools._update_book_metadata_impl(
+                "aaa001", title="Updated Lifecycle Book"
+            )
+            assert "Updated Lifecycle Book" in update_result
+
+            # --- Step 4: Verify metadata reflected in get_book_info ---
+            info_result = tools._get_book_info_impl("aaa001")
+            assert "Updated Lifecycle Book" in info_result
+            assert "Test Author" in info_result
+
+            # --- Step 5: Remove book ---
+            # Mock remove_book to actually delete from our temp DB
+            def mock_remove(book_id):
+                book_repo = BookRepository(temp_db["conn"])
+                book_repo.delete(book_id)
+
+            with patch(
+                "mnemo.ingest.remove_book", side_effect=mock_remove
+            ):
+                remove_result = tools._remove_book_impl("aaa001")
+
+            assert "Removed" in remove_result
+            assert "Updated Lifecycle Book" in remove_result
+
+            # --- Step 6: Verify removal ---
+            gone_result = tools._get_book_info_impl("aaa001")
+            assert "not found" in gone_result.lower()
+
+        finally:
+            tools._db_connection = original_conn
+            tools._search_service = original_service
