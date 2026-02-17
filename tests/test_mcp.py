@@ -40,6 +40,51 @@ class TestServerSetup:
         assert "add_book" in tool_names
 
 
+class TestToolAnnotations:
+    """Tests verifying ToolAnnotations on all six MCP tools.
+
+    Guards against regression of annotations added in Plan 07-01.
+    """
+
+    def test_read_only_tools_have_annotations(self):
+        """Read-only tools (search, list, get_info) have correct hints."""
+        from mnemo.mcp.server import mcp
+
+        for name in ["search_books", "list_available_books", "get_book_info"]:
+            tool = mcp._tool_manager._tools[name]
+            assert tool.annotations is not None, f"{name} missing annotations"
+            assert tool.annotations.readOnlyHint is True, f"{name} readOnlyHint"
+            assert tool.annotations.destructiveHint is False, f"{name} destructiveHint"
+            assert tool.annotations.openWorldHint is False, f"{name} openWorldHint"
+
+    def test_remove_book_has_destructive_annotation(self):
+        """remove_book is marked destructive and non-idempotent."""
+        from mnemo.mcp.server import mcp
+
+        tool = mcp._tool_manager._tools["remove_book"]
+        assert tool.annotations is not None
+        assert tool.annotations.destructiveHint is True
+        assert tool.annotations.idempotentHint is False
+        assert tool.annotations.openWorldHint is False
+
+    def test_update_book_has_idempotent_annotation(self):
+        """update_book_metadata is marked idempotent."""
+        from mnemo.mcp.server import mcp
+
+        tool = mcp._tool_manager._tools["update_book_metadata"]
+        assert tool.annotations is not None
+        assert tool.annotations.idempotentHint is True
+        assert tool.annotations.openWorldHint is False
+
+    def test_add_book_has_correct_annotations(self):
+        """add_book has only openWorldHint=False (no special hints)."""
+        from mnemo.mcp.server import mcp
+
+        tool = mcp._tool_manager._tools["add_book"]
+        assert tool.annotations is not None
+        assert tool.annotations.openWorldHint is False
+
+
 class TestSearchBooksValidation:
     """Tests for search_books input validation."""
 
