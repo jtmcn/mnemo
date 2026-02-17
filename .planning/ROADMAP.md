@@ -3,7 +3,7 @@
 ## Milestones
 
 - SHIPPED **v1.0 MVP** — Phases 1-4 (shipped 2026-02-10) — [Archive](milestones/v1.0-ROADMAP.md)
-- **v1.1 Book Management** — Phases 5-7 (in progress)
+- SHIPPED **v1.1 Book Management** — Phases 5-7 (shipped 2026-02-17) — [Archive](milestones/v1.1-ROADMAP.md)
 
 ## Phases
 
@@ -17,13 +17,13 @@
 
 </details>
 
-### v1.1 Book Management (In Progress)
+### v1.1 Book Management (Complete)
 
 **Milestone Goal:** Add MCP tools for book lifecycle management so Claude can add, remove, and edit ebook metadata without CLI context-switching.
 
 - [x] **Phase 5: Metadata Updates** - Claude can update book metadata via MCP tool — completed 2026-02-11
 - [x] **Phase 6: Book Lifecycle Tools** - Claude can add and remove books via MCP tools — completed 2026-02-14
-- [ ] **Phase 7: Tool Polish & Integration** - All tools meet quality standards with annotations, docstrings, and tests
+- [x] **Phase 7: Tool Polish & Integration** - All tools meet quality standards with annotations, docstrings, and tests — completed 2026-02-17
 
 ## Phase Details
 
@@ -66,8 +66,8 @@ Plans:
   4. A full lifecycle test passes: add book, search for content, update metadata, verify metadata in search, remove book, verify removal
 **Plans:** 2 plans
 Plans:
-- [ ] 07-01-PLAN.md — Add ToolAnnotations, normalize error strings, enhance docstrings (TOOL-01, TOOL-02, TOOL-03, TOOL-04)
-- [ ] 07-02-PLAN.md — Add annotation verification tests and full lifecycle integration test
+- [x] 07-01-PLAN.md — Add ToolAnnotations, normalize error strings, enhance docstrings (TOOL-01, TOOL-02, TOOL-03, TOOL-04)
+- [x] 07-02-PLAN.md — Add annotation verification tests and full lifecycle integration test
 
 ## Progress
 
@@ -79,7 +79,7 @@ Plans:
 | 4. CLI & Integration | v1.0 | 1/1 | Complete | 2026-02-03 |
 | 5. Metadata Updates | v1.1 | 1/1 | Complete | 2026-02-11 |
 | 6. Book Lifecycle Tools | v1.1 | 2/2 | Complete | 2026-02-14 |
-| 7. Tool Polish & Integration | v1.1 | 0/2 | Not started | - |
+| 7. Tool Polish & Integration | v1.1 | 2/2 | Complete | 2026-02-17 |
 
 ---
 *Roadmap created: 2026-01-19*

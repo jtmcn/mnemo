@@ -33,10 +33,10 @@ Requirements for book management MCP tools. Each maps to roadmap phases.
 
 ### Tool Quality
 
-- [ ] **TOOL-01**: New tools annotated (`destructiveHint` on remove, `idempotentHint` on update)
-- [ ] **TOOL-02**: Existing read-only tools annotated with `readOnlyHint=True`
-- [ ] **TOOL-03**: All tools return structured error strings matching existing convention
-- [ ] **TOOL-04**: All tools have LLM-tuned docstrings for tool discovery
+- [x] **TOOL-01**: New tools annotated (`destructiveHint` on remove, `idempotentHint` on update)
+- [x] **TOOL-02**: Existing read-only tools annotated with `readOnlyHint=True`
+- [x] **TOOL-03**: All tools return structured error strings matching existing convention
+- [x] **TOOL-04**: All tools have LLM-tuned docstrings for tool discovery
 
 ## Future Requirements
 
@@ -91,10 +91,10 @@ Deferred to later milestones.
 | META-05 | Phase 5 | Complete |
 | META-06 | Phase 5 | Complete |
 | META-07 | Phase 5 | Complete |
-| TOOL-01 | Phase 7 | Pending |
-| TOOL-02 | Phase 7 | Pending |
-| TOOL-03 | Phase 7 | Pending |
-| TOOL-04 | Phase 7 | Pending |
+| TOOL-01 | Phase 7 | Complete |
+| TOOL-02 | Phase 7 | Complete |
+| TOOL-03 | Phase 7 | Complete |
+| TOOL-04 | Phase 7 | Complete |
 
 **Coverage:**
 - v1.1 requirements: 19 total
@@ -103,4 +103,4 @@ Deferred to later milestones.
 
 ---
 *Requirements defined: 2026-02-11*
-*Last updated: 2026-02-14 after Phase 6 completion*
+*Last updated: 2026-02-17 after Phase 7 completion*
