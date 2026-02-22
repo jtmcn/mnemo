@@ -207,6 +207,14 @@ class TestUpdateBookMetadataValidation:
         result = _update_book_metadata_impl("abc123", title="   ")
         assert "Error" in result
 
+    def test_update_invalid_isbn(self):
+        """Invalid ISBN should return error."""
+        from mnemo.mcp.tools import _update_book_metadata_impl
+
+        result = _update_book_metadata_impl("abc123", isbn="garbage")
+        assert "Error" in result
+        assert "ISBN" in result
+
 
 class TestOutputFormatting:
     """Tests for result formatting functions."""
@@ -683,6 +691,23 @@ class TestUpdateBookMetadataIntegration:
             result = tools._get_book_info_impl("abc123")
 
             assert "Not available" in result
+        finally:
+            tools._db_connection = original_conn
+
+    def test_update_valid_isbn_normalized(self, temp_db):
+        """Valid ISBN with hyphens should be stored normalized (digits only)."""
+        from mnemo.mcp import tools
+        from mnemo.storage import BookRepository
+
+        original_conn = tools._db_connection
+        tools._db_connection = temp_db["conn"]
+
+        try:
+            tools._update_book_metadata_impl("abc123", isbn="978-0-13-468599-1")
+            # Verify stored as normalized (no hyphens)
+            book_repo = BookRepository(temp_db["conn"])
+            book = book_repo.get("abc123")
+            assert book.isbn == "9780134685991"
         finally:
             tools._db_connection = original_conn
 
