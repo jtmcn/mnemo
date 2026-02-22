@@ -332,6 +332,10 @@ class SearchService:
 
         return self._embedder.embed_one(query)
 
+    def invalidate_cache(self) -> None:
+        """Clear the book title cache after mutations."""
+        self._book_cache.clear()
+
     def _get_book_title(self, book_id: str) -> str:
         """Get book title with caching to avoid repeated lookups."""
         if book_id in self._book_cache:
