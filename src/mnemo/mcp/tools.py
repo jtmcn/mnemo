@@ -309,6 +309,13 @@ def _update_book_metadata_impl(
     # Normalize empty isbn: treat "" as "clear ISBN" (store NULL in DB)
     if isbn is not None and isbn.strip() == "":
         isbn = ""  # Keep as empty string; repository will store as NULL
+    elif isbn is not None:
+        from mnemo.epub.metadata import normalize_isbn
+
+        normalized = normalize_isbn(isbn)
+        if normalized is None:
+            return f"Error: Invalid ISBN format: {isbn!r}. Expected ISBN-10 or ISBN-13."
+        isbn = normalized
 
     try:
         book_repo = _get_book_repo()
