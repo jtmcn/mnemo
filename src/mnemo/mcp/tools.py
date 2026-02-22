@@ -173,7 +173,7 @@ def _remove_book_impl(book_id: str) -> str:
         # Invalidate search cache
         global _search_service
         if _search_service is not None:
-            _search_service._book_cache.clear()
+            _search_service.invalidate_cache()
 
         # Return success message with deleted book info
         authors_str = ", ".join(book.authors) if book.authors else "Unknown"
@@ -187,8 +187,15 @@ def _remove_book_impl(book_id: str) -> str:
         return f"Error: {e}"
 
 
-def _add_book_impl(file_path: str, force: bool = False) -> str:
-    """Add book implementation - see add_book for docs."""
+def _add_book_impl(file_path: str, force: bool = False, pre_parsed: "Book | None" = None) -> str:
+    """Add book implementation - see add_book for docs.
+
+    Args:
+        file_path: Path to EPUB file
+        force: If True, re-index even if duplicate exists
+        pre_parsed: Pre-extracted Book metadata (from extract_metadata).
+            When called from async wrapper, metadata is extracted before the thread.
+    """
     logger.info(f"add_book: file_path={file_path!r}, force={force}")
 
     # Validate path exists
@@ -200,67 +207,79 @@ def _add_book_impl(file_path: str, force: bool = False) -> str:
     if path.suffix.lower() != ".epub":
         return f"Error: Not an EPUB file: {file_path} (expected .epub extension)"
 
-    # Pre-parse metadata for duplicate detection
-    from mnemo.epub.metadata import extract_metadata
+    # Extract metadata if not provided (direct call without async wrapper)
+    if pre_parsed is None:
+        from mnemo.epub.metadata import extract_metadata
 
+        try:
+            pre_parsed = extract_metadata(path)
+        except Exception as e:
+            return f"Error: Failed to read EPUB: {e}"
+
+    # Get own DB connection (thread safe — not shared with async caller)
+    init_db()
+    conn = get_connection()
     try:
-        pre_parsed = extract_metadata(path)
-    except Exception as e:
-        return f"Error: Failed to read EPUB: {e}"
+        book_repo = BookRepository(conn)
 
-    # Check for hard duplicate (file hash match)
-    book_repo = _get_book_repo()
-    existing = book_repo.get_by_hash(pre_parsed.file_hash)
+        # Check for hard duplicate (file hash match)
+        existing = book_repo.get_by_hash(pre_parsed.file_hash)
 
-    if existing and not force:
-        authors_str = ", ".join(existing.authors) if existing.authors else "Unknown"
-        return (
-            f'Error: Book already exists - "{existing.title}" '
-            f"by {authors_str} (ID: `{existing.id}`). "
-            f"Use force=true to re-index."
-        )
-
-    # Check for soft duplicate (similar title)
-    soft_warning = ""
-    if not existing:  # Only check soft dups if not a hash match
-        similar = book_repo.find_similar_title(pre_parsed.title)
-        if similar:
-            sim = similar[0]
-            sim_authors = ", ".join(sim.authors) if sim.authors else "Unknown"
-            soft_warning = (
-                f'\nNote: Similar book exists - "{sim.title}" '
-                f"by {sim_authors} (ID: `{sim.id}`)"
+        if existing and not force:
+            authors_str = ", ".join(existing.authors) if existing.authors else "Unknown"
+            return (
+                f'Error: Book already exists - "{existing.title}" '
+                f"by {authors_str} (ID: `{existing.id}`). "
+                f"Use force=true to re-index."
             )
 
-    # Ingest with embedding
-    from mnemo.ingest import ingest_book as pipeline_ingest
-    from mnemo.ingest import remove_book as pipeline_remove
+        # Check for soft duplicate (similar title)
+        soft_warning = ""
+        if not existing:  # Only check soft dups if not a hash match
+            similar = book_repo.find_similar_title(pre_parsed.title)
+            if similar:
+                sim = similar[0]
+                sim_authors = ", ".join(sim.authors) if sim.authors else "Unknown"
+                soft_warning = (
+                    f'\nNote: Similar book exists - "{sim.title}" '
+                    f"by {sim_authors} (ID: `{sim.id}`)"
+                )
 
-    try:
-        book, chunk_count = pipeline_ingest(path, embed=True, force=force)
-    except Exception as e:
-        # Clean up partial data: if book was stored before embedding failed,
-        # look it up by hash and remove it
+        # Ingest with embedding
+        from mnemo.ingest import ingest_book as pipeline_ingest
+        from mnemo.ingest import remove_book as pipeline_remove
+
         try:
-            repo2 = _get_book_repo()
-            partial = repo2.get_by_hash(pre_parsed.file_hash)
-            if partial:
-                pipeline_remove(partial.id)
-        except Exception:
-            pass  # Best effort cleanup
-        return f"Error: Failed to add book: {e}"
+            book, chunk_count = pipeline_ingest(path, embed=True, force=force)
+        except Exception as e:
+            # Clean up partial data: if book was stored before embedding failed,
+            # look it up by hash and remove it
+            try:
+                cleanup_conn = get_connection()
+                cleanup_repo = BookRepository(cleanup_conn)
+                partial = cleanup_repo.get_by_hash(pre_parsed.file_hash)
+                cleanup_conn.close()
+                if partial:
+                    pipeline_remove(partial.id)
+            except Exception:
+                pass  # Best effort cleanup
+            return f"Error: Failed to add book: {e}"
 
-    # Invalidate search cache
-    global _search_service
-    if _search_service is not None:
-        _search_service._book_cache.clear()
+        # Invalidate search cache
+        global _search_service
+        if _search_service is not None:
+            _search_service.invalidate_cache()
 
-    # Return success message
-    authors_str = ", ".join(book.authors) if book.authors else "Unknown"
-    result = f"Added: {book.title} by {authors_str} (ID: `{book.id}`) - {chunk_count} chunks"
-    if soft_warning:
-        result += soft_warning
-    return result
+        # Return success message
+        authors_str = ", ".join(book.authors) if book.authors else "Unknown"
+        result = (
+            f"Added: {book.title} by {authors_str} (ID: `{book.id}`) - {chunk_count} chunks"
+        )
+        if soft_warning:
+            result += soft_warning
+        return result
+    finally:
+        conn.close()
 
 
 def _update_book_metadata_impl(
@@ -303,7 +322,7 @@ def _update_book_metadata_impl(
         # Invalidate search cache so search_books reflects changes
         global _search_service
         if _search_service is not None:
-            _search_service._book_cache.clear()
+            _search_service.invalidate_cache()
 
         return _get_book_info_impl(book_id)
 
@@ -514,17 +533,29 @@ async def add_book(
         or an error message starting with "Error:"
     """
     await ctx.info(f"Adding book from {file_path}...")
+
+    # Validate + extract metadata BEFORE thread (available for timeout cleanup)
+    path = Path(file_path)
+    if not path.exists():
+        return f"Error: File not found: {file_path}"
+    if path.suffix.lower() != ".epub":
+        return f"Error: Not an EPUB file: {file_path} (expected .epub extension)"
+
+    from mnemo.epub.metadata import extract_metadata
+
+    try:
+        pre_parsed = extract_metadata(path)
+    except Exception as e:
+        return f"Error: Failed to read EPUB: {e}"
+
     try:
         result = await asyncio.wait_for(
-            asyncio.to_thread(_add_book_impl, file_path, force),
+            asyncio.to_thread(_add_book_impl, file_path, force, pre_parsed),
             timeout=300,  # 5 minutes
         )
     except asyncio.TimeoutError:
-        # Best effort cleanup: check if partial data was stored
+        # Best effort cleanup using pre_parsed.file_hash (no re-parsing needed)
         try:
-            from mnemo.epub.metadata import extract_metadata
-
-            pre_parsed = extract_metadata(Path(file_path))
             init_db()
             conn = get_connection()
             repo = BookRepository(conn)
