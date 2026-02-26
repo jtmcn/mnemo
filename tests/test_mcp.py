@@ -8,8 +8,9 @@ Tests the FastMCP server setup and tool implementations:
 - Integration with storage (using temp paths)
 """
 
+import asyncio
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -865,6 +866,22 @@ class TestRemoveBookIntegration:
         finally:
             tools._db_connection = original_conn
 
+    def test_remove_book_pipeline_exception(self, temp_db):
+        """When pipeline_remove raises, remove_book returns error."""
+        from mnemo.mcp import tools
+
+        original_conn = tools._db_connection
+        tools._db_connection = temp_db["conn"]
+
+        try:
+            with patch("mnemo.ingest.remove_book", side_effect=Exception("ChromaDB down")):
+                result = tools._remove_book_impl("abc123")
+
+            assert "Error" in result
+            assert "ChromaDB down" in result
+        finally:
+            tools._db_connection = original_conn
+
 
 class TestAddBookValidation:
     """Tests for add_book input validation (no DB or real files needed)."""
@@ -1243,3 +1260,113 @@ class TestLifecycle:
         finally:
             tools._db_connection = original_conn
             tools._search_service = original_service
+
+
+class TestAddBookAsync:
+    """Tests for the add_book async wrapper."""
+
+    @pytest.mark.asyncio
+    async def test_add_book_file_not_found_no_thread(self):
+        """File-not-found returns error without entering thread."""
+        from mnemo.mcp.tools import add_book
+
+        ctx = AsyncMock()
+        add_book_fn = add_book.fn  # Unwrap FastMCP FunctionTool
+
+        with patch("mnemo.mcp.tools._add_book_impl") as mock_impl:
+            result = await add_book_fn("/nonexistent/book.epub", False, ctx)
+
+        assert "Error" in result
+        assert "not found" in result.lower()
+        mock_impl.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_add_book_timeout_returns_error(self, tmp_path):
+        """Timeout returns error message."""
+        from mnemo.mcp.tools import add_book
+
+        epub_file = tmp_path / "slow.epub"
+        epub_file.write_bytes(b"fake epub")
+        add_book_fn = add_book.fn
+
+        ctx = AsyncMock()
+        mock_pre = MagicMock()
+        mock_pre.file_hash = "a" * 64
+
+        with (
+            patch("mnemo.epub.metadata.extract_metadata", return_value=mock_pre),
+            patch(
+                "mnemo.mcp.tools.asyncio.wait_for",
+                side_effect=asyncio.TimeoutError,
+            ),
+            patch("mnemo.mcp.tools.init_db"),
+            patch("mnemo.mcp.tools.get_connection") as mock_get_conn,
+        ):
+            mock_repo = MagicMock()
+            mock_repo.get_by_hash.return_value = None
+            mock_get_conn.return_value.close = MagicMock()
+            result = await add_book_fn(str(epub_file), False, ctx)
+
+        assert "Error" in result
+        assert "timed out" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_add_book_calls_ctx_info(self, tmp_path):
+        """add_book awaits ctx.info() with progress message."""
+        from mnemo.mcp.tools import add_book
+
+        epub_file = tmp_path / "info.epub"
+        epub_file.write_bytes(b"fake epub")
+        add_book_fn = add_book.fn
+
+        ctx = AsyncMock()
+        mock_pre = MagicMock()
+        mock_pre.file_hash = "b" * 64
+
+        with (
+            patch("mnemo.epub.metadata.extract_metadata", return_value=mock_pre),
+            patch("mnemo.mcp.tools._add_book_impl", return_value="Added: Test Book"),
+            patch("asyncio.wait_for", return_value="Added: Test Book"),
+        ):
+            await add_book_fn(str(epub_file), False, ctx)
+
+        ctx.info.assert_awaited_once()
+        call_args = ctx.info.call_args[0][0]
+        assert str(epub_file) in call_args
+
+    @pytest.mark.asyncio
+    async def test_add_book_timeout_cleanup_removes_partial(self, tmp_path):
+        """On timeout, if partial book exists in DB, pipeline_remove is called."""
+        from mnemo.mcp.tools import add_book
+
+        epub_file = tmp_path / "partial.epub"
+        epub_file.write_bytes(b"fake epub")
+        add_book_fn = add_book.fn
+
+        ctx = AsyncMock()
+        mock_pre = MagicMock()
+        mock_pre.file_hash = "c" * 64
+
+        mock_partial_book = MagicMock()
+        mock_partial_book.id = "ppp001"
+
+        mock_repo = MagicMock()
+        mock_repo.get_by_hash.return_value = mock_partial_book
+
+        mock_conn = MagicMock()
+
+        with (
+            patch("mnemo.epub.metadata.extract_metadata", return_value=mock_pre),
+            patch(
+                "mnemo.mcp.tools.asyncio.wait_for",
+                side_effect=asyncio.TimeoutError,
+            ),
+            patch("mnemo.mcp.tools.init_db"),
+            patch("mnemo.mcp.tools.get_connection", return_value=mock_conn),
+            patch("mnemo.mcp.tools.BookRepository", return_value=mock_repo),
+            patch("mnemo.ingest.remove_book") as mock_pipeline_remove,
+        ):
+            result = await add_book_fn(str(epub_file), False, ctx)
+
+        assert "timed out" in result.lower()
+        mock_pipeline_remove.assert_called_once_with("ppp001")
