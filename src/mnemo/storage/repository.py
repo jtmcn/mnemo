@@ -8,7 +8,6 @@ Provides CRUD operations and search functionality for books and chunks:
 from __future__ import annotations
 
 import json
-import re
 import sqlite3
 from difflib import SequenceMatcher
 
