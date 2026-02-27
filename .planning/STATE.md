@@ -1,57 +1,66 @@
 # Project State: Mnemo
 
-**Last Updated:** 2026-02-10
-**Current Phase:** v1.0 complete — Ready for next milestone
-**Overall Progress:** v1.0 shipped
+**Last Updated:** 2026-02-17
+**Current Phase:** v1.1 complete — planning next milestone
+**Overall Progress:** v1.0 shipped, v1.1 shipped
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-02-10)
+See: .planning/PROJECT.md (updated 2026-02-17)
 
 **Core value:** Ask Claude a question, get answers from your book collection.
 **Current focus:** Planning next milestone
 
-## Phase Status
+## Current Position
 
-| Phase | Name | Milestone | Status |
-|-------|------|-----------|--------|
-| 1 | Foundation | v1.0 | **Shipped** |
-| 2 | Vector Pipeline | v1.0 | **Shipped** |
-| 3 | Search & MCP | v1.0 | **Shipped** |
-| 4 | CLI & Integration | v1.0 | **Shipped** |
+Phase: 7 of 7 (all phases complete)
+Plan: N/A
+Status: Ready for next milestone
+Last activity: 2026-02-17 — v1.1 milestone complete
 
-## Current Plan
+Progress: [####################] 100% (16/16 plans complete across v1.0 + v1.1)
 
-**Completed:** v1.0 MVP (all 11 plans across 4 phases)
-**Next:** `/gsd:new-milestone` to define next milestone
+## Performance Metrics
 
-Progress: [████████████████████] 100% v1.0 (11/11 plans)
+**Velocity:**
+- Total plans completed: 16 (11 v1.0 + 5 v1.1)
+- v1.1 timeline: 7 days (2026-02-11 → 2026-02-17)
+
+**By Phase (v1.0):**
+
+| Phase | Plans | Status |
+|-------|-------|--------|
+| 1. Foundation | 5 | Complete |
+| 2. Vector Pipeline | 3 | Complete |
+| 3. Search & MCP | 2 | Complete |
+| 4. CLI & Integration | 1 | Complete |
+
+**By Phase (v1.1):**
+
+| Phase | Plans | Status |
+|-------|-------|--------|
+| 5. Metadata Updates | 1 | Complete |
+| 6. Book Lifecycle | 2 | Complete |
+| 7. Tool Polish | 2 | Complete |
 
 ## Accumulated Context
 
-### Key Decisions
-See PROJECT.md for full decision log (11 decisions with outcomes).
+### Decisions
+See PROJECT.md for full decision log (17 decisions with outcomes).
 
-### Technical Notes
-- Pin FastMCP to `<3` to avoid breaking changes
-- GTE-large-en returns unnormalized embeddings — L2 normalize before storage
-- ChromaDB PersistentClient stores to ~/.mnemo/chroma
-- MCP server runs via `python -m mnemo.mcp`
-- CLI entry point: `mnemo = "mnemo.cli:main"` in pyproject.toml
+### Pending Todos
+None.
 
-### Open Questions
-- Code chunking heuristics need tuning with real data
-- Similarity score thresholds need empirical calibration
-
-### Blockers
-None
+### Blockers/Concerns
+- Code chunking heuristics need tuning with real data (carried from v1.0)
+- MNEMO_BOOKS_DIR path restriction not yet implemented (deferred from v1.1)
 
 ## Session Continuity
 
-**Last session:** 2026-02-10
-**Stopped at:** v1.0 milestone archived
-**Resume file:** None
+Last session: 2026-02-17
+Stopped at: v1.1 milestone complete
+Resume file: None
 
 ---
 *State initialized: 2026-01-19*
-*Last updated: 2026-02-10*
+*Last updated: 2026-02-17*

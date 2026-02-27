@@ -1,390 +1,347 @@
-# Stack Research: Mnemo
+# Stack Research: Mnemo Book Management MCP Tools
 
-**Project:** Technical book embedding and retrieval system with MCP integration
-**Researched:** 2026-01-19
+**Milestone:** Add book management MCP tools (add_book, remove_book, update_book_metadata)
+**Researched:** 2026-02-11
 **Overall Confidence:** HIGH
 
 ## Executive Summary
 
-The 2026 Python ecosystem for document embedding/retrieval is mature and well-defined. For a personal technical book library with ~10 EPUBs, the recommended stack prioritizes simplicity and modern tooling over enterprise-scale solutions. Key decisions:
+Adding three management MCP tools to mnemo requires **zero new dependencies**. The existing stack (FastMCP 2.14.4, mcp SDK 1.25.0, SQLite, ChromaDB) already provides everything needed. The key technical findings are:
 
-1. **FastMCP 2.x** for MCP server (pin to `<3` to avoid breaking changes)
-2. **ChromaDB 1.4.x** for vector storage (excellent Python-native experience)
-3. **Databricks GTE-large-en** for embeddings (8192 token context, replacing deprecated BGE)
-4. **EbookLib + BeautifulSoup** for EPUB parsing (proven combination)
-5. **Custom chunking** for code-heavy technical content (LangChain splitters as fallback)
-6. **uv** for project management (fast, modern, replaces poetry/pip)
+1. **FastMCP 2.14.4 fully supports MCP tool annotations** via `ToolAnnotations` from `mcp.types` -- verified working on the installed version.
+2. **`MNEMO_BOOKS_DIR` configuration** follows the same `os.environ.get()` pattern already used by `EmbeddingConfig.from_env()`.
+3. **No schema changes needed** -- the existing SQLite `books` table already has `title`, `authors`, and `isbn` columns.
+4. **`BookRepository.update()` is the only new code** at the storage layer -- a straightforward dynamic UPDATE builder.
+5. **All three tools wire to existing functions** (`ingest_book()`, `remove_book()`, and the new `BookRepository.update()`).
 
----
-
-## Recommended Stack
-
-### MCP Server Framework
-
-**Choice:** FastMCP 2.14.3 (pin to `fastmcp<3`)
-**Rationale:** FastMCP is the de facto standard for Python MCP servers. Version 2.x provides production-ready features including enterprise auth, deployment tools, and testing utilities. The simple decorator-based API (`@mcp.tool`) minimizes boilerplate. Version 3.0 is in development with breaking changes expected, so pinning to v2 is essential for stability.
-**Alternatives Considered:**
-- `mcp` (official SDK) - Lower-level, more boilerplate. FastMCP 1.0 was incorporated into the official SDK, but FastMCP 2.x extends far beyond it.
-- Custom implementation - Unnecessary complexity for this use case.
-
-**Confidence:** HIGH (verified via [GitHub](https://github.com/jlowin/fastmcp), [PyPI](https://pypi.org/project/fastmcp/))
-
-**Installation:**
-```bash
-uv add "fastmcp<3"
-```
+This is a wiring milestone, not a technology milestone. The research focus is on using existing capabilities correctly.
 
 ---
 
-### Vector Database
+## Stack Additions Required
 
-**Choice:** ChromaDB 1.4.1
-**Rationale:** ChromaDB is the standard embedded vector database for Python RAG applications. It runs locally (no server required), has excellent Python ergonomics, and supports persistence to disk. For ~10 books, the embedded mode is ideal - no infrastructure overhead. The Rust-core rewrite provides excellent performance with HNSW indexing.
-**Alternatives Considered:**
-- Pinecone/Weaviate/Qdrant - Overkill for personal library scale; require cloud/server setup
-- FAISS - Lower-level, requires more manual management
-- LanceDB - Newer, less ecosystem support
-- SQLite with pgvector - More manual work, no native HNSW
+### New Dependencies: NONE
 
-**Confidence:** HIGH (verified via [PyPI](https://pypi.org/project/chromadb/), [GitHub](https://github.com/chroma-core/chroma))
+No new packages are needed. Every capability required for this milestone is already in `pyproject.toml`:
 
-**Installation:**
-```bash
-uv add chromadb
-```
+| Capability | Provided By | Already Installed |
+|---|---|---|
+| MCP tool registration | `fastmcp>=2.14,<3` | Yes (2.14.4) |
+| Tool annotations | `mcp` SDK (transitive dep of fastmcp) | Yes (1.25.0) |
+| EPUB ingestion | `ebooklib`, `beautifulsoup4`, `lxml` | Yes |
+| Embeddings | `httpx`, `tenacity`, `numpy` | Yes |
+| Vector storage | `chromadb>=1.0.0` | Yes |
+| SQLite metadata | stdlib `sqlite3` | Yes |
+| Data models | `pydantic>=2.0` | Yes |
+| Environment config | stdlib `os` | Yes |
+
+**Rationale for no additions:** The PRD explicitly states the new tools delegate to existing pipeline functions (`ingest_book()`, `remove_book()`). The only net-new logic is `BookRepository.update()`, which uses plain `sqlite3`. Tool annotations are provided by the `mcp` SDK that FastMCP already depends on.
 
 ---
 
-### Embedding Model/API
+## FastMCP Tool Annotations (Key Finding)
 
-**Choice:** Databricks GTE-large-en (`databricks-gte-large-en`)
-**Rationale:** Given the project requirement for Databricks, GTE-large-en is the recommended model. It offers 8192-token context window (vs BGE's 512), 1024-dimension embeddings, and Apache 2.0 license. The longer context window is particularly valuable for technical content with code blocks.
+### Verified Working on Installed Version
 
-**IMPORTANT DEPRECATION NOTICE:** BGE-large-en is being deprecated starting February 15, 2026 (pay-per-token) and May 15, 2026 (provisioned throughput). Use GTE-large-en instead.
+**FastMCP 2.14.4** with **mcp SDK 1.25.0** fully supports `ToolAnnotations`. This was verified by direct execution on the project's Python environment.
 
-**Alternatives Considered:**
-- BGE-large-en - Deprecated, shorter context window (512 tokens)
-- OpenAI ada-002/text-embedding-3 - External dependency, not Databricks-native
-- Local models (all-MiniLM, etc.) - Requires GPU/compute, more operational overhead
+### Import and Usage
 
-**Confidence:** HIGH (verified via [Databricks docs](https://docs.databricks.com/aws/en/machine-learning/foundation-model-apis/supported-models))
-
-**Client Options (in order of preference):**
-
-1. **Databricks SDK (recommended):**
 ```python
-from databricks.sdk import WorkspaceClient
-w = WorkspaceClient()
-response = w.serving_endpoints.query(
-    name="databricks-gte-large-en",
-    input="Text to embed"
-)
+from mcp.types import ToolAnnotations
+from mnemo.mcp.server import mcp
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def list_available_books() -> str:
+    """List all books in your library."""
+    ...
 ```
 
-2. **OpenAI-compatible client:**
+### Available Annotation Fields
+
+| Field | Type | Purpose | Default |
+|---|---|---|---|
+| `title` | `str \| None` | Human-readable title for the tool | `None` |
+| `readOnlyHint` | `bool \| None` | Tool does not modify state | `None` |
+| `destructiveHint` | `bool \| None` | Tool performs irreversible actions | `None` |
+| `idempotentHint` | `bool \| None` | Repeated calls with same args = same effect | `None` |
+| `openWorldHint` | `bool \| None` | Tool interacts with external entities | `None` |
+
+**Important:** `destructiveHint` and `idempotentHint` are only meaningful when `readOnlyHint` is false. A read-only tool is by definition neither destructive nor idempotent-sensitive.
+
+### Recommended Annotations per Tool
+
+| Tool | readOnlyHint | destructiveHint | idempotentHint | openWorldHint | Rationale |
+|---|---|---|---|---|---|
+| `search_books` | `True` | -- | -- | `False` | Read-only search, no external calls |
+| `list_available_books` | `True` | -- | -- | `False` | Read-only listing |
+| `get_book_info` | `True` | -- | -- | `False` | Read-only lookup |
+| **`add_book`** | `False` | `False` | `False` | `False` | Creates state, not destructive (refuses duplicates), NOT idempotent (returns error on repeat without force) |
+| **`remove_book`** | `False` | **`True`** | `True` | `False` | Permanently deletes book data. Idempotent: removing already-removed book returns "not found" |
+| **`update_book_metadata`** | `False` | `False` | `True` | `False` | Modifies but doesn't destroy. Idempotent: same update = same result |
+
+**Note on existing tools:** The current three search tools (`search_books`, `list_available_books`, `get_book_info`) have no annotations. Consider adding `readOnlyHint=True` to them as part of this milestone for consistency. This is additive and non-breaking.
+
+### Dict Shorthand (Alternative Syntax)
+
+Annotations can also be passed as a plain dict:
+
 ```python
-from databricks.sdk import WorkspaceClient
-w = WorkspaceClient()
-client = w.serving_endpoints.get_open_ai_client()
-response = client.embeddings.create(
-    model="databricks-gte-large-en",
-    input="Text to embed"
-)
+@mcp.tool(annotations={"destructiveHint": True, "readOnlyHint": False})
+def remove_book(book_id: str) -> str:
+    ...
 ```
 
-**Installation:**
-```bash
-uv add databricks-sdk
-```
+Both approaches are verified working. The `ToolAnnotations` import is more explicit and type-safe; the dict is terser. **Recommend `ToolAnnotations` for readability** since this project already uses typed patterns throughout.
 
----
+### Tags (Bonus Feature)
 
-### EPUB Parsing
+FastMCP also supports `tags` for tool categorization:
 
-**Choice:** EbookLib 0.20 + BeautifulSoup4 4.14.3 + lxml 6.0.2
-**Rationale:** EbookLib is the standard Python library for EPUB manipulation, supporting both EPUB2 and EPUB3. However, it returns HTML content that requires parsing. BeautifulSoup with lxml parser provides robust HTML-to-text extraction. This combination is battle-tested and used in production by tools like Booktype, Audiblez, and Marker.
-
-**Alternatives Considered:**
-- epub-meta - Metadata only, no content extraction
-- textract - Heavier dependency, uses EbookLib internally anyway
-- PyMuPDF - Primarily for PDF, EPUB support is secondary
-- Custom ZIP extraction - Reinventing the wheel
-
-**Confidence:** HIGH (verified via [PyPI EbookLib](https://pypi.org/project/EbookLib/), [PyPI BeautifulSoup4](https://pypi.org/project/beautifulsoup4/))
-
-**Installation:**
-```bash
-uv add ebooklib beautifulsoup4 lxml
-```
-
-**Usage Pattern:**
 ```python
-import ebooklib
-from ebooklib import epub
-from bs4 import BeautifulSoup
-
-book = epub.read_epub('technical_book.epub')
-for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
-    soup = BeautifulSoup(item.get_content(), 'lxml')
-    text = soup.get_text()
-    # Also extract code blocks separately
-    code_blocks = soup.find_all(['pre', 'code'])
+@mcp.tool(tags={"management"})
+def add_book(...) -> str:
+    ...
 ```
+
+Tags are optional and useful for client-side filtering. Consider adding `tags={"search"}` to existing tools and `tags={"management"}` to new tools, but this is low-priority polish.
+
+**Confidence:** HIGH -- all annotation behaviors verified by executing Python code against the installed `fastmcp==2.14.4` and `mcp==1.25.0`.
 
 ---
 
-### Text Chunking
+## MNEMO_BOOKS_DIR Environment Configuration
 
-**Choice:** Custom chunking with semchunk 3.2.5 as foundation
-**Rationale:** Technical books with code require special handling. Standard chunkers (like LangChain's RecursiveCharacterTextSplitter) can break code blocks mid-statement. For technical content:
+### Pattern
 
-1. **Primary:** Custom chunker that preserves code blocks as atomic units
-2. **Fallback:** semchunk for prose sections (85% faster than alternatives, semantically meaningful splits)
-3. **Token counting:** tiktoken 0.12.0 for accurate token measurement
+Follow the same `os.environ.get()` pattern already established in `src/mnemo/embeddings/config.py`:
 
-**Key Requirements for Technical Content:**
-- Code blocks must remain intact (never split mid-block)
-- Preserve language annotations for syntax highlighting context
-- Overlap chunks at semantic boundaries, not arbitrary positions
-- Target ~500-1000 tokens per chunk (well under GTE's 8192 limit)
-
-**Alternatives Considered:**
-- LangChain RecursiveCharacterTextSplitter - Good general purpose, but can distort code blocks
-- LlamaIndex SemanticSplitter - Heavier dependency, embedding-based (slower)
-- ai-chunking - Newer, less proven
-- semantic-text-splitter - 85% slower than semchunk
-
-**Confidence:** MEDIUM (custom chunking strategy needs validation with actual technical EPUBs)
-
-**Installation:**
-```bash
-uv add semchunk tiktoken
-```
-
-**Strategy:**
 ```python
-# 1. Extract content, identifying code blocks
-# 2. For code blocks: keep intact, embed with language context
-# 3. For prose: use semchunk with ~800 token target
-# 4. Add metadata: chapter, section, is_code, language
+import os
+from pathlib import Path
 
-import semchunk
-import tiktoken
-
-tokenizer = tiktoken.encoding_for_model("gpt-4o")  # or use Databricks tokenizer
-chunker = semchunk.chunk
-
-prose_chunks = chunker(
-    text=prose_content,
-    chunk_size=800,
-    token_counter=lambda x: len(tokenizer.encode(x)),
-    overlap=0.1  # 10% overlap
-)
+def get_books_dir() -> Path | None:
+    """Get configured books directory from environment."""
+    books_dir = os.environ.get("MNEMO_BOOKS_DIR")
+    if books_dir:
+        return Path(books_dir)
+    return None
 ```
+
+### Where to Use
+
+1. **Server startup** (`server.py` or `tools.py`): Log the configured path on init (to stderr). Warn if directory does not exist but do NOT crash -- the user may add it later.
+2. **`add_book` tool**: Optionally validate that `file_path` is within `MNEMO_BOOKS_DIR` if configured. This is a safety measure, not a hard requirement. The PRD says "optionally restrict paths to this dir."
+
+### No New Dependencies
+
+Standard library `os` and `pathlib` are sufficient. No need for `pydantic-settings` or `python-dotenv` -- the project doesn't use them today and the single env var doesn't justify adding them.
+
+**Confidence:** HIGH -- pattern is already established in the codebase.
 
 ---
 
-### Metadata Storage
+## BookRepository.update() Implementation
 
-**Choice:** SQLite via aiosqlite 0.22.1
-**Rationale:** SQLite is ideal for single-user, local-first applications. Book metadata (title, author, chapters, chunk locations) fits naturally in relational schema. aiosqlite provides async interface compatible with FastMCP's async patterns. The database file co-locates with ChromaDB for simple backup/portability.
+### No Schema Migration Needed
 
-**Alternatives Considered:**
-- PostgreSQL - Overkill for personal library
-- JSON files - No querying capability, harder to manage
-- ChromaDB metadata only - Limited query patterns
-- SQLAlchemy - Added complexity for simple schema
+The existing SQLite `books` table already has all required columns:
 
-**Confidence:** HIGH (verified via [PyPI](https://pypi.org/project/aiosqlite/), [GitHub](https://github.com/omnilib/aiosqlite))
-
-**Installation:**
-```bash
-uv add aiosqlite
+```sql
+CREATE TABLE IF NOT EXISTS books (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    authors TEXT NOT NULL,  -- JSON array
+    isbn TEXT,
+    ...
+);
 ```
+
+### Implementation Approach
+
+Dynamic UPDATE builder using parameterized queries:
+
+```python
+def update(
+    self,
+    book_id: str,
+    title: str | None = None,
+    authors: list[str] | None = None,
+    isbn: str | None = None,
+) -> Book | None:
+    """Update book metadata. Returns updated Book or None if not found."""
+    fields: list[str] = []
+    values: list[str] = []
+
+    if title is not None:
+        fields.append("title = ?")
+        values.append(title)
+    if authors is not None:
+        fields.append("authors = ?")
+        values.append(json.dumps(authors))
+    if isbn is not None:
+        fields.append("isbn = ?")
+        values.append(isbn)
+
+    if not fields:
+        raise ValueError("At least one field must be provided")
+
+    values.append(book_id)
+    sql = f"UPDATE books SET {', '.join(fields)} WHERE id = ?"
+    cursor = self.conn.execute(sql, values)
+    self.conn.commit()
+
+    if cursor.rowcount == 0:
+        return None
+    return self.get(book_id)
+```
+
+**Why not an ORM:** The project uses raw `sqlite3` throughout. Adding SQLAlchemy or similar for one method would be inconsistent and unnecessary.
+
+**Confidence:** HIGH -- follows existing repository patterns exactly.
 
 ---
 
-### HTTP Client (for Databricks API)
+## Sync vs Async Tool Functions
 
-**Choice:** httpx 0.28.1
-**Rationale:** httpx provides both sync and async HTTP with a requests-compatible API. Essential for Databricks API calls. Supports HTTP/2 and has excellent async patterns. The Databricks SDK uses httpx internally.
+### Current Pattern: Sync Functions
 
-**Alternatives Considered:**
-- requests - No async support
-- aiohttp - Async-only, different API from requests
+All existing MCP tools in `tools.py` are synchronous:
 
-**Confidence:** HIGH (verified via [PyPI](https://pypi.org/project/httpx/))
-
-**Installation:**
-```bash
-uv add httpx
+```python
+@mcp.tool
+def search_books(query: str, ...) -> str:
+    ...
 ```
+
+FastMCP handles sync functions by running them in a thread pool, which is appropriate for SQLite operations (which use the GIL anyway).
+
+### add_book Concern: Long-Running Ingestion
+
+The `add_book` tool calls `ingest_book()` which:
+1. Parses EPUB (fast, ~1s)
+2. Chunks content (fast, ~1s)
+3. Stores in SQLite (fast, <1s)
+4. Optionally embeds via Databricks API (slow, 10-60s depending on book size)
+
+**Recommendation:** Keep sync. FastMCP's thread pool handles this correctly. The MCP STDIO transport is inherently single-client, so there's no concurrency benefit from async. If embedding takes too long, the tool should still complete -- the MCP client (Claude Desktop) will wait.
+
+### FastMCP Context for Progress Reporting (Optional)
+
+FastMCP provides a `Context` object for progress reporting during long operations:
+
+```python
+from fastmcp import Context
+
+@mcp.tool
+def add_book(file_path: str, ctx: Context, ...) -> str:
+    await ctx.report_progress(0.5, 1.0, "Embedding chunks...")
+    await ctx.info("Ingestion started for: " + file_path)
+```
+
+**Caveat:** `ctx.report_progress()` and `ctx.info()` are async methods, so using them requires the tool function to be `async def`. This would be a pattern change from the existing sync tools.
+
+**Recommendation:** Skip context/progress for this milestone. The tools will return a final result string. Progress reporting can be added later if embedding times are problematic. Keep the sync pattern consistent with existing tools.
+
+**Confidence:** HIGH -- verified Context signatures and sync/async behavior.
 
 ---
 
-### Configuration & Validation
+## Integration Points with Existing Code
 
-**Choice:** Pydantic 2.12.5 + pydantic-settings
-**Rationale:** Pydantic is the standard for Python data validation, used by FastAPI, LangChain, and many others. pydantic-settings handles environment variables and configuration files elegantly. Type hints provide IDE support and catch errors early.
+### Tool-to-Function Wiring
 
-**Alternatives Considered:**
-- dataclasses - No validation
-- attrs - Less ecosystem support
-- Manual validation - Error-prone
+| New Tool | Delegates To | Module | Notes |
+|---|---|---|---|
+| `add_book` | `ingest_book()` | `mnemo.ingest` | Existing function, takes `Path`, returns `(Book, int)` |
+| `remove_book` | `remove_book()` | `mnemo.ingest` | Existing function, takes `book_id: str`, returns `bool` |
+| `update_book_metadata` | `BookRepository.update()` | `mnemo.storage.repository` | **New method** on existing class |
 
-**Confidence:** HIGH (verified via [PyPI](https://pypi.org/project/pydantic/))
+### Lazy Init Pattern
 
-**Installation:**
-```bash
-uv add pydantic pydantic-settings
+The existing `tools.py` uses lazy initialization for services:
+
+```python
+_search_service: SearchService | None = None
+_db_connection = None
+
+def _get_book_repo() -> BookRepository:
+    global _db_connection
+    if _db_connection is None:
+        init_db()
+        _db_connection = get_connection()
+    return BookRepository(_db_connection)
 ```
+
+The new tools should reuse `_get_book_repo()` for `update_book_metadata`. The `add_book` and `remove_book` tools can call `ingest_book()` and `remove_book()` directly from `mnemo.ingest`, which manage their own connections.
+
+### Return Format
+
+Existing tools return markdown strings. New tools should follow the same convention:
+- `add_book`: Return markdown with book ID, title, authors, chunk count
+- `remove_book`: Return confirmation message or "not found"
+- `update_book_metadata`: Return updated book info (same format as `get_book_info`)
 
 ---
 
-### Development Tools
+## What NOT to Add
 
-#### Package Manager
-**Choice:** uv 0.9.26
-**Rationale:** uv is the modern standard for Python project management, replacing pip, poetry, virtualenv, and more. 10-100x faster than alternatives. Created by Astral (same team as Ruff). Excellent pyproject.toml support and lockfile management.
-
-**Installation:**
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-#### Linting & Formatting
-**Choice:** Ruff 0.14.13
-**Rationale:** Ruff replaces Black, Flake8, isort, and dozens of plugins in a single, Rust-powered tool. 10-100x faster than alternatives. Used by FastAPI, Pandas, SciPy. >99.9% Black-compatible formatting.
-
-**Alternatives Considered:**
-- Black + Flake8 + isort - Multiple tools, slower, more config
-- pylint - Slower, more opinionated
-
-**Installation:**
-```bash
-uv add --dev ruff
-```
-
-#### Type Checking
-**Choice:** mypy 1.19.1
-**Rationale:** mypy remains the standard Python type checker with best ecosystem support. 40% speedup in recent versions. Strict mode catches real bugs.
-
-**Alternatives Considered:**
-- Pyright - Excellent, but mypy has broader ecosystem support
-- ty (Astral) - Too new for production (released January 2026)
-
-**Installation:**
-```bash
-uv add --dev mypy
-```
-
-#### Testing
-**Choice:** pytest 9.0.2 + pytest-asyncio 1.3.0
-**Rationale:** pytest is the Python testing standard. pytest-asyncio required for testing async MCP tools and database operations. Auto mode simplifies async test configuration.
-
-**Installation:**
-```bash
-uv add --dev pytest pytest-asyncio
-```
+| Suggestion | Why Not |
+|---|---|
+| `pydantic-settings` | Overkill for one env var. `os.environ.get()` is simpler and matches existing pattern. |
+| `python-dotenv` | Not needed. MCP server receives env vars from Claude Desktop config. |
+| SQLAlchemy / ORM | Project uses raw `sqlite3`. One UPDATE method doesn't justify an ORM. |
+| `asyncio` / `aiosqlite` | Existing tools are sync. No concurrency benefit for single-client MCP STDIO. |
+| `pytest-asyncio` | Not in current dev deps because tools are sync. Keep it that way. |
+| New config file format | `MNEMO_BOOKS_DIR` is a single env var. No YAML/TOML config file needed. |
+| Input validation library | Pydantic models already validate data. Tool parameter validation is straightforward string/path checking. |
+| Retry logic for add_book | `ingest_book()` already uses `tenacity` for Databricks API retries internally. |
 
 ---
 
-## Anti-Recommendations
+## pyproject.toml: No Changes Required
 
-### Do NOT Use
-
-| Library | Why Not |
-|---------|---------|
-| **databricks-bge-large-en** | Deprecated February 2026. Use GTE instead. |
-| **LangChain (full framework)** | Massive dependency for simple RAG. Use individual tools if needed. |
-| **poetry** | Slower than uv, more complex. uv is the 2026 standard. |
-| **Black + Flake8** | Ruff is faster and combines both. |
-| **requests** | No async support. Use httpx. |
-| **transformers (full)** | Heavy dependency if you only need tokenization. Use tiktoken. |
-| **FastMCP 3.x** | Breaking changes expected. Pin to `<3`. |
-| **Python < 3.10** | pytest-asyncio 1.3 requires 3.10+. Modern typing features need 3.10+. |
-
----
-
-## Version Constraints
+The current `pyproject.toml` dependencies section needs no modifications:
 
 ```toml
-# pyproject.toml
-[project]
-requires-python = ">=3.11"
-
-[project.dependencies]
-fastmcp = "<3"  # Pin to v2 to avoid breaking changes
-chromadb = ">=1.4.0"
-ebooklib = ">=0.20"
-beautifulsoup4 = ">=4.14.0"
-lxml = ">=6.0.0"
-databricks-sdk = ">=0.78.0"
-httpx = ">=0.28.0"
-pydantic = ">=2.12.0"
-pydantic-settings = ">=2.0.0"
-aiosqlite = ">=0.22.0"
-semchunk = ">=3.2.0"
-tiktoken = ">=0.12.0"
-
-[dependency-groups]
-dev = [
-    "ruff>=0.14.0",
-    "mypy>=1.19.0",
-    "pytest>=9.0.0",
-    "pytest-asyncio>=1.3.0",
+dependencies = [
+    "ebooklib>=0.18",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+    "tiktoken>=0.5",
+    "pydantic>=2.0",
+    "httpx>=0.27",
+    "tenacity>=8.3",
+    "numpy>=1.26",
+    "chromadb>=1.0.0",
+    "fastmcp>=2.14,<3",  # <-- provides ToolAnnotations via mcp dep
 ]
 ```
 
----
-
-## Version Notes
-
-### Python Version
-**Recommend: Python 3.11+**
-
-- pytest-asyncio 1.3.0 requires Python >= 3.10
-- Python 3.11 has significant performance improvements (10-60% faster)
-- Python 3.12/3.13 supported by all recommended libraries
-- Avoid Python 3.14 (alpha) for production
-
-### Deprecation Warnings
-
-1. **Databricks BGE-large-en**: Deprecated starting February 15, 2026. Migrate to GTE-large-en before then.
-
-2. **FastMCP 3.0**: Expected in 2026 with breaking changes. Pin to `fastmcp<3` for stability.
-
-3. **EbookLib Python 2.7**: 0.20 is the final version supporting Python 2.7. Future versions will be Python 3 only (not a concern for this project).
+The `mcp` SDK (providing `mcp.types.ToolAnnotations`) is a transitive dependency of `fastmcp` and does not need to be listed explicitly.
 
 ---
 
 ## Sources
 
+### Verified by Direct Execution (HIGH confidence)
+- FastMCP 2.14.4 `@mcp.tool` decorator signature -- inspected via `help(mcp.tool)` on installed package
+- `mcp.types.ToolAnnotations` class with all 5 fields -- instantiated and verified on `mcp==1.25.0`
+- Annotation passing via both `ToolAnnotations` object and plain dict -- tested both patterns
+- Sync tool functions work correctly in FastMCP -- confirmed existing pattern
+
 ### Official Documentation (HIGH confidence)
-- [FastMCP GitHub](https://github.com/jlowin/fastmcp)
-- [ChromaDB Docs](https://docs.trychroma.com/getting-started)
-- [Databricks Foundation Model APIs](https://docs.databricks.com/aws/en/machine-learning/foundation-model-apis/supported-models)
-- [Databricks Embedding Query](https://docs.databricks.com/aws/en/machine-learning/model-serving/query-embedding-models)
-- [uv Documentation](https://docs.astral.sh/uv/)
-- [Ruff Documentation](https://docs.astral.sh/ruff/)
+- [FastMCP Tools Documentation](https://gofastmcp.com/servers/tools) -- tool decorator API and annotations
+- [MCP Protocol Tool Annotations](https://modelcontextprotocol.io/legacy/concepts/tools) -- annotation field definitions
+- [FastMCP GitHub](https://github.com/jlowin/fastmcp) -- source of truth for FastMCP 2.x
 
-### PyPI Verified Versions (HIGH confidence)
-- [chromadb 1.4.1](https://pypi.org/project/chromadb/)
-- [EbookLib 0.20](https://pypi.org/project/EbookLib/)
-- [beautifulsoup4 4.14.3](https://pypi.org/project/beautifulsoup4/)
-- [lxml 6.0.2](https://pypi.org/project/lxml/)
-- [databricks-sdk 0.78.0](https://pypi.org/project/databricks-sdk/)
-- [httpx 0.28.1](https://pypi.org/project/httpx/)
-- [pydantic 2.12.5](https://pypi.org/project/pydantic/)
-- [aiosqlite 0.22.1](https://pypi.org/project/aiosqlite/)
-- [semchunk 3.2.5](https://pypi.org/project/semchunk/)
-- [tiktoken 0.12.0](https://pypi.org/project/tiktoken/)
-- [ruff 0.14.13](https://pypi.org/project/ruff/)
-- [mypy 1.19.1](https://pypi.org/project/mypy/)
-- [pytest 9.0.2](https://pypi.org/project/pytest/)
-- [pytest-asyncio 1.3.0](https://pypi.org/project/pytest-asyncio/)
+### PyPI Versions (HIGH confidence)
+- [fastmcp 2.14.4](https://pypi.org/project/fastmcp/) -- installed version
+- [mcp 1.25.0](https://pypi.org/project/mcp/) -- installed transitive dependency
 
-### Community/Blog Sources (MEDIUM confidence)
-- [semchunk GitHub](https://github.com/isaacus-dev/semchunk) - Performance benchmarks
-- [LangChain Text Splitters](https://python.langchain.com/docs/how_to/recursive_text_splitter/) - Chunking patterns
-- [Real Python uv Guide](https://realpython.com/python-uv/) - Best practices
+### Existing Codebase (HIGH confidence)
+- `src/mnemo/mcp/tools.py` -- current tool registration pattern
+- `src/mnemo/ingest.py` -- `ingest_book()` and `remove_book()` signatures
+- `src/mnemo/storage/repository.py` -- `BookRepository` class to extend
+- `src/mnemo/embeddings/config.py` -- `os.environ.get()` pattern for env config
+- `src/mnemo/storage/database.py` -- SQLite schema (no migration needed)
