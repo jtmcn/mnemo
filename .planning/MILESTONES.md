@@ -1,5 +1,34 @@
 # Project Milestones: Mnemo
 
+## v1.1 Book Management (Shipped: 2026-02-17)
+
+**Delivered:** MCP tools for full book lifecycle management — Claude can add, remove, and edit ebook metadata without CLI context-switching.
+
+**Phases completed:** 5-7 (5 plans total)
+
+**Key accomplishments:**
+
+- `update_book_metadata` MCP tool with dynamic SQL updates and cache invalidation
+- `remove_book` MCP tool with cascade deletes across SQLite and ChromaDB
+- `add_book` MCP tool with EPUB validation, hash-based duplicate detection, async timeout, and failure cleanup
+- ToolAnnotations on all 6 MCP tools (destructiveHint, idempotentHint, readOnlyHint)
+- Normalized error conventions and LLM-tuned docstrings for tool discovery
+- Full lifecycle integration test (add → search → update → verify → remove → verify removal)
+
+**Stats:**
+
+- 30 files created/modified (6,535 insertions, 1,298 deletions)
+- 9,511 lines of Python (4,458 source + 5,053 tests)
+- 3 phases, 5 plans, ~10 tasks
+- 7 days from milestone start to ship (2026-02-11 → 2026-02-17)
+- 19/19 requirements satisfied, audit passed
+
+**Git range:** `docs: start milestone v1.1 Book Management` → `docs(07): complete tool-polish-integration phase`
+
+**What's next:** Planning next milestone
+
+---
+
 ## v1.0 MVP (Shipped: 2026-02-10)
 
 **Delivered:** Personal technical book library with MCP search — parse EPUBs preserving code blocks, generate embeddings, and search via Claude through MCP.

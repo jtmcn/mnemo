@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A personal technical book library that lets you ask Claude questions and get answers grounded in your EPUB collection. Parses technical books preserving code blocks and structure, generates embeddings via Databricks GTE-large-en, stores vectors in ChromaDB, and exposes hybrid semantic+keyword search through an MCP server for Claude Desktop and Claude Code.
+A personal technical book library that lets you ask Claude questions and get answers grounded in your EPUB collection. Parses technical books preserving code blocks and structure, generates embeddings via Databricks GTE-large-en, stores vectors in ChromaDB, and exposes hybrid semantic+keyword search and full book lifecycle management through an MCP server for Claude Desktop and Claude Code.
 
 ## Core Value
 
@@ -22,27 +22,40 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 - ✓ Expose semantic search via MCP server (stdio transport) — v1.0
 - ✓ CLI for book management: add, remove, list — v1.0
 - ✓ Search filtering by book and content type — v1.0
+- ✓ Add book via MCP tool (ingest EPUB by file path) — v1.1
+- ✓ Remove book via MCP tool (delete book, chunks, and vectors) — v1.1
+- ✓ Update book metadata via MCP tool (title, authors, ISBN in SQLite) — v1.1
+- ✓ Tool annotations (destructiveHint, idempotentHint, readOnlyHint) on all MCP tools — v1.1
+- ✓ LLM-tuned docstrings and normalized error conventions — v1.1
+- ✓ Full lifecycle integration test (add → search → update → verify → remove → verify) — v1.1
 
 ### Active
 
-(None — define for next milestone with `/gsd:new-milestone`)
+- [ ] MNEMO_BOOKS_DIR environment config for ebook directory access
+- [ ] Path security restricting add_book to configured directory
 
 ### Out of Scope
 
 - PDF or other formats — EPUB only, Calibre converts if needed
 - Web UI — CLI only for management, Claude is the interface
 - Multi-user authentication — personal use only
-- Book management through MCP — retrieval only, management via CLI
 - Real-time sync with external sources — batch is fine for ~10 books
 - HTTP transport for MCP — stdio sufficient for personal use
 - Offline mode — local-only by design
+- Tags/genre/comment metadata fields — future milestone
+- External metadata lookup (Open Library, Google Books) — future milestone
+- Modifying source .epub files — read-only by design
+- Bulk import / directory scanning — future milestone
+- Re-embedding after metadata change — expensive, rarely needed
+- Interactive confirmation in tools — MCP is request-response
+- Progress reporting via MCP notifications — future milestone
 
 ## Context
 
-**Shipped v1.0** with 4,097 LOC Python source + 4,197 LOC tests.
+**Shipped v1.1** with 4,458 LOC Python source + 5,053 LOC tests.
 **Tech stack:** Python 3.11+, uv, ChromaDB, SQLite/FTS5, Databricks GTE-large-en, FastMCP 2.0, Typer, Rich.
-**Test coverage:** 236 tests (234 passed, 2 skipped for credentials).
-**Known items:** Code chunking heuristics need tuning with real data; similarity score thresholds need empirical calibration.
+**MCP tools:** 6 total — search_books, list_available_books, get_book_info, update_book_metadata, remove_book, add_book.
+**Known items:** Code chunking heuristics need tuning with real data; MNEMO_BOOKS_DIR path restriction not yet implemented.
 **Tech debt:** typer not in explicit dependencies (works via chromadb transitive dep).
 
 ## Constraints
@@ -67,6 +80,12 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 | 6-char hex book ID | SHA256 of content+title+author | ✓ Good — collision-resistant at personal scale |
 | Lazy imports for embeddings | Avoid hard dependency on credentials | ✓ Good — CLI works without Databricks config |
 | print() for JSON output | Rich console adds formatting/wrapping | ✓ Good — clean machine-readable output |
+| Direct delegation for MCP tools | Tools call ingest.py functions directly, no service layer | ✓ Good — simple, minimal abstraction |
+| Sync MCP tool impls | Ingest pipeline is sync, no concurrency benefit for STDIO | ✓ Good — avoid unnecessary async complexity |
+| Async timeout for add_book | asyncio.wait_for(to_thread(), timeout=300) | ✓ Good — prevents hung embedding calls |
+| Cache clear over selective eviction | _book_cache.clear() on any mutation | ✓ Good — simpler at personal scale |
+| isbn="" clears ISBN | Empty string normalized to NULL in DB | ✓ Good — clean UX for correcting metadata |
+| MNEMO_BOOKS_DIR descoped | Path security not needed for personal use MVP | — Pending — deferred to future milestone |
 
 ---
-*Last updated: 2026-02-10 after v1.0 milestone*
+*Last updated: 2026-02-17 after v1.1 milestone*
