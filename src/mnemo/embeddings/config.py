@@ -18,7 +18,10 @@ class EmbeddingConfig:
     @classmethod
     def from_env(cls) -> "EmbeddingConfig":
         """Load config from environment variables."""
+        host = os.environ.get("DATABRICKS_HOST", "")
+        if host and not host.startswith(("http://", "https://")):
+            host = f"https://{host}"
         return cls(
-            host=os.environ.get("DATABRICKS_HOST", ""),
+            host=host,
             token=os.environ.get("DATABRICKS_TOKEN", ""),
         )
