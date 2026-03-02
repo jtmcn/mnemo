@@ -1,0 +1,10 @@
+# Pre-commit hooks via prek
+# https://prek.j178.dev/configuration/
+
+[[repos]]
+repo = "https://github.com/pre-commit/pre-commit-hooks"
+rev = "v5.0.0"
+hooks = [
+  { id = "trailing-whitespace" },
+  { id = "end-of-file-fixer" },
+]
