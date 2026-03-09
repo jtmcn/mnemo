@@ -31,8 +31,12 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 
 ### Active
 
-- [ ] MNEMO_BOOKS_DIR environment config for ebook directory access
-- [ ] Path security restricting add_book to configured directory
+- [ ] Semantic chunking for text blocks (embedding-distance-based boundary detection)
+- [ ] Context enrichment via chunk expansion (configurable window, default 1)
+- [ ] Metadata-enriched search (filter by section path, sequence range)
+- [ ] Expose search relevance scores in MCP results
+- [ ] Switch ChromaDB to cosine distance metric
+- [ ] Configurable chunk sizes per book at ingest time
 
 ### Out of Scope
 
@@ -44,6 +48,8 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 - Offline mode — local-only by design
 - Tags/genre/comment metadata fields — future milestone
 - External metadata lookup (Open Library, Google Books) — future milestone
+- MNEMO_BOOKS_DIR environment config — deferred from v1.1
+- Path security restricting add_book to configured directory — deferred from v1.1
 - Modifying source .epub files — read-only by design
 - Bulk import / directory scanning — future milestone
 - Re-embedding after metadata change — expensive, rarely needed
@@ -87,5 +93,15 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 | isbn="" clears ISBN | Empty string normalized to NULL in DB | ✓ Good — clean UX for correcting metadata |
 | MNEMO_BOOKS_DIR descoped | Path security not needed for personal use MVP | — Pending — deferred to future milestone |
 
+## Current Milestone: v1.2 RAG Improvements
+
+**Goal:** Improve search quality and chunking intelligence — move from naive RAG to advanced RAG techniques.
+
+**Target features:**
+- Semantic chunking (embedding-distance boundary detection for text blocks)
+- Context enrichment (expand search results with surrounding chunks)
+- Metadata-enriched search (section path and sequence filtering)
+- Quick wins: cosine distance, search scores, configurable chunk sizes
+
 ---
-*Last updated: 2026-02-17 after v1.1 milestone*
+*Last updated: 2026-03-08 after v1.2 milestone start*

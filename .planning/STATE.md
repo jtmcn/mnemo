@@ -1,24 +1,22 @@
 # Project State: Mnemo
 
-**Last Updated:** 2026-02-17
-**Current Phase:** v1.1 complete — planning next milestone
+**Last Updated:** 2026-03-08
+**Current Phase:** v1.2 — defining requirements
 **Overall Progress:** v1.0 shipped, v1.1 shipped
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-02-17)
+See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Ask Claude a question, get answers from your book collection.
-**Current focus:** Planning next milestone
+**Current focus:** v1.2 RAG Improvements
 
 ## Current Position
 
-Phase: 7 of 7 (all phases complete)
-Plan: N/A
-Status: Ready for next milestone
-Last activity: 2026-02-17 — v1.1 milestone complete
-
-Progress: [####################] 100% (16/16 plans complete across v1.0 + v1.1)
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-08 — Milestone v1.2 started
 
 ## Performance Metrics
 
@@ -53,14 +51,15 @@ None.
 
 ### Blockers/Concerns
 - Code chunking heuristics need tuning with real data (carried from v1.0)
-- MNEMO_BOOKS_DIR path restriction not yet implemented (deferred from v1.1)
+- Semantic chunking will require re-ingesting existing books
+- ChromaDB distance metric change requires collection recreation
 
 ## Session Continuity
 
-Last session: 2026-02-17
-Stopped at: v1.1 milestone complete
+Last session: 2026-03-08
+Stopped at: Defining v1.2 requirements
 Resume file: None
 
 ---
 *State initialized: 2026-01-19*
-*Last updated: 2026-02-17*
+*Last updated: 2026-03-08*
