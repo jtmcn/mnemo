@@ -1,516 +1,338 @@
-# Pitfalls: Adding Management Tools to Mnemo MCP Server
+# Pitfalls: RAG Improvements for Mnemo v1.2
 
-**Domain:** Adding mutation/management MCP tools to an existing read-only MCP server
-**Researched:** 2026-02-11
-**Context:** Mnemo v1.0 has 3 read-only tools. Adding `add_book`, `remove_book`, `update_book_metadata`.
-**Overall confidence:** HIGH (based on codebase analysis, MCP specification, and verified sources)
+**Domain:** Adding semantic chunking, context enrichment, metadata search, and distance metric changes to an existing RAG system
+**Researched:** 2026-03-09
+**Confidence:** HIGH (based on codebase analysis, ChromaDB documentation, and RAG literature)
 
 ---
 
 ## Critical Pitfalls
 
-Mistakes that cause security vulnerabilities, data loss, or require rewrites.
+Mistakes that cause data loss, require full re-ingestion, or silently degrade search quality.
 
 ---
 
-### 1. Path Traversal via `add_book` file_path Parameter
+### 1. ChromaDB Silently Ignores Distance Metric Changes on Existing Collections
 
-**What goes wrong:** The `add_book` tool accepts an absolute `file_path` from the LLM. Without validation against `MNEMO_BOOKS_DIR`, an attacker (or a confused LLM) can pass paths like `/etc/passwd`, `../../sensitive/file.epub`, or symlinks pointing outside the allowed directory. Even though `EPUBParser` will likely fail on non-EPUB files, the server still attempts to open and read arbitrary filesystem paths, which is a security violation.
+**What goes wrong:**
+The current `VectorStore.__init__` calls `get_or_create_collection(name="mnemo", metadata={"hnsw:space": "l2"})`. If you change this to `{"hnsw:space": "cosine"}` and deploy, ChromaDB silently returns the existing L2 collection unchanged. The code runs without error, but all queries still use L2 distance. You think you switched to cosine, but nothing changed.
 
-**Why it matters for mnemo specifically:** The PRD explicitly says `MNEMO_BOOKS_DIR` restricts file access. The existing `ingest_book()` in `ingest.py` (line 129) only checks `epub_path.exists()` and does NOT validate against any base directory. The MCP tool layer must add this validation.
+**Why it happens:**
+ChromaDB's HNSW space parameter is immutable after collection creation. `get_or_create_collection` with a different space parameter does not error -- it just returns the existing collection with its original configuration. This is [documented behavior](https://cookbook.chromadb.dev/core/collections/) but easy to miss.
+
+**How to avoid:**
+You must delete and recreate the collection, or clone to a new collection name. For mnemo with ~9500 chunks across 7 books, the safest approach is:
+
+1. Delete the old collection: `client.delete_collection("mnemo")`
+2. Create new collection with cosine: `client.create_collection("mnemo", metadata={"hnsw:space": "cosine"})`
+3. Re-embed all books (vectors must be re-added; you cannot copy L2-normalized vectors to cosine without consideration)
+
+The key subtlety: mnemo currently L2-normalizes vectors before storage (see `VectorStore._normalize()`). With L2-normalized vectors, L2 distance and cosine distance produce the same ranking order. So switching to cosine distance is mathematically equivalent IF you keep the normalization. But if you also remove the manual normalization (since cosine distance normalizes internally), you must re-embed from scratch because the stored vectors are already normalized.
 
 **Warning signs:**
-- `add_book` works with any absolute path, not just paths under `MNEMO_BOOKS_DIR`
-- No test verifies that paths outside the configured directory are rejected
-- Path validation uses string prefix checking (`str.startswith()`) instead of resolved path comparison
+- Distance values from queries don't change after "switching" to cosine
+- `collection.metadata` still shows `{"hnsw:space": "l2"}` after the change
+- Tests pass because they create fresh collections each time
 
-**Prevention:**
-```python
-from pathlib import Path
-
-def _validate_path(file_path: str, books_dir: str) -> Path:
-    """Validate file_path is under MNEMO_BOOKS_DIR and is a real .epub file."""
-    books_base = Path(books_dir).resolve(strict=True)
-    target = Path(file_path).resolve(strict=True)  # Resolves symlinks
-
-    if not target.is_relative_to(books_base):
-        raise ValueError(
-            f"Path {file_path} is outside configured books directory"
-        )
-    if target.suffix.lower() != ".epub":
-        raise ValueError(f"Not an EPUB file: {file_path}")
-    return target
-```
-
-Key details:
-- Use `Path.resolve(strict=True)` to follow symlinks AND verify the path exists
-- Use `Path.is_relative_to()` (Python 3.9+) instead of string prefix matching
-- Resolve BOTH the base directory AND the target path before comparison
-- Validate BEFORE passing to `ingest_book()`, not inside it
-
-**Which phase should address it:** Phase 2 (MCP tool implementations) or Phase 3 (environment config). The validation function must be implemented BEFORE `add_book` is wired up. Do not defer to a later phase.
-
-**Confidence:** HIGH -- This is a well-documented MCP vulnerability pattern. Snyk published a specific article on [path traversal in MCP server function handlers](https://snyk.io/articles/preventing-path-traversal-vulnerabilities-in-mcp-server-function-handlers/). The [Anthropic MCP Git Server CVE](https://thehackernews.com/2026/01/three-flaws-in-anthropic-mcp-git-server.html) demonstrated real-world exploitation of path traversal in MCP servers (January 2026).
+**Phase to address:**
+Quick wins phase. Must be an explicit migration step, not just a config change. Provide a CLI command or script that handles the recreation.
 
 ---
 
-### 2. `add_book` Embedding Timeout Kills the MCP Connection
+### 2. Semantic Chunking Produces Tiny Fragments That Destroy Retrieval Quality
 
-**What goes wrong:** `add_book` with `embed=True` (the default) calls `ingest_book()` which calls `embed_book()`. For a large technical book (500+ chunks at 50/batch), embedding takes 30-120+ seconds over the Databricks API. MCP clients have timeout limits -- Claude Desktop and many clients default to 60 seconds. The tool call times out, the client thinks the server is hung, and the connection may be torn down. Worse: the book is partially ingested (SQLite committed at line 172 of `ingest.py`) but embedding is incomplete or lost.
+**What goes wrong:**
+Semantic chunking using embedding-distance boundary detection splits text whenever consecutive sentence embeddings diverge beyond a threshold. For technical books with frequent topic shifts (definition, example, explanation, caveat), this produces fragments averaging 30-50 tokens. These tiny chunks embed poorly -- they lack enough context for the embedding model to capture meaning -- and flood search results with near-meaningless snippets.
 
-**Why it matters for mnemo specifically:** Looking at `ingest.py` lines 169-179, the SQLite commit happens on line 172, THEN embedding starts on line 177. If the MCP connection drops mid-embedding, the book is in SQLite with chunks but has no vectors in ChromaDB. Searches on that book will return FTS results but no semantic results -- a confusing partial state.
+A [2025 benchmark](https://langcopilot.com/posts/2025-10-11-document-chunking-for-rag-practical-guide) found semantic chunking at 54% accuracy vs. recursive 512-token splitting at 69%, specifically because of fragment size issues. A [NAACL 2025 paper](https://www.firecrawl.dev/blog/best-chunking-strategies-rag) found that fixed 200-word chunks matched or beat semantic chunking across retrieval and answer generation tasks.
+
+**Why it happens:**
+Technical prose has high local variation -- a sentence about a concept, then a code reference, then a caveat, then back to explanation. Embedding distance between these adjacent sentences is high even though they belong to the same topic. The threshold treats every stylistic shift as a semantic boundary.
+
+**How to avoid:**
+- Set minimum chunk size to 200 tokens (mnemo's current `min_tokens=400` is a good floor). After semantic boundary detection, merge consecutive below-minimum chunks
+- Use the 90th-95th percentile of inter-sentence distances as the threshold, not a fixed value. Compute this per-document, not globally
+- Keep semantic chunking as an OPTION alongside the existing fixed-token chunker, not a replacement. Some books may chunk better with fixed-token
+- Test with actual mnemo books before committing: compare retrieval quality of semantic vs. fixed-token on known queries
 
 **Warning signs:**
-- `add_book` works in tests (small fixtures) but fails with real books in Claude Desktop
-- Books appear in `list_available_books` but `search_books` returns poor results for them
-- Intermittent "request timeout" errors from the MCP client
+- Average chunk token count drops below 100 after switching to semantic chunking
+- Search results return many small fragments instead of coherent passages
+- Users get worse answers from Claude after the change (the most important signal)
 
-**Prevention strategy -- two options:**
-
-**Option A (Recommended): Two-phase ingestion with progress**
-```python
-@mcp.tool
-async def add_book(file_path: str, force: bool = False, embed: bool = True) -> str:
-    # Phase 1: Parse + store (fast, < 5 seconds)
-    book, chunk_count = ingest_book(path, embed=False, force=force)
-
-    if not embed:
-        return f"Added {book.title} ({book.id}) - {chunk_count} chunks. Embedding skipped."
-
-    # Phase 2: Embed (slow, with progress)
-    # Send progress notifications to keep connection alive
-    embedded = embed_book(book.id)
-    return f"Added {book.title} ({book.id}) - {chunk_count} chunks, {embedded} embedded."
-```
-
-**Option B: Default embed=False, separate embed tool**
-Add a separate `embed_book` MCP tool. This avoids timeout risk entirely for `add_book` but requires Claude to make two tool calls. This is simpler and more robust.
-
-**Additional defense:** Regardless of approach, handle partial state gracefully. If embedding fails, the book should still be usable for FTS search, and the error message should tell Claude to retry embedding.
-
-**Which phase should address it:** Phase 2 (MCP tool implementations). This is an architectural decision that must be made before implementing `add_book`, not after. The existing `ingest_book()` already supports `embed=False`.
-
-**Confidence:** HIGH -- Multiple MCP timeout issues documented. The [MCPcat timeout guide](https://mcpcat.io/guides/fixing-mcp-error-32001-request-timeout/) documents the 60-second default. The [MCP Inspector issue #880](https://github.com/modelcontextprotocol/inspector/issues/880) confirms progress notifications don't reliably prevent timeouts in all clients as of January 2026.
+**Phase to address:**
+Semantic chunking phase. Must include a minimum chunk size floor and a fallback to fixed-token chunking. Do not make semantic chunking the only option.
 
 ---
 
-### 3. `remove_book` Cascade Fails Silently on ChromaDB Cleanup
+### 3. Context Enrichment Blows Up MCP Response Size and Degrades LLM Answers
 
-**What goes wrong:** Looking at `ingest.py` `remove_book()` (lines 182-219), the function deletes from SQLite first (line 204), commits (line 205), then attempts ChromaDB cleanup (line 213). If ChromaDB deletion fails (network error, file lock, corrupt index), the SQLite deletion has already been committed. The book is gone from SQLite but orphaned vectors remain in ChromaDB. The function returns `True` (success) because the SQLite delete succeeded.
+**What goes wrong:**
+Context enrichment expands each search result with adjacent chunks (prev/next via `prev_chunk_id`/`next_chunk_id`). With a window of 1 (default), each result triples in size. With `top_k=10` results, you go from ~8,000 tokens to ~24,000 tokens in the MCP response. Claude's context window can handle it, but the "lost in the middle" effect means relevant information buried in expanded context gets ignored. Worse, the expanded chunks may contain irrelevant content from neighboring topics, actively confusing the LLM.
 
-**Why it matters for mnemo specifically:** The existing `remove_book()` wraps ChromaDB cleanup in a try/except that catches `ImportError` (line 216) but does NOT catch other ChromaDB exceptions. A `chromadb.errors.ChromaError` would propagate up and be caught by the MCP tool's generic `except Exception` handler, but by that point SQLite is already committed.
+**Why it happens:**
+The intuition "more context = better answers" is wrong past a threshold. [Research shows](https://www.anthropic.com/news/contextual-retrieval) that retrieval performance degrades as context length increases, even for straightforward tasks. The model's attention gets diluted across the expanded text.
+
+**How to avoid:**
+- Default window to 1 (one chunk before + one chunk after), not higher
+- Only expand in the SAME section -- do not cross `section_path` boundaries. If the prev chunk has a different `section_path[-1]`, do not include it
+- Mark the original match vs. context chunks in the response so Claude knows which part actually matched the query
+- Reduce `top_k` when context enrichment is enabled (e.g., `top_k=5` with expansion instead of `top_k=10` without)
+- Make enrichment opt-in per search call, not always-on
 
 **Warning signs:**
-- ChromaDB disk usage grows over time even after removing books
-- `VectorStore.count()` reports vectors for book_ids that no longer exist in SQLite
-- Semantic search returns ghost results from deleted books
+- MCP response payloads grow beyond 30KB
+- Claude's answers reference information from adjacent chunks that is irrelevant to the question
+- Search latency increases noticeably (each result requires 2 additional SQLite lookups)
 
-**Prevention:**
-1. Verify ChromaDB cleanup succeeded before reporting success
-2. If ChromaDB cleanup fails, report partial success with clear instructions:
-   ```
-   "Book removed from database, but vector cleanup failed.
-   Vectors for book_id {id} remain in ChromaDB. Run embed maintenance to clean up."
-   ```
-3. Consider wrapping both deletions in a try/finally that logs the orphaned state
-4. Add a `verify_consistency()` utility that checks for orphaned vectors
-
-**Do NOT try to make this transactional across SQLite + ChromaDB.** They are separate storage systems. Accept that partial failure is possible and handle it gracefully.
-
-**Which phase should address it:** Phase 2 (MCP tool implementations). When wrapping `remove_book()` in the MCP tool, add error handling around the ChromaDB cleanup step. Consider modifying `ingest.py:remove_book()` to return richer status information.
-
-**Confidence:** HIGH -- Directly observable in the existing code. Lines 198-219 of `ingest.py` show the non-atomic two-phase delete pattern.
+**Phase to address:**
+Context enrichment phase. Design the expansion to be configurable and section-aware from day one.
 
 ---
 
-### 4. Shared Mutable DB Connection in MCP Tool Layer
+### 4. Re-ingestion Required But No Migration Path Provided
 
-**What goes wrong:** The current `tools.py` uses a module-level `_db_connection` singleton (line 22). Read-only tools work fine with this pattern because SQLite reads don't conflict. But mutation tools (`add_book` calling `ingest_book()`, `remove_book`) create their OWN connections inside `ingest.py` (lines 134-135, 200-201). This means:
+**What goes wrong:**
+Both semantic chunking and distance metric changes require re-ingesting existing books. Without a clear migration path, users must manually `remove_book` and `add_book` for all 7 books, losing any customization. If the ingest pipeline changes (new chunk IDs, different chunking), the ChromaDB vectors become orphaned from SQLite chunks. The system enters an inconsistent state where vector IDs point to non-existent chunks.
 
-1. The MCP tool layer's `_db_connection` reads stale data after `ingest_book()` writes through a different connection
-2. `ingest_book()` calls `conn.close()` on its own connection (line 173) -- this is fine, but the tool layer's `_db_connection` still sees the old state unless it re-queries
-3. If `add_book` MCP tool uses `_get_book_repo()` to verify the result after calling `ingest_book()`, it reads from the stale connection
+**Why it happens:**
+The current `ingest_book(force=True)` handles re-ingestion for a single book, but there is no batch re-ingestion command. The current `embed_book()` deletes existing vectors before re-embedding (line 69 of `ingest.py`), but only for one book at a time. There is no "re-chunk and re-embed everything" command.
 
-**Why it matters for mnemo specifically:** After calling `ingest_book()`, if `add_book` wants to return the book's info using the existing `_get_book_repo()`, it will use the cached `_db_connection` which has a different SQLite connection handle than the one `ingest_book()` used. With WAL mode (enabled in `database.py` line 103), the read connection MAY see the new data, but this is not guaranteed without a read transaction boundary reset.
+**How to avoid:**
+- Add a `reindex_all` CLI command that iterates all books and re-ingests with `force=True`
+- The command must handle the ChromaDB collection recreation (delete old, create with new distance metric)
+- Include a `--dry-run` flag that reports what would change without modifying data
+- Consider storing the original EPUB path in the books table so re-ingestion can find the source file. Currently, the EPUB path is not persisted anywhere after initial ingest
 
 **Warning signs:**
-- `add_book` returns success but `list_available_books` called immediately after doesn't show the new book
-- Tests pass (because they use fresh connections per test) but production fails
-- Intermittent "book not found" errors right after adding
+- Users upgrade mnemo but their existing books return poor search results
+- ChromaDB has vectors for chunk IDs that no longer exist in SQLite
+- `search_books` returns "chunk not found in SQLite" warnings (see `service.py` line 189)
 
-**Prevention:**
-- Option A: Have mutation tools create fresh connections per call (matching CLI pattern)
-- Option B: Refactor to use `ingest_book()` and read the result from its return value, never re-querying through the cached connection
-- Option C: After any mutation, invalidate the cached `_db_connection` by setting it to `None`
-
-**Recommended: Option B.** The `ingest_book()` function already returns `(Book, chunk_count)`. The MCP tool should use this return value directly to format the response, not re-query the database.
-
-**Which phase should address it:** Phase 2 (MCP tool implementations). Design the tool implementations to use `ingest_book()` return values directly.
-
-**Confidence:** HIGH -- Directly observable in existing code. The dual-connection pattern is clear: `tools.py` line 38 vs `ingest.py` line 135.
+**Phase to address:**
+Must be addressed BEFORE shipping any chunking or distance metric changes. Either as a prerequisite or as part of the quick wins phase. Without a migration path, all other improvements are inaccessible to existing users.
 
 ---
 
 ## Moderate Pitfalls
 
-Mistakes that cause confusing behavior, test failures, or technical debt.
-
 ---
 
-### 5. `update_book_metadata` SQL Injection via Dynamic UPDATE Construction
+### 5. Semantic Chunking Requires Extra Embedding API Calls at Ingest Time
 
-**What goes wrong:** The PRD specifies `BookRepository.update()` builds a "dynamic UPDATE statement for the provided fields." Dynamic SQL construction is the classic SQL injection vector. If column names or field values are interpolated as strings instead of parameterized, the method is vulnerable.
+**What goes wrong:**
+Semantic chunking needs to embed every sentence to compute inter-sentence distances for boundary detection. A 500-chunk book might have 3,000-5,000 sentences. At Databricks API rates, this means 60-100 extra batch calls just for chunking, before the actual chunk embedding. Ingest time could go from 2 minutes to 10+ minutes, and API costs increase proportionally.
 
-**Why it matters for mnemo specifically:** The update method must handle any combination of `title`, `authors`, `isbn` being provided or `None`. A naive implementation might do:
-```python
-# WRONG - SQL injection risk
-fields = []
-if title: fields.append(f"title = '{title}'")
-sql = f"UPDATE books SET {', '.join(fields)} WHERE id = '{book_id}'"
-```
+**Why it happens:**
+The boundary detection algorithm requires pairwise sentence embedding comparisons. This is fundamentally more expensive than fixed-token chunking, which needs zero API calls.
 
-**Prevention:**
-```python
-def update(self, book_id: str, title=None, authors=None, isbn=None):
-    fields = []
-    params = []
-    if title is not None:
-        fields.append("title = ?")
-        params.append(title)
-    if authors is not None:
-        fields.append("authors = ?")
-        params.append(json.dumps(authors))
-    if isbn is not None:
-        fields.append("isbn = ?")
-        params.append(isbn)
-
-    if not fields:
-        raise ValueError("At least one field must be provided")
-
-    params.append(book_id)
-    sql = f"UPDATE books SET {', '.join(fields)} WHERE id = ?"
-    cursor = self.conn.execute(sql, params)
-    self.conn.commit()
-    return cursor.rowcount > 0
-```
-
-Key: Column names are hardcoded strings (not user input), only values use `?` parameterization. This is safe because the set of allowed columns is fixed at `{title, authors, isbn}`.
-
-**Which phase should address it:** Phase 1 (repository layer). Must be correct from the start.
-
-**Confidence:** HIGH -- Standard secure coding practice. The existing repository code already uses parameterized queries correctly (see `repository.py` lines 45-61).
-
----
-
-### 6. `update_book_metadata` Silently Does Nothing for Nonexistent Books
-
-**What goes wrong:** A dynamic `UPDATE ... WHERE id = ?` on a nonexistent `book_id` executes without error -- `cursor.rowcount` is simply 0. If the tool returns "Updated book metadata" without checking rowcount, Claude tells the user the update succeeded when it did nothing.
-
-**Why it matters for mnemo specifically:** The PRD says the method should return `None` if the book is not found, but the MCP tool layer must translate this to a clear error message. The existing `_get_book_info_impl` already validates book_id format (line 109 of `tools.py`) but the new `_update_book_metadata_impl` must also validate the book exists.
-
-**Prevention:**
-- Check `cursor.rowcount` or re-query the book after update
-- Return `None` from the repository method when rowcount is 0
-- MCP tool: `if result is None: return "Error: Book not found: {book_id}"`
-- Validate `book_id` format (6-char hex) BEFORE attempting the update
-
-**Which phase should address it:** Phase 1 (repository layer) for the return value; Phase 2 (MCP tool) for the user-facing error.
-
-**Confidence:** HIGH -- Standard database pattern. Observable from the existing `BookRepository.delete()` pattern (line 120-121) which correctly checks `rowcount`.
-
----
-
-### 7. Missing `ToolAnnotations` on New Tools
-
-**What goes wrong:** The new management tools modify state but are registered with bare `@mcp.tool` decorators (like the existing read-only tools). Without `ToolAnnotations`, MCP clients cannot distinguish destructive tools from safe ones. Claude Desktop and other clients cannot surface confirmation prompts for `remove_book`. Worse, all tools look equally safe to the client.
-
-**Why it matters for mnemo specifically:** The PRD explicitly calls out marking `remove_book` with `destructiveHint=True` (section 9). The existing tools should also be annotated with `readOnlyHint=True` for completeness. FastMCP 2.14+ (which mnemo uses, confirmed: `fastmcp>=2.14,<3` in `pyproject.toml`) supports annotations via the `mcp.types.ToolAnnotations` class.
-
-**Prevention:**
-```python
-from mcp.types import ToolAnnotations
-
-# Existing read-only tools - annotate for clarity
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-def search_books(...) -> str: ...
-
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-def list_available_books() -> str: ...
-
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-def get_book_info(book_id: str) -> str: ...
-
-# New mutation tools
-@mcp.tool(annotations=ToolAnnotations(
-    destructiveHint=False,  # add_book creates, doesn't destroy
-    idempotentHint=False,   # calling twice with same path and force=False errors
-))
-def add_book(...) -> str: ...
-
-@mcp.tool(annotations=ToolAnnotations(
-    destructiveHint=True,   # permanently deletes data
-    idempotentHint=True,    # removing already-removed book is a no-op (returns "not found")
-))
-def remove_book(...) -> str: ...
-
-@mcp.tool(annotations=ToolAnnotations(
-    destructiveHint=False,
-    idempotentHint=True,    # setting same values again is a no-op
-))
-def update_book_metadata(...) -> str: ...
-```
-
-**Verified import path:** `from mcp.types import ToolAnnotations` -- confirmed working with the installed `fastmcp==2.14.4` and its `mcp` dependency. The class has fields: `title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`.
-
-**Which phase should address it:** Phase 2 (MCP tool implementations). Apply annotations when registering the new tools. Also backport `readOnlyHint=True` to existing tools in the same phase.
-
-**Confidence:** HIGH -- Verified against installed package: `mcp.types.ToolAnnotations` class confirmed with the exact field names.
-
----
-
-### 8. `MNEMO_BOOKS_DIR` Not Set or Invalid at Server Startup
-
-**What goes wrong:** The PRD says `MNEMO_BOOKS_DIR` is configured via environment variable in the MCP server config. But the current `server.py` reads no environment variables -- it just creates `FastMCP("mnemo")` and imports tools. If the new `add_book` tool reads `MNEMO_BOOKS_DIR` at call time and it's not set, the tool either crashes or silently skips path validation.
-
-**Why it matters for mnemo specifically:** The PRD says (section 4.2): "Validate the directory exists on server init (warn, don't crash)." This means:
-- Read `MNEMO_BOOKS_DIR` at startup, not per-tool-call
-- If not set, log a warning but let read-only tools work
-- If set but directory doesn't exist, log a warning
-- `add_book` must check at call time whether the variable was configured
+**How to avoid:**
+- Use a small, fast local model for boundary detection (e.g., sentence-transformers `all-MiniLM-L6-v2` via `sentence-transformers` library). The boundary detection embeddings do not need to match the storage embeddings -- they just need to capture relative similarity
+- Alternatively, batch sentence embeddings aggressively (Databricks supports up to batch size of several hundred)
+- Cache sentence embeddings so re-chunking with different thresholds does not require re-embedding
+- Document the ingest time increase so users are not surprised
 
 **Warning signs:**
-- `add_book` works in development (env var set) but fails in production (not set)
-- Different behavior depending on whether the user configured the env var
-- No clear error message explaining WHY `add_book` was rejected
+- `add_book` timeout increases from ~2 minutes to 10+ minutes
+- Databricks API costs increase significantly after deploying semantic chunking
+- MCP `add_book` hits the 300-second timeout (`asyncio.wait_for` in the MCP tool layer)
 
-**Prevention:**
-```python
-# In server.py or a config module:
-import os
-
-BOOKS_DIR = os.environ.get("MNEMO_BOOKS_DIR")
-if BOOKS_DIR:
-    books_path = Path(BOOKS_DIR)
-    if not books_path.is_dir():
-        logger.warning(f"MNEMO_BOOKS_DIR does not exist: {BOOKS_DIR}")
-        BOOKS_DIR = None  # Treat as unconfigured
-else:
-    logger.info("MNEMO_BOOKS_DIR not set. add_book will accept any path.")
-```
-
-Then in the tool:
-```python
-def _add_book_impl(file_path: str, ...) -> str:
-    if BOOKS_DIR:
-        validated = _validate_path(file_path, BOOKS_DIR)
-    else:
-        # No restriction configured -- accept any valid .epub path
-        validated = Path(file_path)
-        if not validated.exists():
-            return f"Error: File not found: {file_path}"
-```
-
-**Which phase should address it:** Phase 3 (environment config). But the tool implementations in Phase 2 must be DESIGNED to accept the config, even if Phase 3 wires it up.
-
-**Confidence:** HIGH -- The PRD explicitly specifies this behavior. The current codebase has zero environment variable handling.
+**Phase to address:**
+Semantic chunking phase. Decide on local vs. API embedding for boundary detection before implementation.
 
 ---
 
-### 9. Tests Leak State Between Mutation Tool Tests
+### 6. Section Path Filtering Does Not Work With ChromaDB Substring Matching
 
-**What goes wrong:** The existing test pattern in `test_mcp.py` swaps module-level globals (`tools._db_connection`, `tools._search_service`) in `try/finally` blocks. This pattern works for read-only tests but becomes fragile with mutation tools because:
+**What goes wrong:**
+The current `section_path` is stored as a joined string in ChromaDB metadata: `"Part I > Chapter 3 > Async Generators"`. Filtering by section path requires substring or prefix matching, but ChromaDB's `where` clause only supports exact equality, `$in`, `$ne`, and comparison operators. There is no `$contains` or `$like` operator for string metadata. A filter like `{"section_path": {"$contains": "Chapter 3"}}` will silently fail or error.
 
-1. Mutation tools call `ingest_book()` which creates its OWN database connection to `~/.mnemo/mnemo.db` (the default path)
-2. If a test doesn't pass `db_path` to `ingest_book()`, it writes to the production database
-3. Tests that create and remove books may leave behind ChromaDB artifacts in `~/.mnemo/chroma/`
+**Why it happens:**
+Developers assume ChromaDB metadata filtering works like SQL `LIKE` clauses. It does not. ChromaDB metadata is designed for exact match and numeric range queries.
 
-**Why it matters for mnemo specifically:** The existing integration tests (`test_integration.py`) handle this correctly by using `temp_db` fixtures and passing `db_path` to `ingest_book()`. But the MCP tool tests in `test_mcp.py` use global patching. The new mutation tool tests must either:
-- Pass temp paths through to the underlying `ingest_book()` / `remove_book()` calls
-- Or mock the ingest functions entirely
+**How to avoid:**
+- Store section_path components as separate metadata fields: `section_level_0: "Part I"`, `section_level_1: "Chapter 3"`, etc. This enables exact match at each level
+- Alternatively, do section filtering in SQLite (which has full SQL capabilities) and use the resulting chunk IDs to filter ChromaDB results. This leverages the existing dual-storage architecture
+- The hybrid search pipeline already loads chunks from SQLite -- add section filtering there, not in ChromaDB
+- Do NOT try to filter by section_path directly in ChromaDB metadata
 
 **Warning signs:**
-- Tests pass individually but fail when run as a suite
-- Running tests modifies `~/.mnemo/mnemo.db` on the developer's machine
-- ChromaDB `~/.mnemo/chroma/` grows with test artifacts
-- Flaky tests that depend on execution order
+- Section path filter returns zero results even when matching chunks exist
+- ChromaDB raises an error about unsupported `where` operators
+- Filter works in tests with exact section paths but fails with partial paths
 
-**Prevention:**
-```python
-# Pattern for mutation MCP tool tests:
-class TestAddBookTool:
-    @pytest.fixture
-    def isolated_tools(self, tmp_path, monkeypatch):
-        """Set up isolated DB and ChromaDB for mutation tests."""
-        db_path = tmp_path / "test.db"
-        chroma_path = tmp_path / "chroma"
-        init_db(db_path)
-        conn = get_connection(db_path)
-
-        # Patch the tool layer's connection
-        monkeypatch.setattr("mnemo.mcp.tools._db_connection", conn)
-
-        # ALSO patch the ingest module's default paths
-        monkeypatch.setattr("mnemo.storage.database.get_db_path", lambda: db_path)
-
-        yield {"db_path": db_path, "chroma_path": chroma_path, "conn": conn}
-        conn.close()
-```
-
-The key insight: you must patch BOTH the tool layer AND the ingest layer, because `ingest_book()` calls `init_db()` and `get_connection()` with `None` (default path).
-
-**Which phase should address it:** Phase 4 (testing). But design the tool implementations in Phase 2 with testability in mind -- consider accepting `db_path` and `chroma_path` parameters or making them configurable.
-
-**Confidence:** HIGH -- Directly observable from comparing `test_mcp.py` global-patching pattern with `ingest.py` default-path pattern.
+**Phase to address:**
+Metadata search phase. Design the filtering to happen in the SQLite layer, using the existing `idx_chunks_sequence` index and `section_path` JSON column.
 
 ---
 
-## Minor Pitfalls
+### 7. Exposing Raw Distance Scores Confuses Claude and Users
 
-Issues that cause annoyance or confusion but are fixable without major rework.
+**What goes wrong:**
+The current system uses RRF scores (higher = more relevant). If you expose raw ChromaDB distances alongside RRF scores, the semantics are inverted: lower distance = more similar. Mixing these in MCP results confuses Claude. It might say "this result has a high score of 0.85" when 0.85 is actually a poor distance score (far from the query).
 
----
+Additionally, L2 distances and cosine distances have completely different scales. L2 distances for normalized vectors range from 0 to 4. Cosine distances range from 0 to 2. If you switch distance metrics, any thresholds or interpretations based on the old scale become meaningless.
 
-### 10. `add_book` Returns Inconsistent Formats vs. Existing Tools
+**Why it happens:**
+Developers want to expose "relevance scores" for transparency, but raw distance values are not user-interpretable without normalization and context.
 
-**What goes wrong:** The existing tools return markdown-formatted strings (tables for `list_available_books`, headers for `get_book_info`). If `add_book` returns a different format (plain text, JSON string, or differently structured markdown), Claude's responses become visually inconsistent. The LLM also handles structured responses better when formats are predictable.
+**How to avoid:**
+- Convert distances to a 0-1 similarity score before exposing. For cosine distance: `similarity = 1 - (distance / 2)`. For L2 with normalized vectors: `similarity = 1 - (distance / 4)`
+- Label the field as `relevance_score` not `distance` or `raw_score`
+- Include a text interpretation: "highly relevant" (>0.8), "relevant" (0.5-0.8), "somewhat relevant" (<0.5)
+- Keep the existing RRF score for result ordering; add the similarity score as supplementary information
 
-**Prevention:** Match the existing format conventions:
-- Use markdown headers and bold for labels
-- Include the book ID in backticks (`` `a3f7c2` ``)
-- Follow the same field ordering as `get_book_info`
-- For errors, use the "Error: {message}" prefix (matching existing tools)
+**Warning signs:**
+- Claude misinterprets distance values as relevance scores
+- Users see different score scales before and after the cosine migration
+- Thresholds that worked with L2 fail with cosine
 
-Example consistent format:
-```python
-def _format_add_result(book: Book, chunk_count: int, embedded: int | None) -> str:
-    lines = [
-        f"## Added: {book.title}",
-        "",
-        f"**ID:** `{book.id}`",
-        f"**Authors:** {', '.join(book.authors) if book.authors else 'Unknown'}",
-        f"**Chunks:** {chunk_count}",
-    ]
-    if embedded is not None:
-        lines.append(f"**Embedded:** {embedded}")
-    return "\n".join(lines)
-```
-
-**Which phase should address it:** Phase 2 (MCP tool implementations).
+**Phase to address:**
+Quick wins phase (expose search scores). Must normalize before exposing, not after.
 
 ---
 
-### 11. `update_book_metadata` Allows Empty Strings
+### 8. Configurable Chunk Sizes Without Re-indexing Leads to Mixed Collections
 
-**What goes wrong:** The PRD says "at least one of title, authors, isbn must be provided." But it doesn't say what happens with empty values. If someone calls `update_book_metadata(book_id="abc123", title="")`, the book gets an empty title. Similarly, `authors=[]` clears all authors.
+**What goes wrong:**
+Adding configurable chunk sizes per book at ingest time means different books have different chunk sizes. The embedding model may behave differently with 200-token chunks vs. 800-token chunks -- shorter chunks have less context and embed differently. When searching across books, results from differently-sized chunks are not directly comparable. A short chunk from one book might score higher than a longer, more relevant chunk from another book simply because short text has sharper (less diluted) embeddings.
 
-**Prevention:**
-- Validate that provided values are meaningful, not just non-`None`
-- `title` must be non-empty string (matching `Book` model's `min_length=1`)
-- `authors` must be non-empty list with non-empty strings
-- `isbn` can be `None` (to clear it) but if provided must be non-empty
-- Return clear validation errors: "Error: title cannot be empty"
+**Why it happens:**
+The intuition "let users pick the right size for each book" ignores the interaction between chunk size and embedding quality. Embedding models have a sweet spot -- too short and the embedding lacks context, too long and the meaning is diluted.
 
-**Which phase should address it:** Phase 1 (repository layer) for data validation, Phase 2 (tool layer) for user-facing messages.
+**How to avoid:**
+- Provide sensible defaults (keep current 400-800 token range) and only allow deviation within a reasonable band (200-1200 tokens)
+- Document that changing chunk size for one book requires re-embedding that book
+- Store the chunk configuration used for each book (in the books table or metadata) so it is clear what settings were used
+- Do NOT allow mix-and-match without warning users about comparability
 
----
+**Warning signs:**
+- Some books consistently rank lower in search results after being ingested with different chunk sizes
+- Users report that a specific book "never shows up" in relevant searches
+- Average token counts vary wildly across books
 
-### 12. `remove_book` Has No "Are You Sure?" Signal for Claude
-
-**What goes wrong:** `remove_book` immediately deletes. The PRD says "Claude must confirm actions with the user" but this is a Claude-side behavior, not enforced by the tool. If Claude hallucinates or misidentifies a `book_id`, the wrong book gets deleted with no undo.
-
-**Prevention:**
-- The `destructiveHint=True` annotation (Pitfall #7) is the primary defense
-- Additionally, return the book's title in a confirmation-style response so Claude can verify:
-  ```
-  "Removed 'Python Cookbook' by David Beazley (abc123) - 892 chunks deleted"
-  ```
-  This lets the user see WHAT was deleted and catch mistakes
-- Consider adding a `get_book_info` call within `_remove_book_impl` before deletion to capture the title for the confirmation message
-- Do NOT add a `confirm: bool` parameter -- MCP tools should not have multi-step confirmation flows
-
-**Which phase should address it:** Phase 2 (MCP tool implementations).
+**Phase to address:**
+Quick wins / configurable chunk sizes phase. Add config storage before allowing customization.
 
 ---
 
-### 13. `authors` Parameter Type Mismatch Between MCP Schema and SQLite
+### 9. L2 Normalization Removal Breaks Compatibility With Existing Vectors
 
-**What goes wrong:** The `update_book_metadata` tool takes `authors: list[str]`. FastMCP generates JSON Schema from type hints, so the MCP client sends a JSON array. But SQLite stores authors as a JSON string (`json.dumps(authors)`). If the tool layer forgets to serialize or the repository layer double-serializes, you get `'["[\"Author One\"]"]'` in the database.
+**What goes wrong:**
+The current system manually L2-normalizes all embeddings before storing them (see `VectorStore._normalize()`). This was necessary because GTE-large-en returns unnormalized vectors, and L2 distance on unnormalized vectors does not give meaningful similarity. If you switch to cosine distance (which internally normalizes), you might be tempted to remove the manual normalization. But if ANY existing vectors in the collection were stored with normalization, and new vectors are stored without, the collection has inconsistent vectors. Distance calculations between old (normalized) and new (unnormalized) vectors are meaningless.
 
-**Prevention:**
-- Repository `update()` must call `json.dumps(authors)` exactly once before storing
-- Match the existing pattern in `BookRepository.add()` (line 56): `json.dumps(book.authors)`
-- Test round-trip: update authors -> get book -> verify authors list matches
-- Be especially careful if using `Book.model_validate()` on the updated row -- Pydantic expects `list[str]`, not a JSON string
+**Why it happens:**
+"Cosine distance handles normalization for us" is true for new collections, but ignores backward compatibility with existing data.
 
-**Which phase should address it:** Phase 1 (repository layer) with round-trip tests.
+**How to avoid:**
+- If switching to cosine, either:
+  - (a) Keep the manual normalization (it is harmless with cosine distance -- normalizing already-normalized vectors is a no-op), OR
+  - (b) Remove normalization AND re-embed all existing books from scratch
+- Option (a) is safer and requires no re-embedding. The vectors are already normalized; cosine distance on normalized vectors equals L2 distance on normalized vectors. The switch is purely for code clarity and consistency
+- Document which approach was taken so future developers understand why normalization is (or is not) present
 
----
+**Warning signs:**
+- Search quality suddenly degrades for books ingested before the change
+- New books rank higher than old books regardless of relevance
+- `VectorStore._normalize()` is deleted but old vectors remain in the collection
 
-## Phase-Specific Warning Summary
-
-| Phase | Pitfall | Severity | Key Action |
-|-------|---------|----------|------------|
-| Phase 1: Repository Layer | #5 SQL injection in dynamic UPDATE | Moderate | Use parameterized queries with hardcoded column names |
-| Phase 1: Repository Layer | #6 Silent no-op on nonexistent book | Moderate | Check `rowcount`, return `None` if 0 |
-| Phase 1: Repository Layer | #11 Empty string validation | Minor | Validate values are meaningful, not just non-None |
-| Phase 1: Repository Layer | #13 Authors JSON double-serialization | Minor | `json.dumps()` exactly once; test round-trip |
-| Phase 2: Tool Implementations | #1 Path traversal in add_book | **Critical** | Resolve + validate against MNEMO_BOOKS_DIR |
-| Phase 2: Tool Implementations | #2 Embedding timeout kills MCP | **Critical** | Two-phase ingestion or separate embed tool |
-| Phase 2: Tool Implementations | #3 Cascade delete fails silently | **Critical** | Handle ChromaDB cleanup failure gracefully |
-| Phase 2: Tool Implementations | #4 Stale DB connection | **Critical** | Use `ingest_book()` return values, not re-query |
-| Phase 2: Tool Implementations | #7 Missing ToolAnnotations | Moderate | Add annotations to ALL tools (new and existing) |
-| Phase 2: Tool Implementations | #10 Inconsistent output format | Minor | Match existing markdown conventions |
-| Phase 2: Tool Implementations | #12 No deletion feedback | Minor | Include book title in removal confirmation |
-| Phase 3: Environment Config | #8 MNEMO_BOOKS_DIR not set | Moderate | Read at startup, warn don't crash, validate at call time |
-| Phase 4: Testing | #9 Test state leakage | Moderate | Patch both tool layer AND ingest layer default paths |
+**Phase to address:**
+Quick wins phase (cosine distance switch). Decide normalization strategy before implementing. Option (a) is recommended -- keep normalization, it costs nothing.
 
 ---
 
-## Pre-Implementation Checklist
+## Technical Debt Patterns
 
-Before starting each phase, verify:
+Shortcuts that seem reasonable but create long-term problems.
 
-**Before Phase 1 (Repository Layer):**
-- [ ] `BookRepository.update()` uses `?` parameterization only
-- [ ] `update()` returns `None` for nonexistent books (check `rowcount`)
-- [ ] Empty string/empty list validation in place
-- [ ] `json.dumps(authors)` applied exactly once
-- [ ] Round-trip test: update -> get -> verify values match
+| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
+|----------|-------------------|----------------|-----------------|
+| Skip re-embedding after distance metric change | Faster deployment, no API cost | Silently uses old metric, no actual improvement | Never -- the whole point is changing the metric |
+| Use the storage embedding model for semantic boundary detection | No new dependency | 5-10x slower ingest, higher API costs | Only if ingest speed is not a concern and API costs are trivial |
+| Hard-code semantic chunk threshold | Simple implementation | Threshold that works for one book fails on another | Only for initial prototype; must be made adaptive |
+| Expand ALL search results with context | Simple implementation | Response size bloat, lost-in-the-middle effect | Only if top_k is reduced to 3-5 |
+| Store expanded context in ChromaDB documents | Avoid runtime expansion lookups | Massively increased storage, cannot change window later | Never -- use runtime expansion from SQLite |
 
-**Before Phase 2 (Tool Implementations):**
-- [ ] Path validation function implemented and tested (symlinks, traversal, non-.epub)
-- [ ] Timeout strategy decided: two-phase ingestion or separate embed tool
-- [ ] Tool implementations use `ingest_book()` return values, not cached connections
-- [ ] `ToolAnnotations` applied to ALL tools (new + existing)
-- [ ] Output format matches existing tools' markdown conventions
-- [ ] `remove_book` response includes deleted book's title
-- [ ] All error paths return "Error: ..." prefix strings
+## Integration Gotchas
 
-**Before Phase 3 (Environment Config):**
-- [ ] `MNEMO_BOOKS_DIR` read at server startup
-- [ ] Warning logged if directory doesn't exist (not crash)
-- [ ] `add_book` works both with and without `MNEMO_BOOKS_DIR` configured
-- [ ] Path validation correctly uses resolved, symlink-followed paths
+| Integration | Common Mistake | Correct Approach |
+|-------------|----------------|------------------|
+| ChromaDB collection recreation | Changing `metadata` in `get_or_create_collection` and assuming it takes effect | Delete collection first, then `create_collection` with new settings |
+| ChromaDB `get()` for migration | Using `offset` parameter (not supported in all versions) | Use `get()` with `limit` and paginate via `ids` |
+| Databricks embedding for chunking | Using GTE-large-en for sentence-level boundary detection | Use a small local model; GTE-large-en is overkill for relative similarity |
+| SQLite FTS5 with section filtering | Adding section_path to FTS query syntax | Filter section_path via SQL WHERE on the chunks table, not via FTS5 |
+| `prev_chunk_id`/`next_chunk_id` for expansion | Following links without checking section boundaries | Verify `section_path` matches before including adjacent chunks |
 
-**Before Phase 4 (Testing):**
-- [ ] Test fixtures patch BOTH `tools._db_connection` AND `database.get_db_path`
-- [ ] No test writes to `~/.mnemo/` (all use `tmp_path`)
-- [ ] Integration tests cover: add -> search -> update -> search -> remove -> search
-- [ ] Source `.epub` files verified unmodified after all operations (file hash check)
-- [ ] ChromaDB temp directories cleaned up in fixtures
+## Performance Traps
+
+| Trap | Symptoms | Prevention | When It Breaks |
+|------|----------|------------|----------------|
+| Embedding every sentence for semantic chunking via API | Ingest takes 10+ minutes per book | Use local embedding model for boundary detection | Any book with 500+ sentences (~most technical books) |
+| Loading full chunks for context expansion at search time | Search latency doubles from ~200ms to ~500ms | Preload adjacent chunk IDs in the initial SQLite query with a JOIN | With context window > 1 or top_k > 10 |
+| Section path filtering as post-retrieval filter | Retrieve 100 results, filter to 3 | Push section filter into ChromaDB WHERE clause (exact match on section fields) or SQLite query | When most chunks do not match the section filter |
+| Re-embedding all books sequentially | Migration takes hours | Batch re-embedding with parallel book processing | With more than ~10 books |
+
+## UX Pitfalls
+
+| Pitfall | User Impact | Better Approach |
+|---------|-------------|-----------------|
+| Returning expanded context without marking the match | Claude cannot tell which part of the expanded text answered the query | Wrap the matched chunk in markers: `[MATCH START]...[MATCH END]` with context before/after |
+| Showing raw distance scores | Users see meaningless numbers like 0.342 | Convert to 0-1 similarity with text label: "92% relevant" |
+| Changing default chunking without re-indexing existing books | Old books searched with old chunk boundaries, new books with new | Provide a `reindex` command and document the need to re-index |
+| Section path filter with no results returns empty without explanation | User thinks no relevant content exists | Return "No results in section X. Try without section filter?" |
+
+## "Looks Done But Isn't" Checklist
+
+- [ ] **Cosine distance switch:** Verify `collection.metadata` shows `cosine` after migration -- `get_or_create_collection` silently keeps old metric
+- [ ] **Semantic chunking:** Verify average chunk size is above 150 tokens -- boundary detection may produce tiny fragments
+- [ ] **Context enrichment:** Verify expanded chunks share the same `section_path` as the matched chunk -- cross-section expansion adds noise
+- [ ] **Search scores:** Verify scores are normalized to 0-1 range and higher = more relevant -- raw distances are inverted
+- [ ] **Section path filter:** Verify filtering works with partial paths (e.g., "Chapter 3" matches "Part I > Chapter 3 > Section 1") -- ChromaDB does not support substring matching
+- [ ] **Configurable chunk sizes:** Verify chunk config is persisted per book -- otherwise re-ingest uses defaults and original config is lost
+- [ ] **Re-indexing:** Verify all 7 existing books work correctly after the migration -- test with real data, not just new ingests
+- [ ] **prev/next links:** Verify chunk links are correct after re-chunking -- new chunk IDs break old links
+
+## Recovery Strategies
+
+| Pitfall | Recovery Cost | Recovery Steps |
+|---------|---------------|----------------|
+| ChromaDB still on L2 after "migration" | LOW | Delete collection, recreate with cosine, re-embed all books |
+| Tiny semantic chunks degrading search | MEDIUM | Re-ingest affected books with higher min_tokens or fixed-token chunker |
+| Context expansion returning cross-section noise | LOW | Add section boundary check, no re-indexing needed |
+| Mixed normalized/unnormalized vectors | HIGH | Must re-embed all books from scratch -- cannot fix in place |
+| Orphaned ChromaDB vectors after re-chunking | LOW | Delete all vectors for the book, re-embed |
+| Section filter returning zero results | LOW | Move filtering to SQLite layer, no data changes needed |
+
+## Pitfall-to-Phase Mapping
+
+| Pitfall | Prevention Phase | Verification |
+|---------|------------------|--------------|
+| #1 Silent distance metric non-change | Quick wins (cosine switch) | Assert `collection.metadata["hnsw:space"] == "cosine"` in test |
+| #2 Tiny semantic chunk fragments | Semantic chunking | Assert `mean(chunk.token_count) > 150` after chunking |
+| #3 Context expansion bloat | Context enrichment | Measure response size with expansion vs. without |
+| #4 No migration path | Pre-requisite / quick wins | `reindex_all` command exists and works on all 7 books |
+| #5 Expensive sentence embedding | Semantic chunking | Benchmark ingest time before and after |
+| #6 Section filter fails in ChromaDB | Metadata search | Integration test with partial section path match |
+| #7 Raw distance score confusion | Quick wins (expose scores) | Verify scores are 0-1 with higher = better |
+| #8 Mixed chunk sizes incomparable | Configurable chunks | Store and display chunk config per book |
+| #9 Normalization inconsistency | Quick wins (cosine switch) | Keep `_normalize()` or re-embed everything |
 
 ---
 
 ## Sources
 
-- [Snyk: Preventing Path Traversal in MCP Servers](https://snyk.io/articles/preventing-path-traversal-vulnerabilities-in-mcp-server-function-handlers/) -- HIGH confidence
-- [Snyk: Building Secure MCP Servers](https://snyk.io/articles/building-secure-mcp-servers/) -- HIGH confidence
-- [MCPcat: Fix MCP Error -32001 Request Timeout](https://mcpcat.io/guides/fixing-mcp-error-32001-request-timeout/) -- HIGH confidence
-- [MCP Inspector: Progress notifications not captured (Issue #880)](https://github.com/modelcontextprotocol/inspector/issues/880) -- HIGH confidence
-- [MCP Specification: Tool Annotations](https://modelcontextprotocol.io/legacy/concepts/tools) -- HIGH confidence
-- [FastMCP: Tools Documentation](https://gofastmcp.com/servers/tools) -- HIGH confidence
-- [FastMCP: Testing Guide](https://gofastmcp.com/patterns/testing) -- MEDIUM confidence
-- [MCPcat: Unit Testing MCP Servers](https://mcpcat.io/guides/writing-unit-tests-mcp-servers/) -- MEDIUM confidence
-- [Salvatoresecurity: Preventing Directory Traversal in Python](https://salvatoresecurity.com/preventing-directory-traversal-vulnerabilities-in-python/) -- HIGH confidence
-- [symlink path validation bypass (GitHub issue)](https://github.com/efforthye/fast-filesystem-mcp/issues/10) -- HIGH confidence
-- [HackerNews: Three Flaws in Anthropic MCP Git Server (Jan 2026)](https://thehackernews.com/2026/01/three-flaws-in-anthropic-mcp-git-server.html) -- HIGH confidence
+- [ChromaDB Cookbook: Collections](https://cookbook.chromadb.dev/core/collections/) -- distance metric immutability, cloning pattern (HIGH confidence)
+- [ChromaDB Docs: Configure Collections](https://docs.trychroma.com/docs/collections/configure) -- HNSW space configuration (HIGH confidence)
+- [ChromaDB Issue #2515: Unable to modify hnsw:space](https://github.com/chroma-core/chroma/issues/2515) -- confirms silent ignore behavior (HIGH confidence)
+- [ChromaDB Issue #1168: collection.modify metadata doesn't change space](https://github.com/chroma-core/chroma/issues/1168) -- confirms immutability (HIGH confidence)
+- [Firecrawl: Best Chunking Strategies for RAG 2025](https://www.firecrawl.dev/blog/best-chunking-strategies-rag) -- NAACL 2025 findings on semantic chunking costs (MEDIUM confidence)
+- [LangCopilot: Document Chunking for RAG 2025](https://langcopilot.com/posts/2025-10-11-document-chunking-for-rag-practical-guide) -- benchmark showing semantic chunking at 54% vs. recursive at 69% (MEDIUM confidence)
+- [Anthropic: Contextual Retrieval](https://www.anthropic.com/news/contextual-retrieval) -- context enrichment strategies (HIGH confidence)
+- [Weaviate: Chunking Strategies for RAG](https://weaviate.io/blog/chunking-strategies-for-rag) -- chunk size impact on embedding quality (MEDIUM confidence)
+- [Advanced RAG: Sentence Window Retrieval](https://glaforge.dev/posts/2025/02/25/advanced-rag-sentence-window-retrieval/) -- sentence window pattern and caveats (MEDIUM confidence)
+- [Superlinked VectorHub: Semantic Chunking](https://superlinked.com/vectorhub/articles/semantic-chunking) -- threshold selection strategies (MEDIUM confidence)
+- Mnemo codebase analysis: `vectors/store.py`, `chunking/chunker.py`, `search/service.py`, `ingest.py` (HIGH confidence)
+
+---
+*Pitfalls research for: Mnemo v1.2 RAG Improvements*
+*Researched: 2026-03-09*
