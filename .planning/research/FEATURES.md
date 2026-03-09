@@ -1,265 +1,212 @@
-# Feature Landscape: MCP Book Management Tools
+# Feature Landscape: v1.2 RAG Improvements
 
-**Domain:** MCP resource management tools (add/remove/update) for a personal book library
-**Milestone:** manage-books-mcp (subsequent milestone; search tools already exist)
-**Researched:** 2026-02-11
+**Domain:** Advanced RAG techniques for technical book search
+**Milestone:** v1.2 RAG Improvements (subsequent milestone; chunking, search, and MCP tools already exist)
+**Researched:** 2026-03-08
 **Confidence:** MEDIUM-HIGH
 
 ---
 
 ## Context
 
-Mnemo already has read-only MCP tools (`search_books`, `get_book_info`, `list_available_books`) and a CLI for book lifecycle management (`mnemo add`, `mnemo remove`). This milestone adds write-capable MCP tools so Claude can manage the library without the user switching to a terminal.
+Mnemo has a working hybrid search pipeline: fixed-token chunking (400-800 tokens), FTS5 keyword search, ChromaDB semantic search with L2 distance on L2-normalized GTE-large-en embeddings, and RRF fusion. This milestone improves search quality through better chunking, richer search results, and structural navigation.
 
-Target tools per the PRD:
-- `add_book(file_path, force=false, embed=true)` -- ingest EPUB
-- `remove_book(book_id)` -- delete book + chunks + vectors
-- `update_book_metadata(book_id, title?, authors?, isbn?)` -- edit SQLite only
+Existing infrastructure that these features build on:
+- `Chunker` with `ChunkerConfig(min_tokens, max_tokens, overlap_tokens)` and atomic CODE/TABLE/DIAGRAM/MATH handling
+- `prev_chunk_id`/`next_chunk_id` linking between adjacent chunks
+- `section_path` stored in both SQLite (JSON array) and ChromaDB metadata (joined string)
+- `sequence` field indexed per book (`idx_chunks_sequence`)
+- `VectorStore._normalize()` that L2-normalizes all embeddings before storage
+- `SearchResult` with `score` field (RRF score, already computed but not prominently displayed)
 
 ---
 
 ## Table Stakes
 
-Features users expect for MCP-based resource management. Missing any of these makes the tools feel broken or dangerous.
+Features that move search quality from "functional" to "good." Without these, users hit basic limitations quickly.
 
-### 1. Tool Annotations (readOnlyHint, destructiveHint)
+### 1. Context Enrichment via Chunk Expansion
 
-**Description:** MCP tool annotations signal behavioral characteristics to clients. Read-only tools should be marked `readOnlyHint=True`. Destructive tools (remove_book) should be marked `destructiveHint=True`. Mutating but non-destructive tools (add_book, update_book_metadata) should be marked with `readOnlyHint=False`.
+**Description:** When a search returns a matched chunk, also fetch the N surrounding chunks (before and after) to provide reading context. A code block without the explanation before it, or a concept without the example after it, gives incomplete answers.
+
+**How it works:**
+1. User searches, gets back N result chunks as today
+2. For each result chunk, follow `prev_chunk_id` links backward `window` times and `next_chunk_id` links forward `window` times
+3. Collect all chunks in the window, ordered by sequence
+4. Return the matched chunk with surrounding chunks clearly delimited (e.g., `[context before]` / `[matched]` / `[context after]`)
+5. Deduplicate: if two matched chunks have overlapping windows, merge into one context block
 
 **Complexity:** Low
-- FastMCP 2.14+ supports `ToolAnnotations` via `@mcp.tool(annotations=...)` decorator
-- The `mcp.types.ToolAnnotations` class is available with `destructiveHint`, `readOnlyHint`, `idempotentHint`, `openWorldHint` fields (verified in installed version)
+- Uses existing `prev_chunk_id`/`next_chunk_id` links -- no schema changes
+- Requires `ChunkRepository.get()` calls to fetch neighbors (already exists)
+- Add `context_window` parameter to `search_books` MCP tool (default 1)
 
-**Dependencies:** None beyond existing FastMCP version.
-
-**Why table stakes:** Clients like Claude Desktop use these annotations to decide when to show confirmation prompts. Without `destructiveHint=True` on `remove_book`, the client may auto-execute a deletion without user confirmation. The MCP spec explicitly recommends annotating tools to help clients make better UX decisions.
+**Dependencies on existing:** `prev_chunk_id`/`next_chunk_id` fields on Chunk model, `ChunkRepository.get()`.
 
 **Implementation notes:**
-- `add_book`: `readOnlyHint=False`, `idempotentHint=False` (creates new records), `openWorldHint=False`
-- `remove_book`: `readOnlyHint=False`, `destructiveHint=True`, `idempotentHint=True` (removing an already-removed book is a no-op)
-- `update_book_metadata`: `readOnlyHint=False`, `destructiveHint=False`, `idempotentHint=True` (same update = same result)
-- Existing read-only tools should also get `readOnlyHint=True` annotations retroactively
+- Default window of 1 (one chunk before, one chunk after) triples the context per result
+- Window of 0 preserves current behavior (backward compatible)
+- Alternative to linked-list traversal: query by `book_id` + `sequence BETWEEN (seq-window) AND (seq+window)` which is faster (indexed) and avoids N+1 queries
+- Cap total expanded token count to prevent massive responses (e.g., max 3000 tokens per expanded result)
 
-**Confidence:** HIGH (verified `mcp.types.ToolAnnotations` fields against installed package)
-
-**Sources:**
-- [FastMCP Tools Documentation](https://gofastmcp.com/servers/tools)
-- [MCP Specification - Tools](https://modelcontextprotocol.io/specification/2025-06-18/server/tools)
+**Confidence:** HIGH -- standard RAG pattern, well-documented in [NirDiamant RAG_Techniques](https://github.com/NirDiamant/RAG_Techniques/blob/main/all_rag_techniques/context_enrichment_window_around_chunk.ipynb) and [Microsoft Azure RAG guide](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/rag/rag-enrichment-phase)
 
 ---
 
-### 2. Structured Error Responses (Not Exceptions)
+### 2. Expose Search Relevance Scores
 
-**Description:** MCP tools should catch all exceptions internally and return structured error messages that the LLM can understand and act on. Unhandled exceptions crash the connection; structured errors let the LLM retry or ask the user for help.
+**Description:** The RRF score is already computed and stored in `SearchResult.score`, but the formatted output only shows `Match: semantic/keyword/both`. Exposing the numeric score lets Claude judge confidence and decide whether to search again with different terms.
 
-**Complexity:** Low
-- Existing tools already follow this pattern (try/except returning error strings)
-- New tools should match the same convention
-
-**Dependencies:** Existing error handling pattern in `tools.py`.
-
-**Why table stakes:** The MCP ecosystem consensus is clear: tool execution errors should be returned as `CallToolResult` with `isError=True`, not raised as exceptions. Exceptions kill the STDIO transport. Structured errors let Claude say "That book wasn't found, would you like to list available books?" instead of going silent.
-
-**Implementation notes:**
-- Catch `FileNotFoundError`, `ValueError`, `sqlite3.IntegrityError` and return descriptive strings
-- Include actionable context: "Book not found: abc123. Use list_available_books to see valid IDs."
-- Match the existing pattern: `return f"Error: {description}"`
-- FastMCP can also surface `isError` through its return type handling, but the current approach of returning error strings works and is consistent
-
-**Confidence:** HIGH (verified against existing codebase pattern and MCP best practice consensus)
-
-**Sources:**
-- [Error Handling in MCP Servers - MCPcat](https://mcpcat.io/guides/error-handling-custom-mcp-servers/)
-- [MCP Best Practices](https://modelcontextprotocol.info/docs/best-practices/)
-
----
-
-### 3. Input Validation with Actionable Error Messages
-
-**Description:** Each tool must validate inputs before operating and return messages that tell the LLM exactly what was wrong and how to fix it. File path validation for `add_book` (exists? is .epub? readable?). Book ID validation for `remove_book` and `update_book_metadata` (6-char hex? exists?). At least one field provided for `update_book_metadata`.
+**How it works:**
+- In `_format_search_results`, add the score to the output line: `**Score:** 0.032 | **Match:** both`
+- For semantic-only mode, also show the raw ChromaDB distance (currently discarded)
+- Normalize scores to be interpretable: RRF scores are tiny (0.016-0.033 range), so either show as-is with explanation or normalize to 0-100 scale
 
 **Complexity:** Low
-- File existence check: `Path(file_path).exists()`
-- Extension check: `.suffix.lower() == ".epub"`
-- Book ID format: regex or length check (already exists in `_get_book_info_impl`)
-- At least one optional field: simple `if not any([title, authors, isbn])` check
+- One-line change to `_format_search_results` formatting string
+- Optionally add raw distance to `SearchResult` model (new field `distance: float | None`)
 
-**Dependencies:** Existing validation in `_get_book_info_impl` as pattern reference.
-
-**Why table stakes:** LLMs work best when error messages are specific. "Invalid input" is useless. "File not found: /path/to/book.pdf. Expected an .epub file. Check the path with your filesystem tools." lets Claude self-correct. The PRD already specifies validation behavior; this just needs implementing consistently.
-
-**Implementation notes:**
-- `add_book` validation order: (1) path exists, (2) is .epub, (3) check duplicate via file_hash, (4) if duplicate and not force, return error with existing book_id
-- `remove_book` validation: (1) book_id format, (2) book exists (already handled by `remove_book()` returning False)
-- `update_book_metadata` validation: (1) at least one field provided, (2) book_id exists, (3) field-level validation (non-empty title, non-empty authors list, ISBN format if provided)
+**Dependencies on existing:** `SearchResult.score` (already populated), `_format_search_results` in `tools.py`.
 
 **Confidence:** HIGH
 
 ---
 
-### 4. Duplicate Detection with Force Override
+### 3. Switch ChromaDB to Cosine Distance
 
-**Description:** `add_book` must check whether a book with the same file hash already exists. If duplicate found and `force=false`, return an error message that includes the existing book's ID. If `force=true`, re-ingest (delete old + ingest fresh).
+**Description:** Current collection uses `l2` (L2/Euclidean) distance. Since all embeddings are already L2-normalized before storage, L2 distance and cosine distance produce identical ranking. The difference is score readability: cosine distance ranges 0-1 (0 = identical, 1 = orthogonal), while L2 on normalized vectors ranges 0-2 and is harder to interpret.
 
-**Complexity:** Low
-- Already implemented in `ingest_book()` via `book_repo.get_by_hash(book.file_hash)`
-- MCP tool just needs to catch `ValueError` from the ingest pipeline and format it
-
-**Dependencies:** Existing `ingest_book()` pipeline with force parameter.
-
-**Why table stakes:** Without duplicate detection, users accidentally create duplicate entries when they say "add this book" and it's already indexed. Without force override, there's no way to re-index a book after a chunking or embedding improvement. Both paths exist in the CLI; the MCP tool just wraps them.
-
-**Confidence:** HIGH (already implemented in ingest pipeline)
-
----
-
-### 5. Confirmation-Quality Return Messages
-
-**Description:** Each tool must return enough information for Claude to confirm the action to the user. `add_book` returns book ID, title, authors, chunk count. `remove_book` confirms what was removed. `update_book_metadata` returns the full updated book info.
+**How it works:**
+- ChromaDB does not allow changing the distance metric on an existing collection
+- Migration required: create new collection with `{"hnsw": {"space": "cosine"}}`, copy all data from old collection, delete old collection
+- Write a one-time migration script (CLI command or standalone script)
+- Update `VectorStore.__init__` to use `cosine` for new collections
 
 **Complexity:** Low
-- Format as markdown (matching existing tool return style)
-- Include all fields the user would want to verify
+- Migration script is ~30 lines: batch-read from old collection, batch-write to new
+- No re-embedding needed (same vectors, different distance function)
+- Risk: data loss if migration is interrupted mid-transfer
 
-**Dependencies:** `_get_book_info_impl` as formatting reference.
-
-**Why table stakes:** When Claude says "Done!" without details, users feel anxious. "Added Python Cookbook by David Beazley (id: a3f7c2) -- 892 chunks indexed" is confidence-building. The PRD already specifies this expected output format.
+**Dependencies on existing:** `VectorStore`, `VectorConfig`.
 
 **Implementation notes:**
-- `add_book` returns same format as the CLI output: title, authors, book_id, chunk count
-- `remove_book` returns: "Removed {title} ({book_id}) and {chunk_count} chunks from the library." or "Book not found: {book_id}"
-- `update_book_metadata` returns the full book info (same as `get_book_info`) so the user sees the change
+- Safe migration approach: create `mnemo_cosine` collection, migrate data, verify counts match, update `VectorConfig.collection_name` to `mnemo_cosine`, then delete old `mnemo` collection
+- ChromaDB does not support collection renaming, so either keep new name or delete-then-recreate
+- Since retrieval ranking is unchanged (math is equivalent for normalized vectors), this is zero-risk to search quality
 
-**Confidence:** HIGH
-
----
-
-### 6. Partial Update Semantics for Metadata
-
-**Description:** `update_book_metadata` must support updating any subset of fields (title only, authors only, ISBN only, or any combination). Fields not provided must be left unchanged. At least one field must be provided.
-
-**Complexity:** Low
-- Dynamic SQL UPDATE building from non-None fields
-- Requires new `BookRepository.update()` method (PRD specifies this)
-
-**Dependencies:** New `BookRepository.update()` method.
-
-**Why table stakes:** Users fix one thing at a time. "Fix the author name" should not require re-specifying the title and ISBN. This is standard PATCH semantics; anything else feels broken.
-
-**Implementation notes:**
-- `None` means "don't change this field" (not "set to null")
-- Build SET clause dynamically from provided fields
-- Return updated Book object or None if not found
-
-**Confidence:** HIGH
+**Confidence:** HIGH -- verified in [ChromaDB docs](https://docs.trychroma.com/docs/collections/configure) and [ChromaDB FAQ](https://cookbook.chromadb.dev/faq/)
 
 ---
 
 ## Differentiators
 
-Features that elevate the experience beyond basic functionality. Not strictly required, but significantly improve quality of life.
+Features that meaningfully improve search quality beyond baseline. Not strictly required but provide significant value.
 
-### 7. Progress Reporting for add_book
+### 4. Semantic Chunking for Text Blocks
 
-**Description:** Book ingestion (parse, chunk, embed) can take 10-60+ seconds depending on book size and embedding API latency. Report progress stages to the client via MCP progress notifications so Claude can relay status: "Parsing EPUB...", "Chunking content...", "Generating embeddings (batch 3/15)..."
+**Description:** Replace fixed-token splitting for TEXT blocks with embedding-distance-based boundary detection. Instead of splitting every 400-800 tokens at sentence boundaries, embed each sentence and split where topics shift (detected by high cosine distance between consecutive sentence embeddings).
+
+**How it works:**
+1. Split text block into sentences (regex or `nltk.sent_tokenize`)
+2. Embed each sentence via `DatabricksEmbedder.embed_batch()`
+3. Compute cosine distance between consecutive sentence pairs: `dist[i] = 1 - cosine_sim(emb[i], emb[i+1])`
+4. Identify boundary points where distance exceeds threshold (95th percentile of all distances in the document, or tunable absolute threshold)
+5. Group sentences between boundaries into chunks
+6. Merge chunks below `min_tokens` with nearest neighbor
+7. Split chunks exceeding `max_tokens` using existing sentence-boundary splitting as fallback
+
+**Complexity:** Medium-High
+- Requires embedding every sentence during ingest (extra API calls and latency)
+- For a 500-chunk book with ~10 sentences per chunk: ~5,000 sentence embeddings
+- At Databricks batch API pricing: adds ~20-30 seconds to ingest
+- Must handle edge cases: very short sentences, single-sentence paragraphs, sentences that are actually code inline
+- Existing books need re-ingestion + re-embedding to benefit
+
+**Dependencies on existing:** `Chunker._create_text_chunks()` (replacement target), `ChunkerConfig` (min/max bounds still apply), `DatabricksEmbedder.embed_batch()`.
+
+**Implementation notes:**
+- Atomic types (CODE, TABLE, DIAGRAM, MATH) remain unchanged -- semantic chunking only applies to TEXT blocks
+- The threshold is the critical tuning parameter. Too low = too many small chunks (benchmarks show semantic chunking averaged 43 tokens per chunk and scored 54% accuracy vs recursive at 69%). The min_tokens guard is essential.
+- Consider a configurable flag: `semantic_chunking: bool = False` on `ChunkerConfig`, defaulting off so existing behavior is preserved
+- Store chunking method in book metadata for traceability
+
+**Confidence:** MEDIUM -- benchmarks show mixed results. [Firecrawl 2026 benchmark](https://www.firecrawl.dev/blog/best-chunking-strategies-rag) placed recursive splitting first at 69%, semantic chunking at 54%. However, a [clinical study](https://pmc.ncbi.nlm.nih.gov/articles/PMC12649634/) found topic-aligned chunking hit 87% vs 13% for fixed-size. The difference is likely the min/max token guardrails preventing fragment generation. With proper bounds, semantic chunking should outperform fixed, but empirical tuning is needed.
+
+---
+
+### 5. Metadata-Enriched Search: Section Path Filtering
+
+**Description:** Add section path filtering to `search_books` so users can say "search chapter 3" or "search the generators section." Currently, the only filters are `book_id` and `content_type`.
+
+**How it works:**
+- Add `section` parameter to `search_books` MCP tool
+- For SQLite/FTS5 search: add `WHERE section_path LIKE '%Chapter 3%'` or use `json_each()` for exact matching
+- For ChromaDB search: use `where` clause with `$contains` on the `section_path` metadata field (stored as `"Part I > Chapter 3 > Generators"`)
+- Support partial matching: "Chapter 3" matches any chunk whose section_path contains "Chapter 3"
 
 **Complexity:** Medium
-- FastMCP `Context` object provides `report_progress(progress, total)` (verified available in 2.14)
-- Requires making `add_book` tool async and accepting `Context` parameter
-- Need to thread progress callbacks through the ingestion pipeline or report at stage boundaries
+- SQLite side: straightforward LIKE or json_each query on existing indexed data
+- ChromaDB side: `$contains` operator on string metadata works for substring matching
+- The tricky part is UI/UX: what does the user type? Full path? Partial? Regex? Keep it simple -- substring match.
 
-**Dependencies:** FastMCP `Context` import, async tool function.
-
-**Why differentiator (not table stakes):** Without progress, the tool still works -- Claude just says "Adding book, one moment..." and eventually gets a result. But for large books, 30+ seconds of silence is poor UX. Progress reporting turns "is it working?" into "embedding batch 5 of 12."
+**Dependencies on existing:** `section_path` stored in both SQLite (JSON array) and ChromaDB metadata (joined string). `SearchFilter` model, `SearchService.search()`, `VectorStore.query()`.
 
 **Implementation notes:**
-- Report at stage boundaries (simpler than per-batch): parsing (0.1), chunking (0.3), embedding (0.4-0.9), storing (1.0)
-- If embedding is disabled (`embed=false`), skip embedding stage and adjust progress fractions
-- Client support varies: Claude Desktop may not render progress bars yet, but the protocol is there for when it does
-- Alternatively, a simpler approach: use `ctx.log("info", "Parsing EPUB...")` for status messages (less structured but universally visible)
+- Extend `SearchFilter` with `section: str | None`
+- Add `section` parameter to `search_books` MCP tool
+- For ChromaDB: `where={"section_path": {"$contains": section_value}}`
+- For FTS5: add `AND c.section_path LIKE ?` with `%{section_value}%`
 
-**Confidence:** MEDIUM (Context.report_progress verified available; client rendering of progress is not guaranteed)
-
-**Sources:**
-- [FastMCP Context Documentation](https://gofastmcp.com/servers/context)
-- [MCP Progress Specification](https://modelcontextprotocol.io/specification/2025-03-26/basic/utilities/progress)
+**Confidence:** HIGH -- uses existing stored data, standard query patterns
 
 ---
 
-### 8. Retroactive Annotations on Existing Read-Only Tools
+### 6. Metadata-Enriched Search: Sequence Range Fetching
 
-**Description:** While adding annotations to the new write tools, also annotate the three existing read-only tools with `readOnlyHint=True`. This is a small change that improves the overall server quality.
+**Description:** After finding a relevant chunk, allow fetching a contiguous range of chunks by sequence number. "Give me chunks 15-25 from this book" enables reading flow beyond the context window.
 
-**Complexity:** Low
-- Three `@mcp.tool` decorators need `annotations=ToolAnnotations(readOnlyHint=True)` added
+**How it works:**
+- New MCP tool `get_book_chunks(book_id, start_sequence, end_sequence)` or add parameters to `search_books`
+- SQL: `SELECT * FROM chunks WHERE book_id = ? AND sequence BETWEEN ? AND ? ORDER BY sequence`
+- Return chunks in sequence order with content and metadata
 
-**Dependencies:** None.
+**Complexity:** Low-Medium
+- SQL query is trivial (index exists: `idx_chunks_sequence`)
+- Decision: new tool vs parameter on existing tool
+- New tool is cleaner: `search_books` finds, `get_book_chunks` reads
 
-**Why differentiator:** Not required for the new tools to work, but it completes the annotation picture and allows clients to optimize their UX for the entire mnemo tool set. Some MCP clients skip confirmation for read-only tools, speeding up search workflows.
-
-**Confidence:** HIGH
-
----
-
-### 9. Descriptive Tool Docstrings Tuned for LLM Consumption
-
-**Description:** MCP tool descriptions are the primary way Claude understands what tools do. The docstrings should explain not just the API but the operational context: when to use each tool, what it affects, what it does NOT affect, and common workflows.
-
-**Complexity:** Low
-- Just writing better docstrings
-
-**Dependencies:** None.
-
-**Why differentiator:** MCP research emphasizes that "working" is not the same as "agent-usable." Tools can return the right data and still fail because the agent couldn't figure out when to call them. Well-written descriptions reduce Claude's ambiguity about which tool to use and how. For example, `update_book_metadata` should clarify "Updates SQLite only. Does NOT re-embed or modify ChromaDB. Search results will reflect the new metadata immediately because titles are resolved from SQLite at query time."
+**Dependencies on existing:** `chunks.sequence` field, `idx_chunks_sequence` index, `ChunkRepository`.
 
 **Implementation notes:**
-Example improved docstring for `remove_book`:
-```
-Remove a book and all its indexed content from the library.
-
-This permanently deletes the book's metadata, text chunks, and vector
-embeddings. The source .epub file on disk is NOT deleted.
-
-Use list_available_books to find the book_id. After removal, the book
-will no longer appear in search results.
-```
-
-**Confidence:** HIGH
-
-**Sources:**
-- [54 Patterns for Building Better MCP Tools](https://blog.arcade.dev/mcp-tool-patterns)
-- [Less is More: MCP Design Patterns](https://www.klavis.ai/blog/less-is-more-mcp-design-patterns-for-ai-agents)
-
----
-
-### 10. MNEMO_BOOKS_DIR Path Scoping for add_book
-
-**Description:** Optionally restrict `add_book` to only accept file paths within the configured `MNEMO_BOOKS_DIR`. This prevents ingestion of arbitrary filesystem paths and provides a security boundary.
-
-**Complexity:** Low
-- Check that the resolved path starts with `MNEMO_BOOKS_DIR`
-- If not configured, allow any path (backward compatible)
-- If configured, reject paths outside the directory with an actionable error
-
-**Dependencies:** `MNEMO_BOOKS_DIR` environment variable support in server startup (PRD Phase 3).
-
-**Why differentiator:** Security-conscious design, but not strictly required for functionality. In single-user local setups, the risk is minimal. Matters more if someone exposes their MCP server over HTTP.
+- Recommend a new MCP tool rather than overloading `search_books`
+- Cap range to prevent massive responses (e.g., max 20 chunks per request)
+- Include section_path in output so Claude knows what section the chunks belong to
+- Mark as `readOnlyHint=True`
 
 **Confidence:** HIGH
 
 ---
 
-### 11. Book Title in remove_book Confirmation
+### 7. Configurable Chunk Sizes per Book
 
-**Description:** When removing a book, include the book's title in the confirmation message, not just the ID. Fetch the book info before deletion so the response says "Removed Python Cookbook (a3f7c2)" instead of just "Removed a3f7c2."
+**Description:** Allow specifying min/max token sizes when adding a book via MCP. Dense mathematical books benefit from smaller chunks (200-400 tokens); narrative books work better with larger chunks (600-1000 tokens).
+
+**How it works:**
+- Add optional `chunk_min_tokens` and `chunk_max_tokens` parameters to `add_book` MCP tool
+- Pass through to `ChunkerConfig` during `ingest_book()`
+- Defaults remain 400/800 if not specified
 
 **Complexity:** Low
-- Fetch book from repository before deleting
-- Include title in the response message
+- `ChunkerConfig` already supports these parameters
+- `ingest_book()` already accepts `chunker_config`
+- Only need to wire MCP tool parameters through to the pipeline
 
-**Dependencies:** Existing `BookRepository.get()`.
+**Dependencies on existing:** `ChunkerConfig`, `ingest_book(chunker_config=...)`, `add_book` MCP tool.
 
-**Why differentiator:** Small touch that makes the interaction feel more human. Claude can relay "I've removed Python Cookbook from your library" instead of "I've removed a3f7c2."
+**Implementation notes:**
+- Validate: `min_tokens >= 100`, `max_tokens <= 2000`, `min_tokens < max_tokens`
+- Book must be re-ingested (with `force=true`) to change chunk sizes
+- Consider storing the chunk config used in book metadata for reproducibility (optional, not required)
 
 **Confidence:** HIGH
 
@@ -267,166 +214,120 @@ will no longer appear in search results.
 
 ## Anti-Features
 
-Things to deliberately NOT build in this milestone. Each has a rationale.
+Features to explicitly NOT build in v1.2.
 
-### Complex Metadata Editing (Tags, Genres, Cover Art, Series Info)
+### LLM-Based Chunking
 
-**Why not:** The PRD explicitly defers tags/comments to a future phase. Calibre handles rich metadata management far better than we could. The current milestone only needs title, authors, and ISBN -- the three fields most likely to be wrong from EPUB extraction.
+**Why avoid:** Using GPT/Claude to decide chunk boundaries is expensive per chunk (~$0.01-0.05 per chunk at scale), slow (adds seconds per chunk), non-deterministic, and overkill for ~10 books. Semantic chunking via embeddings achieves 80% of the benefit at 10% of the cost.
 
-**What to do instead:** `update_book_metadata` takes only title, authors, isbn. Add more fields in a future milestone if demand materializes.
-
----
-
-### External Metadata Lookup (Open Library, Google Books API)
-
-**Why not:** Introduces external API dependency, rate limiting concerns, and the question of "which metadata source is authoritative?" The PRD explicitly lists this as a future extension.
-
-**What to do instead:** Users tell Claude the correct metadata, Claude calls `update_book_metadata`. If we add lookup later, it becomes a separate tool (`lookup_book_metadata`) that returns suggestions for the user to confirm.
+**What to do instead:** Embedding-distance semantic chunking with min/max token guardrails.
 
 ---
 
-### Batch Import / Directory Scan
+### Agentic/Multi-Hop Retrieval
 
-**Why not:** `scan_books_dir()` that finds un-indexed EPUBs is useful but not core. It requires defining behavior for partial failures, progress across multiple books, and whether to embed all at once (expensive).
+**Why avoid:** Adds tool-chaining complexity (planning loops, state management) for marginal gain. Claude itself already performs multi-turn search naturally -- it calls `search_books` multiple times with refined queries.
 
-**What to do instead:** Claude can use Filesystem MCP to list .epub files, compare against `list_available_books`, and call `add_book` for each one. The orchestration happens at the Claude layer, not in mnemo.
-
----
-
-### Re-Embedding After Metadata Update
-
-**Why not:** ChromaDB chunk metadata stores `book_id` and `section_path` but NOT title/author. The `SearchService` already resolves titles from SQLite at query time via `_get_book_title()`. Re-embedding after a title change is unnecessary and expensive.
-
-**What to do instead:** Just update SQLite. Search results automatically reflect the new metadata. Document this clearly in the tool description.
+**What to do instead:** Keep `search_books` as a single-shot tool. Let Claude handle multi-step reasoning.
 
 ---
 
-### Undo / Soft Delete
+### Parent-Child Chunk Hierarchy / Auto-Merging
 
-**Why not:** Adds state complexity (deleted_at column, filter-everywhere logic, garbage collection). At personal library scale, re-adding a book from the .epub file is trivial recovery.
+**Why avoid:** Requires tree structure in storage, complex merge logic, and careful handling of cross-level navigation. Context enrichment via neighbor expansion achieves the same goal (providing surrounding context) with far less complexity.
 
-**What to do instead:** `remove_book` is permanent. The source .epub is never deleted. Users re-add if needed.
-
----
-
-### Interactive Confirmation Within Tools
-
-**Why not:** MCP tools are synchronous request-response. The tool cannot pause mid-execution to ask the user "Are you sure?" That is the client's job, guided by `destructiveHint=True`. The 2025-06-18 MCP spec adds server-initiated "elicitation" for requesting user input, but this is an advanced feature not yet widely supported in clients.
-
-**What to do instead:** Annotate `remove_book` with `destructiveHint=True`. Trust the client (Claude Desktop) to surface confirmation. Design the tool to be safe by default (no `force` default for add_book, explicit book_id required for remove).
+**What to do instead:** Context enrichment with configurable window size.
 
 ---
 
-### Async Tasks / Background Processing
+### Chunk-Level Summaries/Keywords in Metadata
 
-**Why not:** The 2025-11-25 MCP spec introduces experimental "Tasks" for long-running operations. This is cutting-edge and not widely supported in clients yet. Book ingestion (10-60s) is within the synchronous timeout window for STDIO transport.
+**Why avoid:** Requires LLM call per chunk during ingest, dramatically increasing ingest cost and time. The embedding itself captures semantic meaning; adding a summary is redundant for retrieval.
 
-**What to do instead:** Run ingestion synchronously. Use progress notifications if client supports them. If ingestion times grow beyond 2 minutes (very large books with slow embedding), revisit async tasks.
+**What to do instead:** Rely on embeddings for semantic matching and `section_path` for structural context.
 
 ---
 
-### PDF Support
+### Cross-Encoder Re-Ranking
 
-**Why not:** Different parser, different content extraction challenges. The PRD scopes this milestone to EPUB only.
+**Why avoid:** Adds a heavy model dependency and inference cost per query. RRF fusion of keyword + semantic search is already a strong ranking baseline. At ~10 books, the improvement is marginal.
 
-**What to do instead:** `add_book` validates `.epub` extension. Return clear error for other formats: "Only EPUB files are currently supported."
+**What to do instead:** Keep RRF fusion. Revisit only if search quality is measurably poor after v1.2.
+
+---
+
+### Automatic Re-Chunking on Strategy Change
+
+**Why avoid:** Silently re-ingesting books when chunking config changes is destructive, slow (requires re-embedding), and confusing. Users should make this decision explicitly.
+
+**What to do instead:** Document: "Re-add with `force=true` to apply new chunking strategy."
 
 ---
 
 ## Feature Dependencies
 
 ```
-Existing Infrastructure (already built)
-  |
-  |-- BookRepository (CRUD for books table)
-  |     |-- .add(), .get(), .get_by_hash(), .delete(), .list_all()
-  |     |-- NEW: .update() method needed
-  |
-  |-- ingest_book() pipeline (parse -> chunk -> store -> embed)
-  |-- remove_book() pipeline (delete from SQLite + ChromaDB)
-  |-- FastMCP server with @mcp.tool registration
-  |-- mcp.types.ToolAnnotations (available in fastmcp 2.14)
-  |
-  v
-New MCP Tools
-  |
-  |-- add_book MCP tool
-  |     |-- Wraps ingest_book()
-  |     |-- Adds: path validation, .epub check, MCP error formatting
-  |     |-- Depends on: ingest_book(), BookRepository
-  |
-  |-- remove_book MCP tool
-  |     |-- Wraps remove_book() from ingest.py
-  |     |-- Adds: title in confirmation, destructiveHint annotation
-  |     |-- Depends on: remove_book(), BookRepository.get()
-  |
-  |-- update_book_metadata MCP tool
-  |     |-- NEW: calls BookRepository.update()
-  |     |-- Adds: partial update validation, field-level checking
-  |     |-- Depends on: NEW BookRepository.update() method
+Independent quick wins (do first):
+  Cosine distance migration ──> Score exposure (benefits from 0-1 cosine distances)
+
+Independent medium features (do in parallel):
+  Context enrichment (uses existing prev/next links)
+  Section path filtering (extends search params)
+  Configurable chunk sizes (extends add_book params)
+  Sequence range fetching (new tool or param)
+
+Depends on quick wins + medium features:
+  Semantic chunking (most complex; benefits from configurable chunk sizes
+                     existing first as min/max guardrails; requires re-ingest)
 ```
 
-### Critical Path
-
-The only net-new code dependency is `BookRepository.update()`. Everything else wraps existing functionality. This suggests:
-
-1. **Phase 1:** Add `BookRepository.update()` + unit tests (unblocks update_book_metadata)
-2. **Phase 2:** Implement all three MCP tools (add, remove, update) + annotations
-3. **Phase 3:** MNEMO_BOOKS_DIR config + path scoping
-4. **Phase 4:** Integration tests
+**Critical ordering insight:** Semantic chunking should be implemented last because:
+1. It is the most complex feature with the most risk
+2. Existing books must be re-ingested + re-embedded to benefit
+3. Configurable chunk sizes should exist first so min/max bounds are tunable
+4. Cosine distance should be migrated first so the embedding comparison during chunking uses the right metric
+5. All other features work with both old (fixed) and new (semantic) chunks
 
 ---
 
 ## MVP Recommendation
 
-### Must Have (this milestone):
+### Must Have (ordered by implementation sequence):
 
-1. **Tool annotations** on all three new tools (and retroactively on existing tools) -- Low effort, high impact on safety
-2. **Structured error responses** with actionable messages -- Already patterned; just follow it
-3. **Input validation** (path checks, book_id format, at-least-one-field) -- Standard defensive programming
-4. **Duplicate detection** via file_hash with force override -- Already in ingest pipeline
-5. **Confirmation-quality return messages** including titles, IDs, chunk counts -- Low effort
-6. **Partial update semantics** for update_book_metadata -- Requires BookRepository.update()
-7. **Book title in remove_book confirmation** -- Tiny enhancement, big UX win
+1. **Cosine distance migration** -- One-time script, improves score interpretability, no behavioral change. Unblocks meaningful score display.
+2. **Search scores exposure** -- Tiny change to formatting, lets Claude judge result confidence.
+3. **Context enrichment** -- Highest-value single feature. Transforms isolated chunks into readable passages.
+4. **Configurable chunk sizes** -- Small API change, prepares infrastructure for semantic chunking.
 
-### Should Have (this milestone, if time permits):
+### Should Have:
 
-8. **Progress reporting** for add_book via Context.report_progress -- Medium effort; nice UX
-9. **MNEMO_BOOKS_DIR path scoping** -- Low effort security improvement
-10. **Improved docstrings** tuned for LLM consumption -- Low effort; polish
+5. **Section path filtering** -- Enables structural navigation, medium effort.
+6. **Sequence range fetching** -- Companion to context enrichment for deeper reading.
+7. **Semantic chunking** -- Highest complexity, highest potential upside, but existing fixed chunking is functional. Needs empirical tuning.
 
 ### Explicitly Defer:
 
-- Tags/genres/comments metadata fields
-- External metadata lookup APIs
-- Batch import / directory scan
-- Re-embedding after metadata update
-- Async tasks / background processing
-- PDF support
+- Cross-encoder re-ranking
+- LLM-based chunking
+- Chunk metadata enrichment (summaries, keywords)
+- Parent-child hierarchy
 
 ---
 
 ## Sources
 
-### MCP Specification and Best Practices
-- [MCP Specification 2025-06-18 - Tools](https://modelcontextprotocol.io/specification/2025-06-18/server/tools)
-- [MCP Specification 2025-03-26 - Progress](https://modelcontextprotocol.io/specification/2025-03-26/basic/utilities/progress)
-- [MCP Best Practices](https://modelcontextprotocol.info/docs/best-practices/)
-- [15 Best Practices for Building MCP Servers](https://thenewstack.io/15-best-practices-for-building-mcp-servers-in-production/)
+### Semantic Chunking
+- [Firecrawl: Best Chunking Strategies for RAG 2026](https://www.firecrawl.dev/blog/best-chunking-strategies-rag) -- Benchmarks: recursive 69% vs semantic 54%
+- [Milvus: Max-Min Semantic Chunking](https://milvus.io/blog/embedding-first-chunking-second-smarter-rag-retrieval-with-max-min-semantic-chunking.md) -- Advanced boundary detection algorithm
+- [Superlinked VectorHub: Semantic Chunking](https://superlinked.com/vectorhub/articles/semantic-chunking) -- Algorithm walkthrough and tradeoffs
+- [Clinical Decision Support Chunking Study](https://pmc.ncbi.nlm.nih.gov/articles/PMC12649634/) -- Topic-aligned at 87% vs fixed at 13%
 
-### MCP Tool Design Patterns
-- [54 Patterns for Building Better MCP Tools](https://blog.arcade.dev/mcp-tool-patterns)
-- [Less is More: MCP Design Patterns](https://www.klavis.ai/blog/less-is-more-mcp-design-patterns-for-ai-agents)
-- [MCP Tool Descriptions Best Practices](https://www.merge.dev/blog/mcp-tool-description)
+### Context Enrichment
+- [NirDiamant RAG_Techniques: Context Enrichment Window](https://github.com/NirDiamant/RAG_Techniques/blob/main/all_rag_techniques/context_enrichment_window_around_chunk.ipynb) -- Reference implementation
+- [Microsoft Azure RAG Enrichment Phase](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/rag/rag-enrichment-phase) -- Enterprise patterns
+- [PIXION: RAG Context Enrichment Strategies](https://pixion.co/blog/rag-strategies-context-enrichment) -- Sentence window vs auto-merging comparison
 
-### Error Handling
-- [Error Handling in MCP Servers - MCPcat](https://mcpcat.io/guides/error-handling-custom-mcp-servers/)
-- [MCP Best Practices for Exceptions](https://gist.github.com/eonist/1cbc3502305e0fc0aa6e977bae283b41)
-
-### FastMCP
-- [FastMCP Tools Documentation](https://gofastmcp.com/servers/tools)
-- [FastMCP Context Documentation](https://gofastmcp.com/servers/context)
-
-### Safety and Confirmation Patterns
-- [MCP Server Safety: Human-in-the-Loop Controls](https://zeo.org/resources/blog/mcp-server-safety-human-in-the-loop-controls-risk-assessment)
-- [MCP Async Tasks for Long-Running Workflows](https://workos.com/blog/mcp-async-tasks-ai-agent-workflows)
+### ChromaDB Distance Metrics
+- [ChromaDB Collection Configuration Docs](https://docs.trychroma.com/docs/collections/configure) -- Distance metric options, cosine setup
+- [ChromaDB FAQ/Cookbook](https://cookbook.chromadb.dev/faq/) -- Migration approach for changing metrics
+- [LangChain Discussion: Changing ChromaDB Distance](https://github.com/langchain-ai/langchain/discussions/22422) -- Confirms migration-only approach

@@ -1,20 +1,21 @@
-# Stack Research: Mnemo Book Management MCP Tools
+# Technology Stack: v1.2 RAG Improvements
 
-**Milestone:** Add book management MCP tools (add_book, remove_book, update_book_metadata)
-**Researched:** 2026-02-11
+**Project:** Mnemo
+**Milestone:** v1.2 RAG Improvements (semantic chunking, context enrichment, metadata search, quick wins)
+**Researched:** 2026-03-08
 **Overall Confidence:** HIGH
 
 ## Executive Summary
 
-Adding three management MCP tools to mnemo requires **zero new dependencies**. The existing stack (FastMCP 2.14.4, mcp SDK 1.25.0, SQLite, ChromaDB) already provides everything needed. The key technical findings are:
+The v1.2 milestone requires **zero new runtime dependencies**. All six features can be built using the existing stack (numpy, chromadb, tiktoken, sqlite3, pydantic). The critical findings are:
 
-1. **FastMCP 2.14.4 fully supports MCP tool annotations** via `ToolAnnotations` from `mcp.types` -- verified working on the installed version.
-2. **`MNEMO_BOOKS_DIR` configuration** follows the same `os.environ.get()` pattern already used by `EmbeddingConfig.from_env()`.
-3. **No schema changes needed** -- the existing SQLite `books` table already has `title`, `authors`, and `isbn` columns.
-4. **`BookRepository.update()` is the only new code** at the storage layer -- a straightforward dynamic UPDATE builder.
-5. **All three tools wire to existing functions** (`ingest_book()`, `remove_book()`, and the new `BookRepository.update()`).
+1. **Semantic chunking** is a ~100-line algorithm using numpy cosine similarity on embeddings the project already generates via Databricks. No chunking library (chonkie, langchain, etc.) is needed or advisable.
+2. **Cosine distance** requires a ChromaDB collection recreation (not a migration) -- the space parameter is immutable after creation. Use `configuration={"hnsw": {"space": "cosine"}}` on ChromaDB 1.5.0 (already installed).
+3. **Context enrichment** uses existing SQLite `prev_chunk_id`/`next_chunk_id` links -- the schema already supports chunk expansion with zero changes.
+4. **Metadata search** uses existing ChromaDB `$and` where clauses and SQLite indexes on `section_path` and `sequence`.
+5. **Search scores and configurable chunks** are pure code changes to existing models and configs.
 
-This is a wiring milestone, not a technology milestone. The research focus is on using existing capabilities correctly.
+This is an algorithm and configuration milestone, not a dependency milestone.
 
 ---
 
@@ -22,286 +23,284 @@ This is a wiring milestone, not a technology milestone. The research focus is on
 
 ### New Dependencies: NONE
 
-No new packages are needed. Every capability required for this milestone is already in `pyproject.toml`:
+Every capability maps to what is already installed:
 
-| Capability | Provided By | Already Installed |
-|---|---|---|
-| MCP tool registration | `fastmcp>=2.14,<3` | Yes (2.14.4) |
-| Tool annotations | `mcp` SDK (transitive dep of fastmcp) | Yes (1.25.0) |
-| EPUB ingestion | `ebooklib`, `beautifulsoup4`, `lxml` | Yes |
-| Embeddings | `httpx`, `tenacity`, `numpy` | Yes |
-| Vector storage | `chromadb>=1.0.0` | Yes |
-| SQLite metadata | stdlib `sqlite3` | Yes |
-| Data models | `pydantic>=2.0` | Yes |
-| Environment config | stdlib `os` | Yes |
-
-**Rationale for no additions:** The PRD explicitly states the new tools delegate to existing pipeline functions (`ingest_book()`, `remove_book()`). The only net-new logic is `BookRepository.update()`, which uses plain `sqlite3`. Tool annotations are provided by the `mcp` SDK that FastMCP already depends on.
+| Feature | Requires | Provided By | Installed |
+|---------|----------|-------------|-----------|
+| Semantic chunking (embedding distances) | Cosine similarity, embeddings | `numpy>=1.26` (2.4.2), `httpx` (Databricks API) | Yes |
+| Sentence splitting for semantic chunking | Sentence boundary detection | `re` (stdlib) | Yes |
+| Context enrichment (chunk expansion) | Adjacent chunk retrieval | `sqlite3` (stdlib), existing `prev_chunk_id`/`next_chunk_id` | Yes |
+| Metadata-enriched search (section path) | ChromaDB metadata filtering | `chromadb>=1.0.0` (1.5.0) | Yes |
+| Cosine distance metric | ChromaDB collection config | `chromadb>=1.0.0` (1.5.0) | Yes |
+| Search scores in results | Model field addition | `pydantic>=2.0` | Yes |
+| Configurable chunk sizes | Config parameter | `pydantic>=2.0` or `dataclasses` (stdlib) | Yes |
+| Token counting for chunk size validation | Token counting | `tiktoken>=0.5` | Yes |
 
 ---
 
-## FastMCP Tool Annotations (Key Finding)
+## Feature-by-Feature Stack Analysis
 
-### Verified Working on Installed Version
+### 1. Semantic Chunking (Embedding-Distance Boundary Detection)
 
-**FastMCP 2.14.4** with **mcp SDK 1.25.0** fully supports `ToolAnnotations`. This was verified by direct execution on the project's Python environment.
+**What it does:** Instead of splitting text at fixed token counts, embed each sentence, compute cosine similarity between consecutive sentences, and split where similarity drops below a threshold.
 
-### Import and Usage
+**Algorithm (implement from scratch, ~100 lines):**
+1. Split text block into sentences (regex, already have `re` in tokenizer.py)
+2. Batch-embed sentences via existing `DatabricksEmbedder.embed_batch()`
+3. Compute cosine similarity between consecutive sentence embeddings (numpy)
+4. Detect boundaries where similarity drops below threshold (percentile-based)
+5. Group sentences into chunks respecting `max_tokens` constraint
 
+**Why NOT use chonkie or other chunking libraries:**
+
+| Library | Why Not |
+|---------|---------|
+| chonkie | Adds 505KB+ dependency, requires adapting BaseEmbeddings interface to wrap Databricks client, introduces sentence-transformers transitive dep for its default model. The core algorithm is trivial with numpy. |
+| langchain text splitters | Massive dependency for one function. Project explicitly avoids langchain. |
+| semantic-chunking (PyPI) | Low-maintenance package, unnecessary abstraction over simple cosine similarity. |
+| llama-index | Same issue as langchain -- heavy framework dependency for a focused algorithm. |
+
+**Key integration point:** The semantic chunker slots into `Chunker._create_text_chunks()` as an alternative strategy. Code/diagram/math/table blocks remain atomic (never split). Only TEXT blocks use semantic boundaries.
+
+**numpy cosine similarity (already available):**
 ```python
-from mcp.types import ToolAnnotations
-from mnemo.mcp.server import mcp
+import numpy as np
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-def list_available_books() -> str:
-    """List all books in your library."""
-    ...
+def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    """Cosine similarity between two vectors."""
+    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
 ```
 
-### Available Annotation Fields
+**Sentence splitting:** Use regex similar to the existing `split_by_tokens` in `tokenizer.py`. The `re` module in stdlib is sufficient -- no need for NLTK or spacy sentence tokenizers for technical book text.
 
-| Field | Type | Purpose | Default |
-|---|---|---|---|
-| `title` | `str \| None` | Human-readable title for the tool | `None` |
-| `readOnlyHint` | `bool \| None` | Tool does not modify state | `None` |
-| `destructiveHint` | `bool \| None` | Tool performs irreversible actions | `None` |
-| `idempotentHint` | `bool \| None` | Repeated calls with same args = same effect | `None` |
-| `openWorldHint` | `bool \| None` | Tool interacts with external entities | `None` |
+**Embedding cost consideration:** Semantic chunking embeds every sentence during ingestion. For a 500-page book with ~5000 sentences, that is ~100 batches of 50 = 100 API calls. This is a one-time ingestion cost, acceptable at personal scale.
 
-**Important:** `destructiveHint` and `idempotentHint` are only meaningful when `readOnlyHint` is false. A read-only tool is by definition neither destructive nor idempotent-sensitive.
-
-### Recommended Annotations per Tool
-
-| Tool | readOnlyHint | destructiveHint | idempotentHint | openWorldHint | Rationale |
-|---|---|---|---|---|---|
-| `search_books` | `True` | -- | -- | `False` | Read-only search, no external calls |
-| `list_available_books` | `True` | -- | -- | `False` | Read-only listing |
-| `get_book_info` | `True` | -- | -- | `False` | Read-only lookup |
-| **`add_book`** | `False` | `False` | `False` | `False` | Creates state, not destructive (refuses duplicates), NOT idempotent (returns error on repeat without force) |
-| **`remove_book`** | `False` | **`True`** | `True` | `False` | Permanently deletes book data. Idempotent: removing already-removed book returns "not found" |
-| **`update_book_metadata`** | `False` | `False` | `True` | `False` | Modifies but doesn't destroy. Idempotent: same update = same result |
-
-**Note on existing tools:** The current three search tools (`search_books`, `list_available_books`, `get_book_info`) have no annotations. Consider adding `readOnlyHint=True` to them as part of this milestone for consistency. This is additive and non-breaking.
-
-### Dict Shorthand (Alternative Syntax)
-
-Annotations can also be passed as a plain dict:
-
-```python
-@mcp.tool(annotations={"destructiveHint": True, "readOnlyHint": False})
-def remove_book(book_id: str) -> str:
-    ...
-```
-
-Both approaches are verified working. The `ToolAnnotations` import is more explicit and type-safe; the dict is terser. **Recommend `ToolAnnotations` for readability** since this project already uses typed patterns throughout.
-
-### Tags (Bonus Feature)
-
-FastMCP also supports `tags` for tool categorization:
-
-```python
-@mcp.tool(tags={"management"})
-def add_book(...) -> str:
-    ...
-```
-
-Tags are optional and useful for client-side filtering. Consider adding `tags={"search"}` to existing tools and `tags={"management"}` to new tools, but this is low-priority polish.
-
-**Confidence:** HIGH -- all annotation behaviors verified by executing Python code against the installed `fastmcp==2.14.4` and `mcp==1.25.0`.
+**Confidence:** HIGH -- the algorithm is well-documented (Greg Kamradt's approach), numpy cosine similarity is trivial, and the project already has the embedding infrastructure.
 
 ---
 
-## MNEMO_BOOKS_DIR Environment Configuration
+### 2. Cosine Distance Metric (ChromaDB)
 
-### Pattern
+**Current state:** Collection uses `metadata={"hnsw:space": "l2"}` (line 57 of `vectors/store.py`).
 
-Follow the same `os.environ.get()` pattern already established in `src/mnemo/embeddings/config.py`:
+**Target state:** Use `configuration={"hnsw": {"space": "cosine"}}` with ChromaDB 1.5.0.
 
+**Critical constraint: Space is immutable.** ChromaDB does not support changing the distance metric on an existing collection. The collection must be deleted and recreated.
+
+**Migration approach:**
+1. Delete existing ChromaDB collection
+2. Recreate with `configuration={"hnsw": {"space": "cosine"}}`
+3. Re-embed all books (chunks are preserved in SQLite)
+
+**API change in store.py:**
 ```python
-import os
-from pathlib import Path
+# OLD (legacy metadata format)
+self.collection = self.client.get_or_create_collection(
+    name=self.config.collection_name,
+    metadata={"hnsw:space": "l2"},
+)
 
-def get_books_dir() -> Path | None:
-    """Get configured books directory from environment."""
-    books_dir = os.environ.get("MNEMO_BOOKS_DIR")
-    if books_dir:
-        return Path(books_dir)
-    return None
+# NEW (ChromaDB 1.0+ configuration format)
+self.collection = self.client.get_or_create_collection(
+    name=self.config.collection_name,
+    configuration={"hnsw": {"space": "cosine"}},
+)
 ```
 
-### Where to Use
+**Why cosine over L2:** With L2 on normalized vectors (which is what the project currently does via `_normalize()`), L2 and cosine are mathematically equivalent. However, switching to native cosine means:
+- No manual L2 normalization needed before storage (ChromaDB handles it)
+- Distance values are interpretable (0 = identical, 2 = opposite)
+- Industry standard for text embeddings
 
-1. **Server startup** (`server.py` or `tools.py`): Log the configured path on init (to stderr). Warn if directory does not exist but do NOT crash -- the user may add it later.
-2. **`add_book` tool**: Optionally validate that `file_path` is within `MNEMO_BOOKS_DIR` if configured. This is a safety measure, not a hard requirement. The PRD says "optionally restrict paths to this dir."
+**Important:** After switching to cosine, the `_normalize()` method can potentially be kept for safety (cosine distance on pre-normalized vectors is fine) or removed. Keeping it is safer -- it is a no-op on already-normalized vectors.
 
-### No New Dependencies
+**Confidence:** HIGH -- verified on ChromaDB 1.5.0 docs, `configuration` parameter format confirmed.
 
-Standard library `os` and `pathlib` are sufficient. No need for `pydantic-settings` or `python-dotenv` -- the project doesn't use them today and the single env var doesn't justify adding them.
-
-**Confidence:** HIGH -- pattern is already established in the codebase.
+**Sources:**
+- [ChromaDB Collection Configuration](https://docs.trychroma.com/docs/collections/configure)
+- [ChromaDB Migration Guide](https://docs.trychroma.com/deployment/migration)
 
 ---
 
-## BookRepository.update() Implementation
+### 3. Context Enrichment (Chunk Expansion)
 
-### No Schema Migration Needed
+**What it does:** When a search returns chunk X, also retrieve chunks X-1 and X+1 (or configurable window) to provide surrounding context.
 
-The existing SQLite `books` table already has all required columns:
+**Existing infrastructure (zero schema changes):**
+- `Chunk.prev_chunk_id` and `Chunk.next_chunk_id` already exist in the model
+- `ChunkRepository.get()` retrieves a chunk by ID
+- Chunks are already linked during `Chunker._link_chunks()`
 
+**Implementation approach:**
+1. After search returns results, for each result chunk, follow `prev_chunk_id`/`next_chunk_id` links
+2. Retrieve N adjacent chunks in each direction (configurable window, default 1)
+3. Concatenate content in sequence order for the enriched result
+
+**Alternative approach (sequence-based):**
+Instead of following linked-list pointers (N+1 queries per result), query by `book_id` and `sequence` range:
 ```sql
-CREATE TABLE IF NOT EXISTS books (
-    id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    authors TEXT NOT NULL,  -- JSON array
-    isbn TEXT,
-    ...
-);
+SELECT * FROM chunks
+WHERE book_id = ? AND sequence BETWEEN ? AND ?
+ORDER BY sequence
 ```
+This is a single query per result and uses the existing index `idx_chunks_sequence ON chunks(book_id, sequence)`.
 
-### Implementation Approach
+**Recommendation:** Use the sequence-based approach. It is more efficient (one query instead of following a linked list) and the index already exists.
 
-Dynamic UPDATE builder using parameterized queries:
+**No new dependencies required.**
 
-```python
-def update(
-    self,
-    book_id: str,
-    title: str | None = None,
-    authors: list[str] | None = None,
-    isbn: str | None = None,
-) -> Book | None:
-    """Update book metadata. Returns updated Book or None if not found."""
-    fields: list[str] = []
-    values: list[str] = []
-
-    if title is not None:
-        fields.append("title = ?")
-        values.append(title)
-    if authors is not None:
-        fields.append("authors = ?")
-        values.append(json.dumps(authors))
-    if isbn is not None:
-        fields.append("isbn = ?")
-        values.append(isbn)
-
-    if not fields:
-        raise ValueError("At least one field must be provided")
-
-    values.append(book_id)
-    sql = f"UPDATE books SET {', '.join(fields)} WHERE id = ?"
-    cursor = self.conn.execute(sql, values)
-    self.conn.commit()
-
-    if cursor.rowcount == 0:
-        return None
-    return self.get(book_id)
-```
-
-**Why not an ORM:** The project uses raw `sqlite3` throughout. Adding SQLAlchemy or similar for one method would be inconsistent and unnecessary.
-
-**Confidence:** HIGH -- follows existing repository patterns exactly.
+**Confidence:** HIGH -- the schema and indexes already support this pattern.
 
 ---
 
-## Sync vs Async Tool Functions
+### 4. Metadata-Enriched Search (Section Path Filtering)
 
-### Current Pattern: Sync Functions
+**What it does:** Allow search queries to filter by section path (e.g., "only search in Chapter 3") and sequence range.
 
-All existing MCP tools in `tools.py` are synchronous:
-
+**ChromaDB metadata filtering (already supported):**
+The `section_path` is already stored as a metadata string in ChromaDB (joined with " > "):
 ```python
-@mcp.tool
-def search_books(query: str, ...) -> str:
-    ...
+metadatas = [{
+    "book_id": chunk.book_id,
+    "content_type": chunk.content_type.value,
+    "section_path": " > ".join(chunk.section_path),
+    "sequence": chunk.sequence,
+}]
 ```
 
-FastMCP handles sync functions by running them in a thread pool, which is appropriate for SQLite operations (which use the GIL anyway).
-
-### add_book Concern: Long-Running Ingestion
-
-The `add_book` tool calls `ingest_book()` which:
-1. Parses EPUB (fast, ~1s)
-2. Chunks content (fast, ~1s)
-3. Stores in SQLite (fast, <1s)
-4. Optionally embeds via Databricks API (slow, 10-60s depending on book size)
-
-**Recommendation:** Keep sync. FastMCP's thread pool handles this correctly. The MCP STDIO transport is inherently single-client, so there's no concurrency benefit from async. If embedding takes too long, the tool should still complete -- the MCP client (Claude Desktop) will wait.
-
-### FastMCP Context for Progress Reporting (Optional)
-
-FastMCP provides a `Context` object for progress reporting during long operations:
-
+ChromaDB supports `$contains` for substring matching on metadata:
 ```python
-from fastmcp import Context
-
-@mcp.tool
-def add_book(file_path: str, ctx: Context, ...) -> str:
-    await ctx.report_progress(0.5, 1.0, "Embedding chunks...")
-    await ctx.info("Ingestion started for: " + file_path)
+where={"section_path": {"$contains": "Chapter 3"}}
 ```
 
-**Caveat:** `ctx.report_progress()` and `ctx.info()` are async methods, so using them requires the tool function to be `async def`. This would be a pattern change from the existing sync tools.
+**SQLite filtering (for keyword search):**
+Add a WHERE clause on `section_path` column (JSON array stored as TEXT):
+```sql
+WHERE json_extract(section_path, '$') LIKE '%Chapter 3%'
+```
+Or add a new `section_path_text` column with the flattened path for simpler filtering.
 
-**Recommendation:** Skip context/progress for this milestone. The tools will return a final result string. Progress reporting can be added later if embedding times are problematic. Keep the sync pattern consistent with existing tools.
+**SearchFilter model extension:**
+```python
+@dataclass
+class SearchFilter:
+    book_id: str | None = None
+    content_type: str | None = None
+    section_path: str | None = None        # NEW: filter by section
+    sequence_min: int | None = None         # NEW: filter by sequence range
+    sequence_max: int | None = None         # NEW: filter by sequence range
+```
 
-**Confidence:** HIGH -- verified Context signatures and sync/async behavior.
+**No new dependencies required.**
+
+**Confidence:** HIGH -- ChromaDB `$contains` operator is documented, SQLite JSON functions are stdlib.
 
 ---
 
-## Integration Points with Existing Code
+### 5. Search Scores in Results
 
-### Tool-to-Function Wiring
+**What it does:** Expose raw relevance scores from ChromaDB (distance) and FTS5 (rank) alongside the RRF fusion score.
 
-| New Tool | Delegates To | Module | Notes |
-|---|---|---|---|
-| `add_book` | `ingest_book()` | `mnemo.ingest` | Existing function, takes `Path`, returns `(Book, int)` |
-| `remove_book` | `remove_book()` | `mnemo.ingest` | Existing function, takes `book_id: str`, returns `bool` |
-| `update_book_metadata` | `BookRepository.update()` | `mnemo.storage.repository` | **New method** on existing class |
+**Current state:** `SearchResult.score` contains the RRF score. ChromaDB distances are computed but discarded after ranking.
 
-### Lazy Init Pattern
+**Changes needed:**
+1. Add `semantic_distance` and `keyword_rank` fields to `SearchResult`
+2. Pass ChromaDB `distance` values through the search pipeline
+3. For cosine distance: lower = more similar (0 to 2 range)
 
-The existing `tools.py` uses lazy initialization for services:
-
+**SearchResult model extension:**
 ```python
-_search_service: SearchService | None = None
-_db_connection = None
-
-def _get_book_repo() -> BookRepository:
-    global _db_connection
-    if _db_connection is None:
-        init_db()
-        _db_connection = get_connection()
-    return BookRepository(_db_connection)
+@dataclass
+class SearchResult:
+    # ... existing fields ...
+    score: float                              # RRF fusion score
+    semantic_distance: float | None = None    # NEW: raw ChromaDB distance
+    keyword_rank: int | None = None           # NEW: FTS5 rank position
 ```
 
-The new tools should reuse `_get_book_repo()` for `update_book_metadata`. The `add_book` and `remove_book` tools can call `ingest_book()` and `remove_book()` directly from `mnemo.ingest`, which manage their own connections.
+**No new dependencies required.**
 
-### Return Format
+**Confidence:** HIGH -- straightforward model and pipeline change.
 
-Existing tools return markdown strings. New tools should follow the same convention:
-- `add_book`: Return markdown with book ID, title, authors, chunk count
-- `remove_book`: Return confirmation message or "not found"
-- `update_book_metadata`: Return updated book info (same format as `get_book_info`)
+---
+
+### 6. Configurable Chunk Sizes
+
+**What it does:** Allow per-book chunk size configuration at ingest time, overriding the default 400-800 token range.
+
+**Current state:** `ChunkerConfig` already supports `min_tokens`, `max_tokens`, and `overlap_tokens` as constructor parameters. The `ingest_book()` function already accepts `chunker_config: ChunkerConfig | None`.
+
+**What needs to change:**
+1. Expose `ChunkerConfig` parameters through CLI (`mnemo add --min-tokens 200 --max-tokens 600`)
+2. Expose through MCP `add_book` tool parameters
+3. Optionally store the config used per book in SQLite (for re-embedding reference)
+
+**Schema consideration:** Consider adding `chunk_config` column to `books` table (JSON blob) so re-embedding can use the same settings. This is a minor schema migration.
+
+**No new dependencies required.**
+
+**Confidence:** HIGH -- the config infrastructure already exists, just needs exposure.
+
+---
+
+## Alternatives Considered
+
+| Category | Recommendation | Alternative | Why Not |
+|----------|---------------|-------------|---------|
+| Semantic chunking | Implement from scratch (~100 LOC) | chonkie library | Adds dependency + transitive deps (sentence-transformers), requires wrapping Databricks API in BaseEmbeddings interface. Algorithm is trivial with numpy. |
+| Semantic chunking | Implement from scratch | langchain text splitters | Massive dependency for one function. Project does not use langchain. |
+| Sentence splitting | stdlib `re` | NLTK `sent_tokenize` | NLTK requires downloading models at runtime. Regex handles technical text adequately (abbreviations like "e.g." can be handled with a negative lookbehind). |
+| Sentence splitting | stdlib `re` | spaCy | Heavy NLP dependency (hundreds of MB) for sentence splitting. Massive overkill. |
+| Cosine similarity | numpy (already installed) | scipy | scipy is a transitive dep of chromadb but not explicitly declared. numpy is already a direct dependency and `np.dot` + `np.linalg.norm` is 2 lines. |
+| Chunk expansion | Sequence-based SQL query | Follow prev/next linked list | Linked list traversal requires N queries per direction per result. Sequence range query is single query with existing index. |
+| Distance metric | ChromaDB native cosine | Keep L2 with manual normalization | Mathematically equivalent for normalized vectors, but native cosine is cleaner and gives interpretable distance values. |
+
+---
+
+## Integration Points
+
+### Files That Change
+
+| File | Change | Feature |
+|------|--------|---------|
+| `src/mnemo/chunking/chunker.py` | Add semantic chunking strategy alongside fixed-token | Semantic chunking |
+| `src/mnemo/chunking/tokenizer.py` | Add sentence splitting function | Semantic chunking |
+| `src/mnemo/vectors/store.py` | Change `metadata={"hnsw:space": "l2"}` to `configuration={"hnsw": {"space": "cosine"}}` | Cosine distance |
+| `src/mnemo/search/service.py` | Add chunk expansion logic, pass through raw scores | Context enrichment, search scores |
+| `src/mnemo/search/models.py` | Add `semantic_distance`, `keyword_rank`, `section_path` filter fields | Search scores, metadata search |
+| `src/mnemo/vectors/store.py` | Add `section_path` to `_build_where()` | Metadata search |
+| `src/mnemo/ingest.py` | Pass chunk config params through | Configurable chunks |
+| `src/mnemo/mcp/tools.py` | Add chunk config params to `add_book`, expose scores | Configurable chunks, scores |
+| `src/mnemo/cli.py` | Add `--min-tokens`/`--max-tokens` flags | Configurable chunks |
+| `src/mnemo/storage/repository.py` | Add `get_by_sequence_range()` method | Context enrichment |
+
+### Files That Do NOT Change
+
+| File | Why Not |
+|------|---------|
+| `src/mnemo/models.py` | Chunk model already has `section_path`, `sequence`, `prev_chunk_id`, `next_chunk_id` |
+| `src/mnemo/embeddings/client.py` | Embedding client is used as-is for semantic chunking sentence embeddings |
+| `src/mnemo/storage/database.py` | Schema changes are minimal (possibly one column for chunk_config), but core schema is sufficient |
 
 ---
 
 ## What NOT to Add
 
 | Suggestion | Why Not |
-|---|---|
-| `pydantic-settings` | Overkill for one env var. `os.environ.get()` is simpler and matches existing pattern. |
-| `python-dotenv` | Not needed. MCP server receives env vars from Claude Desktop config. |
-| SQLAlchemy / ORM | Project uses raw `sqlite3`. One UPDATE method doesn't justify an ORM. |
-| `asyncio` / `aiosqlite` | Existing tools are sync. No concurrency benefit for single-client MCP STDIO. |
-| `pytest-asyncio` | Not in current dev deps because tools are sync. Keep it that way. |
-| New config file format | `MNEMO_BOOKS_DIR` is a single env var. No YAML/TOML config file needed. |
-| Input validation library | Pydantic models already validate data. Tool parameter validation is straightforward string/path checking. |
-| Retry logic for add_book | `ingest_book()` already uses `tenacity` for Databricks API retries internally. |
+|------------|---------|
+| `chonkie` | Trivial algorithm does not justify a dependency with its own embedding abstraction layer and transitive deps. 100 lines of numpy is simpler than adapting the BaseEmbeddings interface. |
+| `langchain` | Framework dependency for one utility function. Against project philosophy. |
+| `nltk` | Requires runtime model downloads for sentence tokenization. Regex is sufficient. |
+| `spacy` | Hundreds of MB for sentence splitting. Massive overkill at personal scale. |
+| `scipy` | numpy already provides cosine similarity in 2 lines. scipy adds nothing. |
+| `sentence-transformers` | Project uses Databricks GTE-large-en, not local models. Adding a local model framework is wrong direction. |
+| `pydantic-settings` | No new environment variables in this milestone. |
+| `alembic` / migration tool | One optional column addition does not justify a migration framework. `ALTER TABLE ADD COLUMN` is sufficient. |
+| `redis` / caching layer | Embedding cache for semantic chunking is unnecessary -- embeddings are computed once at ingest time and discarded. Sentence embeddings are intermediate, not stored. |
 
 ---
 
 ## pyproject.toml: No Changes Required
-
-The current `pyproject.toml` dependencies section needs no modifications:
 
 ```toml
 dependencies = [
@@ -312,36 +311,45 @@ dependencies = [
     "pydantic>=2.0",
     "httpx>=0.27",
     "tenacity>=8.3",
-    "numpy>=1.26",
-    "chromadb>=1.0.0",
-    "fastmcp>=2.14,<3",  # <-- provides ToolAnnotations via mcp dep
+    "numpy>=1.26",          # <-- cosine similarity for semantic chunking
+    "chromadb>=1.0.0",      # <-- 1.5.0 installed, supports configuration param
+    "fastmcp>=2.14,<3",
 ]
 ```
 
-The `mcp` SDK (providing `mcp.types.ToolAnnotations`) is a transitive dependency of `fastmcp` and does not need to be listed explicitly.
+No new lines needed.
+
+---
+
+## Installed Version Verification
+
+| Package | Required | Installed | Status |
+|---------|----------|-----------|--------|
+| chromadb | >=1.0.0 | 1.5.0 | OK -- supports `configuration={"hnsw": {"space": "cosine"}}` |
+| numpy | >=1.26 | 2.4.2 | OK -- `np.dot`, `np.linalg.norm` for cosine similarity |
+| tiktoken | >=0.5 | (installed) | OK -- `cl100k_base` for token counting |
+| pydantic | >=2.0 | (installed) | OK -- model extensions |
+| httpx | >=0.27 | (installed) | OK -- Databricks API for sentence embeddings |
+| tenacity | >=8.3 | (installed) | OK -- retry logic for embedding API |
 
 ---
 
 ## Sources
 
-### Verified by Direct Execution (HIGH confidence)
-- FastMCP 2.14.4 `@mcp.tool` decorator signature -- inspected via `help(mcp.tool)` on installed package
-- `mcp.types.ToolAnnotations` class with all 5 fields -- instantiated and verified on `mcp==1.25.0`
-- Annotation passing via both `ToolAnnotations` object and plain dict -- tested both patterns
-- Sync tool functions work correctly in FastMCP -- confirmed existing pattern
-
 ### Official Documentation (HIGH confidence)
-- [FastMCP Tools Documentation](https://gofastmcp.com/servers/tools) -- tool decorator API and annotations
-- [MCP Protocol Tool Annotations](https://modelcontextprotocol.io/legacy/concepts/tools) -- annotation field definitions
-- [FastMCP GitHub](https://github.com/jlowin/fastmcp) -- source of truth for FastMCP 2.x
+- [ChromaDB Collection Configuration](https://docs.trychroma.com/docs/collections/configure) -- `configuration` parameter format, space options
+- [ChromaDB Migration Guide](https://docs.trychroma.com/deployment/migration) -- immutability of collection settings
+- [ChromaDB Cookbook - Collections](https://cookbook.chromadb.dev/core/collections/) -- `get_or_create_collection` behavior
 
-### PyPI Versions (HIGH confidence)
-- [fastmcp 2.14.4](https://pypi.org/project/fastmcp/) -- installed version
-- [mcp 1.25.0](https://pypi.org/project/mcp/) -- installed transitive dependency
+### Verified by Codebase Inspection (HIGH confidence)
+- `src/mnemo/vectors/store.py` -- current L2 distance config, `_normalize()` method
+- `src/mnemo/chunking/chunker.py` -- current `ChunkerConfig`, atomic vs text splitting
+- `src/mnemo/search/service.py` -- current search pipeline, score handling
+- `src/mnemo/models.py` -- `Chunk.prev_chunk_id`, `next_chunk_id`, `section_path`, `sequence`
+- `src/mnemo/storage/database.py` -- existing `idx_chunks_sequence` index
+- `src/mnemo/storage/repository.py` -- existing `ChunkRepository.get()`, `get_by_book()`
 
-### Existing Codebase (HIGH confidence)
-- `src/mnemo/mcp/tools.py` -- current tool registration pattern
-- `src/mnemo/ingest.py` -- `ingest_book()` and `remove_book()` signatures
-- `src/mnemo/storage/repository.py` -- `BookRepository` class to extend
-- `src/mnemo/embeddings/config.py` -- `os.environ.get()` pattern for env config
-- `src/mnemo/storage/database.py` -- SQLite schema (no migration needed)
+### Community/Research Sources (MEDIUM confidence)
+- [Semantic Chunking via Embedding Distance](https://superlinked.com/vectorhub/articles/semantic-chunking) -- Greg Kamradt's boundary detection approach
+- [Chonkie Library](https://github.com/chonkie-inc/chonkie) -- evaluated and rejected (unnecessary dependency)
+- [ChromaDB Defaults to L2](https://razikus.substack.com/p/chromadb-defaults-to-l2-distance-why-that-might-not-be-the-best-choice-ac3d47461245) -- rationale for cosine over L2
