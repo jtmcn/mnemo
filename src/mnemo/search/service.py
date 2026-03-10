@@ -182,7 +182,7 @@ class SearchService:
         )
 
         results = []
-        for rank, vr in enumerate(vector_results, start=1):
+        for vr in vector_results:
             # Load full chunk data from SQLite
             chunk = self._chunk_repo.get(vr["id"])
             if chunk is None:
@@ -190,7 +190,8 @@ class SearchService:
                 continue
 
             book_title = self._get_book_title(chunk.book_id)
-            score = 1.0 / (60 + rank)  # RRF-style score for consistency
+            # Convert cosine distance (0-2) to similarity (0-1), clamped
+            score = max(0.0, min(1.0, 1.0 - vr["distance"]))
 
             results.append(
                 SearchResult(
