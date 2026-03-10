@@ -49,8 +49,8 @@
 **Plans:** 2/2 plans complete
 
 Plans:
-- [ ] 08-01-PLAN.md — Cosine migration, CLI command, and search similarity scores
-- [ ] 08-02-PLAN.md — EPUB path storage and configurable chunk sizes
+- [x] 08-01-PLAN.md — Cosine migration, CLI command, and search similarity scores
+- [x] 08-02-PLAN.md — EPUB path storage and configurable chunk sizes
 
 ### Phase 9: Search Enrichment
 **Goal**: Users get richer search results with surrounding context, can filter by section, and can fetch contiguous chunk ranges for deep reading
