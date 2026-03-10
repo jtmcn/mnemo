@@ -9,15 +9,15 @@ Requirements for RAG improvements milestone. Each maps to roadmap phases.
 
 ### Infrastructure
 
-- [ ] **INFRA-01**: ChromaDB collection uses cosine distance metric instead of L2
-- [ ] **INFRA-02**: Migration script copies existing vectors from L2 collection to new cosine collection without re-embedding
-- [ ] **INFRA-03**: Migration verifies vector counts match before deleting old collection
+- [x] **INFRA-01**: ChromaDB collection uses cosine distance metric instead of L2
+- [x] **INFRA-02**: Migration script copies existing vectors from L2 collection to new cosine collection without re-embedding
+- [x] **INFRA-03**: Migration verifies vector counts match before deleting old collection
 - [x] **INFRA-04**: EPUB file path stored in books table for future re-indexing
-- [ ] **INFRA-05**: CLI `migrate-cosine` command runs the collection migration
+- [x] **INFRA-05**: CLI `migrate-cosine` command runs the collection migration
 
 ### Search Quality
 
-- [ ] **SRCH-01**: Search results include numeric relevance scores (cosine similarity 0-1)
+- [x] **SRCH-01**: Search results include numeric relevance scores (cosine similarity 0-1)
 - [ ] **SRCH-02**: Context enrichment expands each result with surrounding chunks (configurable window, default 1)
 - [ ] **SRCH-03**: Context expansion respects section boundaries (does not cross into different sections)
 - [ ] **SRCH-04**: Overlapping expansion windows are deduplicated into a single context block
@@ -73,12 +73,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INFRA-01 | Phase 8 | Pending |
-| INFRA-02 | Phase 8 | Pending |
-| INFRA-03 | Phase 8 | Pending |
+| INFRA-01 | Phase 8 | Complete |
+| INFRA-02 | Phase 8 | Complete |
+| INFRA-03 | Phase 8 | Complete |
 | INFRA-04 | Phase 8 | Complete |
-| INFRA-05 | Phase 8 | Pending |
-| SRCH-01 | Phase 8 | Pending |
+| INFRA-05 | Phase 8 | Complete |
+| SRCH-01 | Phase 8 | Complete |
 | SRCH-02 | Phase 9 | Pending |
 | SRCH-03 | Phase 9 | Pending |
 | SRCH-04 | Phase 9 | Pending |
