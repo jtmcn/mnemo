@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS books (
     file_hash TEXT UNIQUE NOT NULL, -- SHA256 for dedup
     default_language TEXT,
     structure_source TEXT NOT NULL, -- 'toc' or 'inferred'
-    added_at TEXT NOT NULL         -- ISO timestamp
+    added_at TEXT NOT NULL,         -- ISO timestamp
+    epub_path TEXT                  -- absolute path to source EPUB
 );
 
 -- Chunks table with FK cascade
@@ -69,6 +70,21 @@ CREATE INDEX IF NOT EXISTS idx_chunks_sequence ON chunks(book_id, sequence);
 """
 
 
+def _migrate_schema(conn: sqlite3.Connection) -> None:
+    """Apply schema migrations for existing databases.
+
+    Idempotent - safe to call multiple times. Each migration
+    handles its own "already applied" case gracefully.
+    """
+    # Migration: add epub_path column to books table
+    try:
+        conn.execute("ALTER TABLE books ADD COLUMN epub_path TEXT")
+        conn.commit()
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" not in str(e):
+            raise
+
+
 def get_db_path() -> Path:
     """Get the default database path.
 
@@ -104,6 +120,8 @@ def init_db(db_path: Path | None = None) -> None:
         # Execute schema
         conn.executescript(_SCHEMA_SQL)
         conn.commit()
+        # Apply migrations for existing databases
+        _migrate_schema(conn)
     finally:
         conn.close()
 

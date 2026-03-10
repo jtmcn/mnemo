@@ -58,6 +58,7 @@ class Book(BaseModel):
     default_language: str | None = None
     structure_source: Literal["toc", "inferred"] = "toc"
     added_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    epub_path: str | None = None
 
     @staticmethod
     def generate_id(content_bytes: bytes, title: str, author: str | None = None) -> str:

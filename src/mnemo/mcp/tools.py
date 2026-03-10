@@ -134,6 +134,7 @@ def _get_book_info_impl(book_id: str) -> str:
             f"**Chunks:** {chunk_count}",
             f"**Added:** {book.added_at.strftime('%Y-%m-%d %H:%M')}",
             f"**Structure:** {book.structure_source}",
+            f"**EPUB Path:** {book.epub_path or 'Not available'}",
         ]
 
         if book.default_language:
