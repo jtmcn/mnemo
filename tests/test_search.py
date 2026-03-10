@@ -1091,3 +1091,250 @@ class TestRRFIntegration:
                 assert expected == "both"
             elif chunk_id == "c":
                 assert expected == "semantic"
+
+
+# ============================================================================
+# Context Window Tests
+# ============================================================================
+
+
+class TestContextWindow:
+    """Tests for context window expansion in SearchService."""
+
+    @pytest.fixture
+    def mock_chunk_repo(self):
+        repo = MagicMock()
+        repo.search_fts.return_value = []
+        repo.get.return_value = None
+        repo.get_chunk_range.return_value = []
+        return repo
+
+    @pytest.fixture
+    def mock_book_repo(self):
+        repo = MagicMock()
+        return repo
+
+    @pytest.fixture
+    def mock_vector_store(self):
+        store = MagicMock()
+        store.query.return_value = []
+        return store
+
+    @pytest.fixture
+    def mock_embedder(self):
+        embedder = MagicMock()
+        embedder.embed_one.return_value = [0.1] * 1024
+        return embedder
+
+    @pytest.fixture
+    def service(self, mock_chunk_repo, mock_book_repo, mock_vector_store, mock_embedder):
+        svc = SearchService()
+        svc._chunk_repo = mock_chunk_repo
+        svc._book_repo = mock_book_repo
+        svc._vector_store = mock_vector_store
+        svc._embedder = mock_embedder
+        svc._book_cache["abc123"] = "Test Book"
+        return svc
+
+    def _make_chunk(self, chunk_id, book_id, sequence, section_path, content=None):
+        """Helper to create a Chunk instance (not mock) for context expansion tests."""
+        return Chunk(
+            id=chunk_id,
+            book_id=book_id,
+            content=content or f"Content for seq {sequence}",
+            content_type=ContentType.TEXT,
+            token_count=10,
+            section_path=section_path,
+            sections=[section_path[-1]] if section_path else [],
+            sequence=sequence,
+        )
+
+    def _make_search_result(self, chunk_id, book_id="abc123", score=0.5):
+        """Helper to create a SearchResult."""
+        return SearchResult(
+            chunk_id=chunk_id,
+            book_id=book_id,
+            book_title="Test Book",
+            content="matched content",
+            content_type="text",
+            section_path=["Section A"],
+            score=score,
+            source="keyword",
+        )
+
+    def test_context_window_zero_unchanged(self, service, mock_chunk_repo):
+        """search with context_window=0 returns identical to current behavior (list of SearchResult)."""
+        mock_chunk = MagicMock(
+            id="c1",
+            book_id="abc123",
+            content="Content",
+            content_type=ContentType.TEXT,
+            section_path=["Ch1"],
+        )
+        mock_chunk_repo.search_fts.return_value = [mock_chunk]
+
+        results = service.search("test", mode="keyword", context_window=0)
+
+        assert len(results) == 1
+        assert isinstance(results[0], SearchResult)
+        assert results[0].chunk_id == "c1"
+
+    def test_context_window_expands_neighbors(self, service, mock_chunk_repo):
+        """context_window=1 returns each result expanded with neighboring chunks."""
+        # Setup: chunks seq 0-4, all same section
+        section = ["Part 1", "Section A"]
+        chunks = [
+            self._make_chunk(f"c{i}", "abc123", i, section)
+            for i in range(5)
+        ]
+
+        # Search returns chunk at seq=2
+        search_chunk = MagicMock(
+            id="c2",
+            book_id="abc123",
+            content="Content for seq 2",
+            content_type=ContentType.TEXT,
+            section_path=section,
+        )
+        mock_chunk_repo.search_fts.return_value = [search_chunk]
+
+        # get returns the matched chunk
+        mock_chunk_repo.get.return_value = chunks[2]
+
+        # get_chunk_range returns seq 1, 2, 3
+        mock_chunk_repo.get_chunk_range.return_value = [chunks[1], chunks[2], chunks[3]]
+
+        results = service.search("test", mode="keyword", context_window=1)
+
+        assert len(results) == 1
+        result = results[0]
+        assert isinstance(result, dict)
+        assert "c2" in result["matched_chunk_ids"]
+        # Should have 3 chunks: seq 1, 2, 3
+        chunk_seqs = [c.sequence for c in result["chunks"]]
+        assert chunk_seqs == [1, 2, 3]
+
+    def test_context_window_stops_at_section_boundary(self, service, mock_chunk_repo):
+        """Expansion stops when neighbor has different section_path."""
+        section_a = ["Part 1", "Section A"]
+        section_b = ["Part 1", "Section B"]
+        chunks = [
+            self._make_chunk("c0", "abc123", 0, section_a),
+            self._make_chunk("c1", "abc123", 1, section_a),
+            self._make_chunk("c2", "abc123", 2, section_a),
+            self._make_chunk("c3", "abc123", 3, section_b),
+            self._make_chunk("c4", "abc123", 4, section_b),
+        ]
+
+        # Search returns chunk at seq=2, window=2
+        search_chunk = MagicMock(
+            id="c2",
+            book_id="abc123",
+            content="Content for seq 2",
+            content_type=ContentType.TEXT,
+            section_path=section_a,
+        )
+        mock_chunk_repo.search_fts.return_value = [search_chunk]
+        mock_chunk_repo.get.return_value = chunks[2]
+        # get_chunk_range(abc123, 0, 4) returns all 5
+        mock_chunk_repo.get_chunk_range.return_value = chunks
+
+        results = service.search("test", mode="keyword", context_window=2)
+
+        assert len(results) == 1
+        result = results[0]
+        chunk_seqs = [c.sequence for c in result["chunks"]]
+        # Should only get seq 0, 1, 2 (not 3, 4 which are Section B)
+        assert chunk_seqs == [0, 1, 2]
+
+    def test_context_window_dedup_overlapping(self, service, mock_chunk_repo):
+        """Two results with overlapping windows are merged into one block."""
+        section = ["Part 1", "Section A"]
+        chunks = [
+            self._make_chunk(f"c{i}", "abc123", i, section)
+            for i in range(8)
+        ]
+
+        # Search returns chunks at seq=3 and seq=5, window=2
+        search_chunks = [
+            MagicMock(
+                id="c3",
+                book_id="abc123",
+                content="Content for seq 3",
+                content_type=ContentType.TEXT,
+                section_path=section,
+            ),
+            MagicMock(
+                id="c5",
+                book_id="abc123",
+                content="Content for seq 5",
+                content_type=ContentType.TEXT,
+                section_path=section,
+            ),
+        ]
+        mock_chunk_repo.search_fts.return_value = search_chunks
+
+        def get_side_effect(chunk_id):
+            idx = int(chunk_id[1:])
+            return chunks[idx] if 0 <= idx < len(chunks) else None
+
+        mock_chunk_repo.get.side_effect = get_side_effect
+
+        def range_side_effect(book_id, start, end, limit=20):
+            return [c for c in chunks if start <= c.sequence <= end]
+
+        mock_chunk_repo.get_chunk_range.side_effect = range_side_effect
+
+        results = service.search("test", mode="keyword", context_window=2)
+
+        # Should merge into one block: seq 1-7 (window=2 around 3 gives 1-5, around 5 gives 3-7, merged = 1-7)
+        assert len(results) == 1
+        result = results[0]
+        assert "c3" in result["matched_chunk_ids"]
+        assert "c5" in result["matched_chunk_ids"]
+        chunk_seqs = [c.sequence for c in result["chunks"]]
+        assert chunk_seqs == [1, 2, 3, 4, 5, 6, 7]
+
+    def test_context_window_preserves_match_markers(self, service, mock_chunk_repo):
+        """After dedup, matched_chunk_ids contains the original match IDs."""
+        section = ["Part 1", "Section A"]
+        chunks = [
+            self._make_chunk(f"c{i}", "abc123", i, section)
+            for i in range(6)
+        ]
+
+        search_chunks = [
+            MagicMock(
+                id="c2",
+                book_id="abc123",
+                content="Content for seq 2",
+                content_type=ContentType.TEXT,
+                section_path=section,
+            ),
+            MagicMock(
+                id="c4",
+                book_id="abc123",
+                content="Content for seq 4",
+                content_type=ContentType.TEXT,
+                section_path=section,
+            ),
+        ]
+        mock_chunk_repo.search_fts.return_value = search_chunks
+
+        def get_side_effect(chunk_id):
+            idx = int(chunk_id[1:])
+            return chunks[idx] if 0 <= idx < len(chunks) else None
+
+        mock_chunk_repo.get.side_effect = get_side_effect
+
+        def range_side_effect(book_id, start, end, limit=20):
+            return [c for c in chunks if start <= c.sequence <= end]
+
+        mock_chunk_repo.get_chunk_range.side_effect = range_side_effect
+
+        results = service.search("test", mode="keyword", context_window=1)
+
+        # With window=1: c2->1,2,3 and c4->3,4,5, overlapping at 3, merge to 1-5
+        assert len(results) == 1
+        result = results[0]
+        assert result["matched_chunk_ids"] == {"c2", "c4"}
