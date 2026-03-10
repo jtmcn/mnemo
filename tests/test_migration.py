@@ -12,8 +12,17 @@ from mnemo.vectors.store import VectorStore
 
 @pytest.fixture
 def ephemeral_client():
-    """Create an ephemeral ChromaDB client for testing."""
-    return chromadb.EphemeralClient()
+    """Create an ephemeral ChromaDB client for testing.
+
+    Uses reset() to ensure clean state between tests since
+    EphemeralClient instances share an in-process database.
+    """
+    client = chromadb.EphemeralClient()
+    client.clear_system_cache()
+    # Delete any leftover collections from previous tests
+    for col in client.list_collections():
+        client.delete_collection(col.name)
+    return client
 
 
 @pytest.fixture
@@ -100,7 +109,6 @@ class TestMigrateToCosineNormal:
 
     def test_raises_on_count_mismatch(self, ephemeral_client, sample_vectors, monkeypatch):
         """migrate_to_cosine raises RuntimeError on count mismatch."""
-        from mnemo.vectors import migrate as migrate_mod
         from mnemo.vectors.migrate import migrate_to_cosine
 
         collection = ephemeral_client.get_or_create_collection(
@@ -109,24 +117,17 @@ class TestMigrateToCosineNormal:
         )
         collection.add(**sample_vectors)
 
-        # Patch to simulate count mismatch: make a temp collection's count return wrong value
-        original_get = ephemeral_client.get_collection
+        # Patch create_collection to return a collection wrapper with broken count
+        original_create = ephemeral_client.create_collection
 
-        call_count = 0
-
-        def mock_get_collection(name, **kwargs):
-            nonlocal call_count
-            coll = original_get(name, **kwargs)
-            # After migration copy, the temp collection count check
+        def mock_create_collection(name, **kwargs):
+            coll = original_create(name, **kwargs)
             if "_cosine_migration" in name:
-                call_count += 1
-                if call_count == 1:
-                    # First count check after copying - return wrong count
-                    original_count = coll.count
-                    coll.count = lambda: 0  # Simulate mismatch
+                # Wrap count to return wrong value
+                coll.count = lambda: 0
             return coll
 
-        monkeypatch.setattr(ephemeral_client, "get_collection", mock_get_collection)
+        monkeypatch.setattr(ephemeral_client, "create_collection", mock_create_collection)
 
         with pytest.raises(RuntimeError, match="count mismatch"):
             migrate_to_cosine(ephemeral_client, "mnemo")

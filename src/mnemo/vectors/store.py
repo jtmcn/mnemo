@@ -1,7 +1,7 @@
 """ChromaDB vector store for semantic search.
 
-Handles vector persistence with L2 normalization (required for GTE-large-en)
-and metadata filtering for book/content-type scoping.
+Handles vector persistence with cosine distance metric and L2 normalization
+(required for GTE-large-en) and metadata filtering for book/content-type scoping.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ class VectorStore:
         # No embedding_function - we provide embeddings explicitly
         self.collection = self.client.get_or_create_collection(
             name=self.config.collection_name,
-            metadata={"hnsw:space": "l2"},  # L2 distance
+            metadata={"hnsw:space": "cosine"},  # Cosine distance
         )
 
     def close(self) -> None:
