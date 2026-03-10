@@ -31,7 +31,7 @@
 
 **Milestone Goal:** Improve search quality and chunking intelligence — move from naive RAG to advanced RAG techniques.
 
-- [ ] **Phase 8: Infrastructure & Quick Wins** - Cosine distance migration, search scores, configurable chunk sizes, EPUB path storage
+- [x] **Phase 8: Infrastructure & Quick Wins** - Cosine distance migration, search scores, configurable chunk sizes, EPUB path storage (completed 2026-03-10)
 - [ ] **Phase 9: Search Enrichment** - Context expansion, metadata filtering, chunk range fetching
 
 ## Phase Details
@@ -46,7 +46,7 @@
   3. Calling `add_book` with custom `chunk_min_tokens` and `chunk_max_tokens` produces chunks within those bounds, with validation rejecting invalid values
   4. Calling `add_book` without chunk size parameters uses the existing 400/800 defaults (backward compatible)
   5. EPUB file path is persisted in the books table and visible via `get_book_info`
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] 08-01-PLAN.md — Cosine migration, CLI command, and search similarity scores
@@ -82,7 +82,7 @@ Phases execute in numeric order: 8 → 9
 | 5. Metadata Updates | v1.1 | 1/1 | Complete | 2026-02-11 |
 | 6. Book Lifecycle Tools | v1.1 | 2/2 | Complete | 2026-02-14 |
 | 7. Tool Polish & Integration | v1.1 | 2/2 | Complete | 2026-02-17 |
-| 8. Infrastructure & Quick Wins | v1.2 | 0/2 | Not started | - |
+| 8. Infrastructure & Quick Wins | 2/2 | Complete   | 2026-03-10 | - |
 | 9. Search Enrichment | v1.2 | 0/? | Not started | - |
 
 ---

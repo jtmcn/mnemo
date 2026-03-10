@@ -12,7 +12,7 @@ Requirements for RAG improvements milestone. Each maps to roadmap phases.
 - [ ] **INFRA-01**: ChromaDB collection uses cosine distance metric instead of L2
 - [ ] **INFRA-02**: Migration script copies existing vectors from L2 collection to new cosine collection without re-embedding
 - [ ] **INFRA-03**: Migration verifies vector counts match before deleting old collection
-- [ ] **INFRA-04**: EPUB file path stored in books table for future re-indexing
+- [x] **INFRA-04**: EPUB file path stored in books table for future re-indexing
 - [ ] **INFRA-05**: CLI `migrate-cosine` command runs the collection migration
 
 ### Search Quality
@@ -33,9 +33,9 @@ Requirements for RAG improvements milestone. Each maps to roadmap phases.
 
 ### Configurable Chunking
 
-- [ ] **CHUNK-01**: `add_book` MCP tool accepts optional `chunk_min_tokens` and `chunk_max_tokens` parameters
-- [ ] **CHUNK-02**: Chunk size parameters validate: min >= 100, max <= 2000, min < max
-- [ ] **CHUNK-03**: Default chunk sizes remain 400/800 when not specified (backward compatible)
+- [x] **CHUNK-01**: `add_book` MCP tool accepts optional `chunk_min_tokens` and `chunk_max_tokens` parameters
+- [x] **CHUNK-02**: Chunk size parameters validate: min >= 100, max <= 2000, min < max
+- [x] **CHUNK-03**: Default chunk sizes remain 400/800 when not specified (backward compatible)
 
 ## Future Requirements
 
@@ -76,7 +76,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INFRA-01 | Phase 8 | Pending |
 | INFRA-02 | Phase 8 | Pending |
 | INFRA-03 | Phase 8 | Pending |
-| INFRA-04 | Phase 8 | Pending |
+| INFRA-04 | Phase 8 | Complete |
 | INFRA-05 | Phase 8 | Pending |
 | SRCH-01 | Phase 8 | Pending |
 | SRCH-02 | Phase 9 | Pending |
@@ -88,9 +88,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | META-03 | Phase 9 | Pending |
 | META-04 | Phase 9 | Pending |
 | META-05 | Phase 9 | Pending |
-| CHUNK-01 | Phase 8 | Pending |
-| CHUNK-02 | Phase 8 | Pending |
-| CHUNK-03 | Phase 8 | Pending |
+| CHUNK-01 | Phase 8 | Complete |
+| CHUNK-02 | Phase 8 | Complete |
+| CHUNK-03 | Phase 8 | Complete |
 
 **Coverage:**
 - v1.2 requirements: 18 total
