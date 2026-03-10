@@ -45,6 +45,15 @@ def _get_book_repo() -> BookRepository:
     return BookRepository(_db_connection)
 
 
+def _get_chunk_repo() -> ChunkRepository:
+    """Get ChunkRepository (lazy init)."""
+    global _db_connection
+    if _db_connection is None:
+        init_db()
+        _db_connection = get_connection()
+    return ChunkRepository(_db_connection)
+
+
 # Implementation functions (testable directly)
 
 
@@ -54,6 +63,7 @@ def _search_books_impl(
     content_type: Literal["text", "code", "table", "diagram", "math"] | None = None,
     top_k: int = 10,
     mode: Literal["hybrid", "semantic", "keyword"] = "hybrid",
+    section: str | None = None,
 ) -> str:
     """Search implementation - see search_books for docs."""
     logger.info(f"search_books: query={query!r}, book_id={book_id}, top_k={top_k}")
@@ -72,6 +82,7 @@ def _search_books_impl(
             book_id=book_id,
             content_type=content_type,
             mode=mode,
+            section=section,
         )
 
         if not results:
@@ -364,6 +375,54 @@ def _update_book_metadata_impl(
         return f"Error: {e}"
 
 
+def _get_book_chunks_impl(
+    book_id: str,
+    start_sequence: int,
+    end_sequence: int,
+) -> str:
+    """Get book chunks implementation - see get_book_chunks for docs."""
+    logger.info(
+        f"get_book_chunks: book_id={book_id}, "
+        f"start={start_sequence}, end={end_sequence}"
+    )
+
+    if not book_id or len(book_id) != 6:
+        return "Error: book_id must be a 6-character identifier"
+
+    range_size = end_sequence - start_sequence + 1
+    if range_size > 20:
+        return "Error: Range too large (max 20 chunks)"
+
+    if start_sequence < 0:
+        return "Error: start_sequence must be >= 0"
+
+    if end_sequence < start_sequence:
+        return "Error: end_sequence must be >= start_sequence"
+
+    try:
+        chunk_repo = _get_chunk_repo()
+        chunks = chunk_repo.get_chunk_range(book_id, start_sequence, end_sequence)
+
+        if not chunks:
+            return "Error: No chunks found in range"
+
+        lines = []
+        for chunk in chunks:
+            section = " > ".join(chunk.section_path) if chunk.section_path else "Unknown"
+            lines.append(
+                f"**[Seq {chunk.sequence}] {chunk.content_type.value} | {section}**"
+            )
+            lines.append("")
+            lines.append(chunk.content)
+            lines.append("")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        logger.exception("get_book_chunks failed")
+        return f"Error: {e}"
+
+
 def _format_search_results(results: list) -> str:
     """Format search results as markdown with attribution.
 
@@ -423,6 +482,7 @@ def search_books(
     content_type: Literal["text", "code", "table", "diagram", "math"] | None = None,
     top_k: int = 10,
     mode: Literal["hybrid", "semantic", "keyword"] = "hybrid",
+    section: str | None = None,
 ) -> str:
     """Search your book library for relevant content.
 
@@ -438,12 +498,15 @@ def search_books(
         content_type: Optional filter - "text", "code", "table", "diagram", or "math"
         top_k: Maximum results to return (default 10, max 50)
         mode: Search mode - hybrid (default, recommended), semantic, or keyword
+        section: Optional section name to filter results (e.g., 'Chapter 3',
+            'Generators'). Case-insensitive substring match against section
+            hierarchy.
 
     Returns:
         Markdown-formatted search results with source attribution,
         or an error message starting with "Error:"
     """
-    return _search_books_impl(query, book_id, content_type, top_k, mode)
+    return _search_books_impl(query, book_id, content_type, top_k, mode, section)
 
 
 @mcp.tool(
@@ -613,3 +676,32 @@ async def add_book(
             "Please try again."
         )
     return result
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True,
+        destructiveHint=False,
+        openWorldHint=False,
+    )
+)
+def get_book_chunks(
+    book_id: str,
+    start_sequence: int,
+    end_sequence: int,
+) -> str:
+    """Fetch contiguous chunks from a book for deep reading.
+
+    Returns up to 20 consecutive chunks ordered by sequence number.
+    Use after search_books to read surrounding context.
+
+    Args:
+        book_id: 6-character book identifier (from list_available_books)
+        start_sequence: First chunk sequence number to fetch (0-indexed)
+        end_sequence: Last chunk sequence number to fetch (inclusive)
+
+    Returns:
+        Markdown-formatted chunks with content, section path, content type,
+        and sequence number, or an error message starting with "Error:"
+    """
+    return _get_book_chunks_impl(book_id, start_sequence, end_sequence)

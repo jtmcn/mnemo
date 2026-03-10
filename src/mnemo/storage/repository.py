@@ -358,6 +358,29 @@ class ChunkRepository:
         rows = self.conn.execute(sql, params).fetchall()
         return [self._row_to_chunk(row) for row in rows]
 
+    def get_chunk_range(
+        self, book_id: str, start_seq: int, end_seq: int, limit: int = 20
+    ) -> list[Chunk]:
+        """Get chunks within a sequence range for a book.
+
+        Args:
+            book_id: 6-char hex book identifier
+            start_seq: Start sequence number (clamped to 0 if negative)
+            end_seq: End sequence number (inclusive)
+            limit: Maximum chunks to return (default 20)
+
+        Returns:
+            List of Chunk instances in sequence order within range
+        """
+        start_seq = max(0, start_seq)
+        rows = self.conn.execute(
+            """SELECT * FROM chunks
+               WHERE book_id = ? AND sequence BETWEEN ? AND ?
+               ORDER BY sequence LIMIT ?""",
+            (book_id, start_seq, end_seq, limit),
+        ).fetchall()
+        return [self._row_to_chunk(row) for row in rows]
+
     def count_by_book(self, book_id: str) -> int:
         """Count chunks for a book.
 
