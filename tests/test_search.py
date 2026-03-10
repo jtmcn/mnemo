@@ -889,6 +889,164 @@ class TestSearchServiceSemanticIntegration:
 # ============================================================================
 
 
+# ============================================================================
+# Section Filter Tests
+# ============================================================================
+
+
+class TestSectionFilter:
+    """Tests for section-based substring filtering in SearchService."""
+
+    @pytest.fixture
+    def mock_chunk_repo(self):
+        repo = MagicMock()
+        repo.search_fts.return_value = []
+        repo.get.return_value = None
+        return repo
+
+    @pytest.fixture
+    def mock_book_repo(self):
+        repo = MagicMock()
+        return repo
+
+    @pytest.fixture
+    def mock_vector_store(self):
+        store = MagicMock()
+        store.query.return_value = []
+        return store
+
+    @pytest.fixture
+    def mock_embedder(self):
+        embedder = MagicMock()
+        embedder.embed_one.return_value = [0.1] * 1024
+        return embedder
+
+    @pytest.fixture
+    def service(self, mock_chunk_repo, mock_book_repo, mock_vector_store, mock_embedder):
+        svc = SearchService()
+        svc._chunk_repo = mock_chunk_repo
+        svc._book_repo = mock_book_repo
+        svc._vector_store = mock_vector_store
+        svc._embedder = mock_embedder
+        svc._book_cache["abc123"] = "Test Book"
+        return svc
+
+    def _make_chunk(self, chunk_id, section_path):
+        """Helper to create a mock chunk with given section_path."""
+        return MagicMock(
+            id=chunk_id,
+            book_id="abc123",
+            content=f"Content for {chunk_id}",
+            content_type=ContentType.TEXT,
+            section_path=section_path,
+        )
+
+    def test_section_filter_matches_substring(self, service, mock_chunk_repo):
+        """section='Generators' filters to only results with 'Generators' in section_path."""
+        chunks = [
+            self._make_chunk("c1", ["Chapter 4", "Generators and Iterators"]),
+            self._make_chunk("c2", ["Chapter 5", "Concurrency"]),
+            self._make_chunk("c3", ["Chapter 6", "Advanced Generators"]),
+        ]
+        mock_chunk_repo.search_fts.return_value = chunks
+
+        results = service.search("test", mode="keyword", section="Generators")
+
+        assert len(results) == 2
+        chunk_ids = {r.chunk_id for r in results}
+        assert chunk_ids == {"c1", "c3"}
+
+    def test_section_filter_case_insensitive(self, service, mock_chunk_repo):
+        """section='generators' matches 'Generators and Iterators' (case-insensitive)."""
+        chunks = [
+            self._make_chunk("c1", ["Chapter 4", "Generators and Iterators"]),
+            self._make_chunk("c2", ["Chapter 5", "Concurrency"]),
+        ]
+        mock_chunk_repo.search_fts.return_value = chunks
+
+        results = service.search("test", mode="keyword", section="generators")
+
+        assert len(results) == 1
+        assert results[0].chunk_id == "c1"
+
+    def test_section_filter_empty_section_path_excluded(self, service, mock_chunk_repo):
+        """Chunks with section_path=[] are excluded when section filter is active."""
+        chunks = [
+            self._make_chunk("c1", []),
+            self._make_chunk("c2", ["Chapter 1", "Generators"]),
+        ]
+        mock_chunk_repo.search_fts.return_value = chunks
+
+        results = service.search("test", mode="keyword", section="Generators")
+
+        assert len(results) == 1
+        assert results[0].chunk_id == "c2"
+
+    def test_section_filter_none_returns_all(self, service, mock_chunk_repo):
+        """section=None returns unfiltered results (current behavior)."""
+        chunks = [
+            self._make_chunk("c1", ["Chapter 4", "Generators"]),
+            self._make_chunk("c2", ["Chapter 5", "Concurrency"]),
+            self._make_chunk("c3", []),
+        ]
+        mock_chunk_repo.search_fts.return_value = chunks
+
+        results = service.search("test", mode="keyword", section=None)
+
+        assert len(results) == 3
+
+    @pytest.mark.parametrize("mode", ["keyword", "semantic", "hybrid"])
+    def test_section_filter_all_modes(self, service, mock_chunk_repo, mock_vector_store, mode):
+        """Section filtering works for keyword, semantic, and hybrid modes."""
+        chunks = [
+            self._make_chunk("c1", ["Chapter 4", "Generators"]),
+            self._make_chunk("c2", ["Chapter 5", "Concurrency"]),
+        ]
+
+        if mode == "keyword":
+            mock_chunk_repo.search_fts.return_value = chunks
+        elif mode == "semantic":
+            mock_vector_store.query.return_value = [
+                {"id": "c1", "distance": 0.1, "metadata": {}, "document": None},
+                {"id": "c2", "distance": 0.2, "metadata": {}, "document": None},
+            ]
+            mock_chunk_repo.get.side_effect = lambda cid: next(
+                (c for c in chunks if c.id == cid), None
+            )
+        else:  # hybrid
+            mock_chunk_repo.search_fts.return_value = chunks
+            mock_vector_store.query.return_value = [
+                {"id": "c1", "distance": 0.1, "metadata": {}, "document": None},
+                {"id": "c2", "distance": 0.2, "metadata": {}, "document": None},
+            ]
+            mock_chunk_repo.get.side_effect = lambda cid: next(
+                (c for c in chunks if c.id == cid), None
+            )
+
+        results = service.search("test", mode=mode, section="Generators")
+
+        assert len(results) == 1
+        assert results[0].chunk_id == "c1"
+
+    def test_section_filter_overfetch_3x(self, service, mock_chunk_repo):
+        """When section filter active, over-fetch 3x from backend."""
+        mock_chunk_repo.search_fts.return_value = []
+
+        service.search("test", mode="keyword", top_k=5, section="Generators")
+
+        call_args = mock_chunk_repo.search_fts.call_args
+        assert call_args.kwargs["limit"] == 15  # 5 * 3
+
+    def test_section_filter_trims_to_top_k(self, service, mock_chunk_repo):
+        """After filtering, results are trimmed to original top_k."""
+        chunks = [self._make_chunk(f"c{i}", ["Generators"]) for i in range(10)]
+        mock_chunk_repo.search_fts.return_value = chunks
+
+        results = service.search("test", mode="keyword", top_k=3, section="Generators")
+
+        assert len(results) == 3
+
+
 class TestRRFIntegration:
     """Tests verifying RRF fusion behavior in SearchService."""
 
