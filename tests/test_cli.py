@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
 
@@ -103,6 +104,60 @@ class TestRemove:
         data = json.loads(result.stdout)
         assert data["removed"] is False
         assert data["book_id"] == "abc123"
+
+
+class TestMigrateCosine:
+    """Tests for the migrate-cosine command."""
+
+    def test_migrate_cosine_help(self) -> None:
+        """migrate-cosine command help exists."""
+        result = runner.invoke(app, ["migrate-cosine", "--help"])
+        assert result.exit_code == 0
+        assert "cosine" in result.stdout.lower()
+
+    @patch("mnemo.cli.migrate_to_cosine")
+    @patch("mnemo.cli.chromadb")
+    def test_migrate_cosine_delegates(self, mock_chromadb, mock_migrate) -> None:
+        """migrate-cosine delegates to migrate_to_cosine function."""
+        mock_migrate.return_value = {"migrated": 10, "verified": True}
+        mock_chromadb.PersistentClient.return_value = MagicMock()
+
+        result = runner.invoke(app, ["migrate-cosine"])
+
+        assert result.exit_code == 0
+        mock_migrate.assert_called_once()
+        assert "10" in result.stdout
+
+    @patch("mnemo.cli.migrate_to_cosine")
+    @patch("mnemo.cli.chromadb")
+    def test_migrate_cosine_json_output(self, mock_chromadb, mock_migrate) -> None:
+        """migrate-cosine --json outputs JSON result."""
+        mock_migrate.return_value = {"migrated": 5, "verified": True}
+        mock_chromadb.PersistentClient.return_value = MagicMock()
+
+        result = runner.invoke(app, ["migrate-cosine", "--json"])
+
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["migrated"] == 5
+
+    @patch("mnemo.cli.migrate_to_cosine")
+    @patch("mnemo.cli.chromadb")
+    def test_migrate_cosine_already_cosine(self, mock_chromadb, mock_migrate) -> None:
+        """migrate-cosine reports when already using cosine."""
+        mock_migrate.return_value = {"migrated": 0, "already_cosine": True}
+        mock_chromadb.PersistentClient.return_value = MagicMock()
+
+        result = runner.invoke(app, ["migrate-cosine"])
+
+        assert result.exit_code == 0
+        assert "already" in result.stdout.lower()
+
+    def test_main_help_includes_migrate_cosine(self) -> None:
+        """Main help shows migrate-cosine command."""
+        result = runner.invoke(app, ["--help"])
+        assert result.exit_code == 0
+        assert "migrate-cosine" in result.stdout
 
 
 class TestSearch:
