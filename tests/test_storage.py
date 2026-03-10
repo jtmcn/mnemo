@@ -864,6 +864,122 @@ class TestEpubPath:
         assert "/path/to/test.epub" in result
 
 
+class TestGetChunkRange:
+    """Tests for ChunkRepository.get_chunk_range method."""
+
+    def test_get_chunk_range_returns_ordered_chunks(
+        self,
+        book_repo: BookRepository,
+        chunk_repo: ChunkRepository,
+        sample_book: Book,
+    ):
+        """get_chunk_range should return chunks in sequence order within range."""
+        book_repo.add(sample_book)
+        chunks = [
+            Chunk(
+                id=str(uuid.uuid4()),
+                book_id=sample_book.id,
+                content=f"Chunk content {i}",
+                content_type=ContentType.TEXT,
+                token_count=10,
+                section_path=["Part 1", f"Chapter {i + 1}"],
+                sections=[f"Chapter {i + 1}"],
+                sequence=i,
+            )
+            for i in range(5)
+        ]
+        chunk_repo.add_many(chunks)
+
+        result = chunk_repo.get_chunk_range(sample_book.id, 1, 3)
+
+        assert len(result) == 3
+        assert result[0].sequence == 1
+        assert result[1].sequence == 2
+        assert result[2].sequence == 3
+
+    def test_get_chunk_range_clamps_negative_start(
+        self,
+        book_repo: BookRepository,
+        chunk_repo: ChunkRepository,
+        sample_book: Book,
+    ):
+        """get_chunk_range should clamp negative start_seq to 0."""
+        book_repo.add(sample_book)
+        chunks = [
+            Chunk(
+                id=str(uuid.uuid4()),
+                book_id=sample_book.id,
+                content=f"Chunk content {i}",
+                content_type=ContentType.TEXT,
+                token_count=10,
+                section_path=["Part 1"],
+                sections=["Part 1"],
+                sequence=i,
+            )
+            for i in range(3)
+        ]
+        chunk_repo.add_many(chunks)
+
+        result = chunk_repo.get_chunk_range(sample_book.id, -2, 1)
+
+        assert len(result) == 2
+        assert result[0].sequence == 0
+        assert result[1].sequence == 1
+
+    def test_get_chunk_range_empty_for_unknown_book(
+        self,
+        book_repo: BookRepository,
+        chunk_repo: ChunkRepository,
+        sample_book: Book,
+    ):
+        """get_chunk_range should return empty list for nonexistent book_id."""
+        book_repo.add(sample_book)
+        chunks = [
+            Chunk(
+                id=str(uuid.uuid4()),
+                book_id=sample_book.id,
+                content="Some content",
+                content_type=ContentType.TEXT,
+                token_count=10,
+                section_path=[],
+                sections=[],
+                sequence=0,
+            )
+        ]
+        chunk_repo.add_many(chunks)
+
+        result = chunk_repo.get_chunk_range("notfnd", 0, 5)
+
+        assert result == []
+
+    def test_get_chunk_range_respects_limit(
+        self,
+        book_repo: BookRepository,
+        chunk_repo: ChunkRepository,
+        sample_book: Book,
+    ):
+        """get_chunk_range should respect default limit of 20."""
+        book_repo.add(sample_book)
+        chunks = [
+            Chunk(
+                id=str(uuid.uuid4()),
+                book_id=sample_book.id,
+                content=f"Chunk {i}",
+                content_type=ContentType.TEXT,
+                token_count=5,
+                section_path=[],
+                sections=[],
+                sequence=i,
+            )
+            for i in range(25)
+        ]
+        chunk_repo.add_many(chunks)
+
+        result = chunk_repo.get_chunk_range(sample_book.id, 0, 24)
+
+        assert len(result) == 20
+
+
 class TestFTSSyncTriggers:
     """Tests that FTS triggers keep index in sync."""
 

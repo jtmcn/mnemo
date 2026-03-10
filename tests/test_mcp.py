@@ -1372,6 +1372,104 @@ class TestAddBookAsync:
         mock_pipeline_remove.assert_called_once_with("ppp001")
 
 
+class TestGetBookChunks:
+    """Tests for get_book_chunks MCP tool."""
+
+    @pytest.fixture
+    def temp_db(self, tmp_path):
+        """Create a temporary database with a test book and chunks."""
+        from mnemo.storage.database import get_connection, init_db
+
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        conn = get_connection(db_path)
+
+        from mnemo.storage import BookRepository, ChunkRepository
+
+        book_repo = BookRepository(conn)
+        chunk_repo = ChunkRepository(conn)
+
+        book = Book(
+            id="abc123",
+            title="Test Python Book",
+            authors=["John Doe"],
+            isbn="978-1234567890",
+            file_hash="a" * 64,
+            default_language="python",
+            structure_source="toc",
+            added_at=datetime(2026, 1, 20, tzinfo=timezone.utc),
+        )
+        book_repo.add(book)
+
+        chunks = [
+            Chunk(
+                id=f"chunk-{i}",
+                book_id="abc123",
+                content=f"This is the content of chunk number {i}.",
+                content_type=ContentType.TEXT if i % 2 == 0 else ContentType.CODE,
+                token_count=10,
+                section_path=["Chapter 1", f"Section {i}"],
+                sections=["Chapter 1"],
+                language="python" if i % 2 == 1 else None,
+                sequence=i,
+            )
+            for i in range(5)
+        ]
+        chunk_repo.add_many(chunks)
+
+        yield {"path": db_path, "conn": conn, "book": book}
+
+        conn.close()
+
+    def test_get_book_chunks_returns_formatted_content(self, temp_db):
+        """get_book_chunks should return markdown with content, section, type, sequence."""
+        from mnemo.mcp import tools
+
+        original_conn = tools._db_connection
+        tools._db_connection = temp_db["conn"]
+
+        try:
+            result = tools._get_book_chunks_impl("abc123", 0, 2)
+
+            assert "Seq 0" in result
+            assert "Seq 1" in result
+            assert "Seq 2" in result
+            assert "chunk number 0" in result
+            assert "Chapter 1 > Section 0" in result
+            assert "text" in result.lower() or "TEXT" in result
+        finally:
+            tools._db_connection = original_conn
+
+    def test_get_book_chunks_invalid_book_id(self):
+        """get_book_chunks with invalid book_id should return Error."""
+        from mnemo.mcp.tools import _get_book_chunks_impl
+
+        result = _get_book_chunks_impl("abc", 0, 5)
+        assert result.startswith("Error:")
+
+    def test_get_book_chunks_caps_at_20(self):
+        """get_book_chunks with range > 20 should return Error about max."""
+        from mnemo.mcp.tools import _get_book_chunks_impl
+
+        result = _get_book_chunks_impl("abc123", 0, 24)
+        assert result.startswith("Error:")
+        assert "20" in result
+
+    def test_get_book_chunks_no_chunks_found(self, temp_db):
+        """get_book_chunks with valid book format but no chunks should return Error."""
+        from mnemo.mcp import tools
+
+        original_conn = tools._db_connection
+        tools._db_connection = temp_db["conn"]
+
+        try:
+            result = tools._get_book_chunks_impl("zzz999", 0, 5)
+            assert result.startswith("Error:")
+            assert "No chunks" in result
+        finally:
+            tools._db_connection = original_conn
+
+
 class TestAddBookChunkParams:
     """Tests for chunk size parameters on add_book."""
 
