@@ -529,6 +529,7 @@ class TestSearchBooksIntegration:
                 content_type="code",
                 mode="semantic",
                 section=None,
+                context_window=0,
             )
         finally:
             tools._search_service = original_service
@@ -1565,3 +1566,116 @@ class TestAddBookChunkParams:
         call_kwargs = mock_ingest.call_args
         chunker_config = call_kwargs.kwargs.get("chunker_config") or call_kwargs[1].get("chunker_config")
         assert chunker_config is None
+
+
+# ============================================================================
+# Context Window MCP Tests
+# ============================================================================
+
+
+class TestSearchBooksContextWindow:
+    """Tests for context_window parameter on search_books MCP tool."""
+
+    def test_search_books_context_window_zero_unchanged(self):
+        """context_window=0 produces same format as before (no enrichment markers)."""
+        from mnemo.mcp import tools
+
+        mock_service = MagicMock()
+        mock_service.search.return_value = [
+            SearchResult(
+                chunk_id="c1",
+                book_id="abc123",
+                book_title="Test Book",
+                content="Some content",
+                content_type="text",
+                section_path=["Chapter 1"],
+                score=0.5,
+                source="keyword",
+            )
+        ]
+
+        original_service = tools._search_service
+        tools._search_service = mock_service
+
+        try:
+            result = tools._search_books_impl("test", context_window=0)
+
+            assert "Found 1 results:" in result
+            assert "MATCHED" not in result
+            assert "[context, seq" not in result
+            assert "Test Book" in result
+        finally:
+            tools._search_service = original_service
+
+    def test_search_books_context_window_formats_enriched(self):
+        """context_window=1 output contains matched and context markers."""
+        from mnemo.mcp import tools
+        from mnemo.models import Chunk, ContentType
+
+        # Create mock chunks for the expanded result
+        chunks = [
+            Chunk(
+                id=f"c{i}",
+                book_id="abc123",
+                content=f"Content for seq {i}",
+                content_type=ContentType.TEXT,
+                token_count=10,
+                section_path=["Chapter 1"],
+                sections=["Chapter 1"],
+                sequence=i,
+            )
+            for i in range(3)
+        ]
+
+        expanded_result = {
+            "matched_chunk_id": "c1",
+            "book_id": "abc123",
+            "start_seq": 0,
+            "end_seq": 2,
+            "chunks": chunks,
+            "matched_chunk_ids": {"c1"},
+            "result": SearchResult(
+                chunk_id="c1",
+                book_id="abc123",
+                book_title="Test Book",
+                content="Content for seq 1",
+                content_type="text",
+                section_path=["Chapter 1"],
+                score=0.5,
+                source="keyword",
+            ),
+        }
+
+        mock_service = MagicMock()
+        mock_service.search.return_value = [expanded_result]
+
+        original_service = tools._search_service
+        tools._search_service = mock_service
+
+        try:
+            result = tools._search_books_impl("test", context_window=1)
+
+            assert "with context" in result
+            assert "MATCHED (seq 1)" in result
+            assert "[context, seq 0]" in result
+            assert "[context, seq 2]" in result
+        finally:
+            tools._search_service = original_service
+
+    def test_search_books_context_window_clamped(self):
+        """context_window=5 is clamped to 3."""
+        from mnemo.mcp import tools
+
+        mock_service = MagicMock()
+        mock_service.search.return_value = []
+
+        original_service = tools._search_service
+        tools._search_service = mock_service
+
+        try:
+            tools._search_books_impl("test", context_window=5)
+
+            call_kwargs = mock_service.search.call_args[1]
+            assert call_kwargs["context_window"] == 3
+        finally:
+            tools._search_service = original_service

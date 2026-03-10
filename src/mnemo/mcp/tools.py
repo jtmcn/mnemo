@@ -64,6 +64,7 @@ def _search_books_impl(
     top_k: int = 10,
     mode: Literal["hybrid", "semantic", "keyword"] = "hybrid",
     section: str | None = None,
+    context_window: int = 0,
 ) -> str:
     """Search implementation - see search_books for docs."""
     logger.info(f"search_books: query={query!r}, book_id={book_id}, top_k={top_k}")
@@ -73,6 +74,7 @@ def _search_books_impl(
         return "Error: Query cannot be empty"
 
     top_k = min(max(1, top_k), 50)  # Clamp to 1-50
+    context_window = min(max(0, context_window), 3)  # Clamp to 0-3
 
     try:
         service = _get_search_service()
@@ -83,10 +85,14 @@ def _search_books_impl(
             content_type=content_type,
             mode=mode,
             section=section,
+            context_window=context_window,
         )
 
         if not results:
             return f"No results found for: {query}"
+
+        if context_window >= 1:
+            return _format_enriched_results(results)
 
         return _format_search_results(results)
 
@@ -466,6 +472,51 @@ def _format_search_results(results: list) -> str:
     return "\n".join(lines)
 
 
+def _format_enriched_results(expanded_results: list[dict]) -> str:
+    """Format enriched search results with context chunk markers.
+
+    Shows each expanded result with matched chunks clearly delineated
+    from surrounding context chunks.
+    """
+    lines = [f"Found {len(expanded_results)} results (with context):\n"]
+
+    for exp in expanded_results:
+        result = exp["result"]
+        matched_ids = exp["matched_chunk_ids"]
+
+        section = (
+            " > ".join(result.section_path) if result.section_path else "Unknown section"
+        )
+
+        lines.append("---")
+        lines.append(f"**Source:** {result.book_title} > {section}")
+        lines.append(
+            f"**Book ID:** `{result.book_id}` | "
+            f"**Type:** {result.content_type} | "
+            f"**Match:** {result.source}"
+        )
+        lines.append("")
+
+        for chunk in exp["chunks"]:
+            if chunk.id in matched_ids:
+                lines.append(f"**>>> MATCHED (seq {chunk.sequence}) <<<**")
+            else:
+                lines.append(f"*[context, seq {chunk.sequence}]*")
+
+            content = chunk.content
+            if len(content) > 2000:
+                content = content[:2000] + "\n\n[truncated...]"
+
+            if chunk.content_type.value == "code":
+                lines.append(f"```\n{content}\n```")
+            else:
+                lines.append(content)
+
+            lines.append("")
+
+    return "\n".join(lines)
+
+
 # MCP tool registrations (delegate to implementations)
 
 
@@ -483,6 +534,7 @@ def search_books(
     top_k: int = 10,
     mode: Literal["hybrid", "semantic", "keyword"] = "hybrid",
     section: str | None = None,
+    context_window: int = 0,
 ) -> str:
     """Search your book library for relevant content.
 
@@ -501,12 +553,17 @@ def search_books(
         section: Optional section name to filter results (e.g., 'Chapter 3',
             'Generators'). Case-insensitive substring match against section
             hierarchy.
+        context_window: Number of neighboring chunks to include around each
+            match (default 0 = current behavior). Use 1-2 for reading in
+            context. Larger windows produce more verbose output. Max 3.
 
     Returns:
         Markdown-formatted search results with source attribution,
         or an error message starting with "Error:"
     """
-    return _search_books_impl(query, book_id, content_type, top_k, mode, section)
+    return _search_books_impl(
+        query, book_id, content_type, top_k, mode, section, context_window,
+    )
 
 
 @mcp.tool(
