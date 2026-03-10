@@ -592,6 +592,50 @@ class TestChunkerIntegration:
 
         assert all(chunk.book_id == "abc123" for chunk in chunks)
 
+class TestChunkerConfigValidation:
+    """Tests for ChunkerConfig.validate_params validation."""
+
+    def test_valid_params_returns_none(self):
+        """Valid params (min=200, max=1000) should return None."""
+        result = ChunkerConfig.validate_params(200, 1000)
+        assert result is None
+
+    def test_min_too_small_returns_error(self):
+        """min_tokens < 100 should return error string."""
+        result = ChunkerConfig.validate_params(50, 800)
+        assert result is not None
+        assert "chunk_min_tokens" in result
+        assert ">= 100" in result
+
+    def test_max_too_large_returns_error(self):
+        """max_tokens > 2000 should return error string."""
+        result = ChunkerConfig.validate_params(400, 3000)
+        assert result is not None
+        assert "chunk_max_tokens" in result
+        assert "<= 2000" in result
+
+    def test_min_gte_max_returns_error(self):
+        """min_tokens >= max_tokens should return error string."""
+        result = ChunkerConfig.validate_params(800, 800)
+        assert result is not None
+        assert "less than" in result
+
+    def test_none_params_returns_none(self):
+        """None params (defaults) should return None."""
+        result = ChunkerConfig.validate_params(None, None)
+        assert result is None
+
+    def test_only_min_provided_valid(self):
+        """Only min_tokens provided with valid value should return None."""
+        result = ChunkerConfig.validate_params(200, None)
+        assert result is None
+
+    def test_only_max_provided_valid(self):
+        """Only max_tokens provided with valid value should return None."""
+        result = ChunkerConfig.validate_params(None, 1000)
+        assert result is None
+
+
     def test_text_splitting_creates_linked_chunks(self):
         """Split text should produce linked chunks with correct sequences."""
         # Create text that will definitely be split

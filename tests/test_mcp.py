@@ -1370,3 +1370,99 @@ class TestAddBookAsync:
 
         assert "timed out" in result.lower()
         mock_pipeline_remove.assert_called_once_with("ppp001")
+
+
+class TestAddBookChunkParams:
+    """Tests for chunk size parameters on add_book."""
+
+    def test_add_book_with_valid_chunk_params(self, tmp_path):
+        """_add_book_impl with valid chunk params should pass ChunkerConfig to ingest."""
+        from mnemo.mcp.tools import _add_book_impl
+        from mnemo.chunking.chunker import ChunkerConfig
+
+        epub_file = tmp_path / "test.epub"
+        epub_file.write_bytes(b"fake epub")
+
+        mock_book = MagicMock()
+        mock_book.id = "abc123"
+        mock_book.title = "Test"
+        mock_book.authors = ["Author"]
+        mock_book.file_hash = "a" * 64
+
+        with (
+            patch("mnemo.mcp.tools.init_db"),
+            patch("mnemo.mcp.tools.get_connection") as mock_conn_fn,
+            patch("mnemo.epub.metadata.extract_metadata", return_value=mock_book),
+            patch("mnemo.mcp.tools.BookRepository") as mock_repo_cls,
+            patch("mnemo.ingest.ingest_book") as mock_ingest,
+        ):
+            mock_conn = MagicMock()
+            mock_conn_fn.return_value = mock_conn
+            mock_repo = MagicMock()
+            mock_repo_cls.return_value = mock_repo
+            mock_repo.get_by_hash.return_value = None
+            mock_repo.find_similar_title.return_value = []
+            mock_ingest.return_value = (mock_book, 42)
+
+            result = _add_book_impl(
+                str(epub_file), force=False,
+                chunk_min_tokens=200, chunk_max_tokens=1000,
+            )
+
+        assert "Error" not in result
+        # Verify ChunkerConfig was passed to ingest
+        call_kwargs = mock_ingest.call_args
+        chunker_config = call_kwargs.kwargs.get("chunker_config") or call_kwargs[1].get("chunker_config")
+        assert chunker_config is not None
+        assert chunker_config.min_tokens == 200
+        assert chunker_config.max_tokens == 1000
+
+    def test_add_book_with_invalid_chunk_params_returns_error(self, tmp_path):
+        """_add_book_impl with invalid chunk params should return error without ingesting."""
+        from mnemo.mcp.tools import _add_book_impl
+
+        epub_file = tmp_path / "test.epub"
+        epub_file.write_bytes(b"fake epub")
+
+        # min >= max is invalid
+        result = _add_book_impl(
+            str(epub_file), force=False,
+            chunk_min_tokens=800, chunk_max_tokens=400,
+        )
+
+        assert "Error" in result
+        assert "chunk_min_tokens" in result
+
+    def test_add_book_without_chunk_params_backward_compatible(self, tmp_path):
+        """_add_book_impl without chunk params should pass chunker_config=None."""
+        from mnemo.mcp.tools import _add_book_impl
+
+        epub_file = tmp_path / "test.epub"
+        epub_file.write_bytes(b"fake epub")
+
+        mock_book = MagicMock()
+        mock_book.id = "abc123"
+        mock_book.title = "Test"
+        mock_book.authors = ["Author"]
+        mock_book.file_hash = "a" * 64
+
+        with (
+            patch("mnemo.mcp.tools.init_db"),
+            patch("mnemo.mcp.tools.get_connection") as mock_conn_fn,
+            patch("mnemo.epub.metadata.extract_metadata", return_value=mock_book),
+            patch("mnemo.mcp.tools.BookRepository") as mock_repo_cls,
+            patch("mnemo.ingest.ingest_book") as mock_ingest,
+        ):
+            mock_conn = MagicMock()
+            mock_conn_fn.return_value = mock_conn
+            mock_repo = MagicMock()
+            mock_repo_cls.return_value = mock_repo
+            mock_repo.get_by_hash.return_value = None
+            mock_repo.find_similar_title.return_value = []
+            mock_ingest.return_value = (mock_book, 42)
+
+            _add_book_impl(str(epub_file), force=False)
+
+        call_kwargs = mock_ingest.call_args
+        chunker_config = call_kwargs.kwargs.get("chunker_config") or call_kwargs[1].get("chunker_config")
+        assert chunker_config is None
