@@ -44,8 +44,9 @@ class BookRepository:
         self.conn.execute(
             """
             INSERT INTO books (id, title, authors, isbn, file_hash,
-                             default_language, structure_source, added_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                             default_language, structure_source, added_at,
+                             epub_path)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 book.id,
@@ -56,6 +57,7 @@ class BookRepository:
                 book.default_language,
                 book.structure_source,
                 book.added_at.isoformat(),
+                book.epub_path,
             ),
         )
         self.conn.commit()
@@ -211,6 +213,7 @@ class BookRepository:
             default_language=row["default_language"],
             structure_source=row["structure_source"],
             added_at=datetime.fromisoformat(row["added_at"]),
+            epub_path=row["epub_path"],
         )
 
 

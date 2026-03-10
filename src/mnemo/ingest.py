@@ -140,6 +140,9 @@ def ingest_book(
     parser = EPUBParser()
     book, content_blocks = parser.parse(epub_path)
 
+    # 3b. Store resolved absolute epub_path
+    book = book.model_copy(update={"epub_path": str(epub_path.resolve())})
+
     # 4. Check for duplicate
     existing = book_repo.get_by_hash(book.file_hash)
     if existing and not force:
