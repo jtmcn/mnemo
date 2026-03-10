@@ -115,12 +115,12 @@ class TestMigrateCosine:
         assert result.exit_code == 0
         assert "cosine" in result.stdout.lower()
 
-    @patch("mnemo.cli.migrate_to_cosine")
-    @patch("mnemo.cli.chromadb")
-    def test_migrate_cosine_delegates(self, mock_chromadb, mock_migrate) -> None:
+    @patch("mnemo.vectors.migrate.migrate_to_cosine")
+    @patch("chromadb.PersistentClient")
+    def test_migrate_cosine_delegates(self, mock_client_cls, mock_migrate) -> None:
         """migrate-cosine delegates to migrate_to_cosine function."""
         mock_migrate.return_value = {"migrated": 10, "verified": True}
-        mock_chromadb.PersistentClient.return_value = MagicMock()
+        mock_client_cls.return_value = MagicMock()
 
         result = runner.invoke(app, ["migrate-cosine"])
 
@@ -128,12 +128,12 @@ class TestMigrateCosine:
         mock_migrate.assert_called_once()
         assert "10" in result.stdout
 
-    @patch("mnemo.cli.migrate_to_cosine")
-    @patch("mnemo.cli.chromadb")
-    def test_migrate_cosine_json_output(self, mock_chromadb, mock_migrate) -> None:
+    @patch("mnemo.vectors.migrate.migrate_to_cosine")
+    @patch("chromadb.PersistentClient")
+    def test_migrate_cosine_json_output(self, mock_client_cls, mock_migrate) -> None:
         """migrate-cosine --json outputs JSON result."""
         mock_migrate.return_value = {"migrated": 5, "verified": True}
-        mock_chromadb.PersistentClient.return_value = MagicMock()
+        mock_client_cls.return_value = MagicMock()
 
         result = runner.invoke(app, ["migrate-cosine", "--json"])
 
@@ -141,12 +141,12 @@ class TestMigrateCosine:
         data = json.loads(result.stdout)
         assert data["migrated"] == 5
 
-    @patch("mnemo.cli.migrate_to_cosine")
-    @patch("mnemo.cli.chromadb")
-    def test_migrate_cosine_already_cosine(self, mock_chromadb, mock_migrate) -> None:
+    @patch("mnemo.vectors.migrate.migrate_to_cosine")
+    @patch("chromadb.PersistentClient")
+    def test_migrate_cosine_already_cosine(self, mock_client_cls, mock_migrate) -> None:
         """migrate-cosine reports when already using cosine."""
         mock_migrate.return_value = {"migrated": 0, "already_cosine": True}
-        mock_chromadb.PersistentClient.return_value = MagicMock()
+        mock_client_cls.return_value = MagicMock()
 
         result = runner.invoke(app, ["migrate-cosine"])
 

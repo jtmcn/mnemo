@@ -1,11 +1,12 @@
 """Command-line interface for Mnemo.
 
-Provides five commands to manage the book library and MCP server:
+Provides commands to manage the book library and MCP server:
 - add: Add EPUB files to the library
 - remove: Remove a book by ID
 - list: List all indexed books
 - search: Search books for content
 - serve: Start the MCP server for Claude
+- migrate-cosine: Migrate ChromaDB from L2 to cosine distance
 """
 
 from __future__ import annotations
@@ -288,6 +289,63 @@ def search(
         console.print(f"[bold]{r.book_title}[/bold] > {section}")
         console.print(r.content)
         console.print()
+
+
+@app.command(name="migrate-cosine")
+def migrate_cosine(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output as JSON"),
+    ] = False,
+    chroma_path: Annotated[
+        Optional[Path],
+        typer.Option("--chroma-path", help="ChromaDB storage path override"),
+    ] = None,
+) -> None:
+    """Migrate ChromaDB from L2 to cosine distance.
+
+    Copies all vectors to a new collection with cosine distance metric.
+    Existing embeddings are preserved (no re-embedding needed).
+    Safe to run multiple times (idempotent).
+    """
+    import chromadb
+
+    from mnemo.vectors.config import VectorConfig
+    from mnemo.vectors.migrate import migrate_to_cosine
+
+    try:
+        # Resolve ChromaDB path
+        config = VectorConfig(persist_path=chroma_path)
+        persist_path = config.get_persist_path()
+        client = chromadb.PersistentClient(path=str(persist_path))
+
+        result = migrate_to_cosine(client, config.collection_name)
+
+        if json_output:
+            print(json.dumps(result))
+            return
+
+        if result.get("already_cosine"):
+            console.print("[green]Already using cosine distance.[/green]")
+        elif result["migrated"] == 0:
+            console.print("[green]Empty collection recreated with cosine distance.[/green]")
+        else:
+            console.print(
+                f"[green]Migrated {result['migrated']} vectors to cosine distance.[/green]"
+            )
+
+    except RuntimeError as e:
+        if json_output:
+            print(json.dumps({"error": str(e)}))
+        else:
+            console.print(f"[red]Migration failed: {e}[/red]")
+        raise typer.Exit(1)
+    except Exception as e:
+        if json_output:
+            print(json.dumps({"error": str(e)}))
+        else:
+            console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
 
 
 @app.command()
