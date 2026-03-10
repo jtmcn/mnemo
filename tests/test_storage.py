@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+from unittest.mock import MagicMock, patch
 
 from mnemo.models import Book, Chunk, ContentType
 from mnemo.storage.database import get_connection, init_db
@@ -737,6 +738,130 @@ class TestFTSSearch:
         chunk_repo.search_fts("C++")
         chunk_repo.search_fts("test@example.com")
         chunk_repo.search_fts("foo(bar)")
+
+
+class TestEpubPath:
+    """Tests for epub_path storage and retrieval."""
+
+    def test_book_model_accepts_epub_path(self):
+        """Book model should accept optional epub_path field."""
+        book = Book(
+            id="abc123",
+            title="Test Book",
+            authors=["Author"],
+            file_hash="a" * 64,
+            structure_source="toc",
+            epub_path="/path/to/book.epub",
+        )
+        assert book.epub_path == "/path/to/book.epub"
+
+    def test_book_model_epub_path_defaults_none(self):
+        """Book model epub_path should default to None."""
+        book = Book(
+            id="abc123",
+            title="Test Book",
+            authors=["Author"],
+            file_hash="a" * 64,
+            structure_source="toc",
+        )
+        assert book.epub_path is None
+
+    def test_init_db_creates_epub_path_column(self, db_path: Path):
+        """init_db should create books table with epub_path column."""
+        init_db(db_path)
+        conn = get_connection(db_path)
+        # Check column exists
+        columns = conn.execute("PRAGMA table_info(books)").fetchall()
+        column_names = [c["name"] for c in columns]
+        assert "epub_path" in column_names
+        conn.close()
+
+    def test_existing_db_without_epub_path_gets_migrated(self, db_path: Path):
+        """Existing database without epub_path column should get it after init_db."""
+        # Create old-style DB without epub_path
+        import sqlite3
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(db_path)
+        conn.execute("""
+            CREATE TABLE books (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                authors TEXT NOT NULL,
+                isbn TEXT,
+                file_hash TEXT UNIQUE NOT NULL,
+                default_language TEXT,
+                structure_source TEXT NOT NULL,
+                added_at TEXT NOT NULL
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+        # Now run init_db -- should add epub_path via migration
+        init_db(db_path)
+        conn = get_connection(db_path)
+        columns = conn.execute("PRAGMA table_info(books)").fetchall()
+        column_names = [c["name"] for c in columns]
+        assert "epub_path" in column_names
+        conn.close()
+
+    def test_book_repo_stores_epub_path(self, book_repo: BookRepository):
+        """BookRepository.add should store epub_path when provided."""
+        book = Book(
+            id="abc123",
+            title="Test Book",
+            authors=["Author"],
+            file_hash="a" * 64,
+            structure_source="toc",
+            epub_path="/absolute/path/to/book.epub",
+        )
+        book_repo.add(book)
+        retrieved = book_repo.get("abc123")
+        assert retrieved is not None
+        assert retrieved.epub_path == "/absolute/path/to/book.epub"
+
+    def test_book_repo_stores_none_epub_path(self, book_repo: BookRepository):
+        """BookRepository.add should store None epub_path."""
+        book = Book(
+            id="abc123",
+            title="Test Book",
+            authors=["Author"],
+            file_hash="a" * 64,
+            structure_source="toc",
+        )
+        book_repo.add(book)
+        retrieved = book_repo.get("abc123")
+        assert retrieved is not None
+        assert retrieved.epub_path is None
+
+    def test_get_book_info_shows_epub_path(self):
+        """get_book_info should show epub_path when present."""
+        from mnemo.mcp.tools import _get_book_info_impl
+
+        book = Book(
+            id="abc123",
+            title="Test Book",
+            authors=["Author"],
+            file_hash="a" * 64,
+            structure_source="toc",
+            epub_path="/path/to/test.epub",
+        )
+
+        with patch("mnemo.mcp.tools._get_book_repo") as mock_repo, \
+             patch("mnemo.mcp.tools.ChunkRepository") as mock_chunk_cls:
+            mock_repo.return_value.get.return_value = book
+            mock_chunk_cls.return_value.count_by_book.return_value = 10
+            # Need to set _db_connection to avoid issues
+            import mnemo.mcp.tools as tools_mod
+            old_conn = tools_mod._db_connection
+            tools_mod._db_connection = MagicMock()
+            try:
+                result = _get_book_info_impl("abc123")
+            finally:
+                tools_mod._db_connection = old_conn
+
+        assert "EPUB Path" in result
+        assert "/path/to/test.epub" in result
 
 
 class TestFTSSyncTriggers:
