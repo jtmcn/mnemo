@@ -18,10 +18,10 @@ Requirements for RAG improvements milestone. Each maps to roadmap phases.
 ### Search Quality
 
 - [x] **SRCH-01**: Search results include numeric relevance scores (cosine similarity 0-1)
-- [ ] **SRCH-02**: Context enrichment expands each result with surrounding chunks (configurable window, default 1)
-- [ ] **SRCH-03**: Context expansion respects section boundaries (does not cross into different sections)
-- [ ] **SRCH-04**: Overlapping expansion windows are deduplicated into a single context block
-- [ ] **SRCH-05**: `search_books` MCP tool accepts `context_window` parameter (0 = current behavior)
+- [x] **SRCH-02**: Context enrichment expands each result with surrounding chunks (configurable window, default 1)
+- [x] **SRCH-03**: Context expansion respects section boundaries (does not cross into different sections)
+- [x] **SRCH-04**: Overlapping expansion windows are deduplicated into a single context block
+- [x] **SRCH-05**: `search_books` MCP tool accepts `context_window` parameter (0 = current behavior)
 
 ### Metadata Search
 
@@ -79,10 +79,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INFRA-04 | Phase 8 | Complete |
 | INFRA-05 | Phase 8 | Complete |
 | SRCH-01 | Phase 8 | Complete |
-| SRCH-02 | Phase 9 | Pending |
-| SRCH-03 | Phase 9 | Pending |
-| SRCH-04 | Phase 9 | Pending |
-| SRCH-05 | Phase 9 | Pending |
+| SRCH-02 | Phase 9 | Complete |
+| SRCH-03 | Phase 9 | Complete |
+| SRCH-04 | Phase 9 | Complete |
+| SRCH-05 | Phase 9 | Complete |
 | META-01 | Phase 9 | Complete |
 | META-02 | Phase 9 | Complete |
 | META-03 | Phase 9 | Complete |

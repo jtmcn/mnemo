@@ -4,15 +4,15 @@ milestone: v1.2
 milestone_name: RAG Improvements
 current_phase: 9
 status: executing
-stopped_at: Completed 09-01-PLAN.md
+stopped_at: Completed 09-03-PLAN.md
 last_updated: "2026-03-10T21:08:48.827Z"
 last_activity: 2026-03-10 — Completed 09-01 chunk range retrieval plan
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 5
-  completed_plans: 3
-  percent: 90
+  completed_plans: 5
+  percent: 100
 ---
 
 # Project State: Mnemo
@@ -31,11 +31,11 @@ See: .planning/PROJECT.md (updated 2026-03-08)
 ## Current Position
 
 Phase: 9 of 9 (Search Enrichment)
-Plan: 2 of 3 in current phase
-Status: In progress
-Last activity: 2026-03-10 — Completed 09-02 section filtering plan
+Plan: 3 of 3 in current phase
+Status: Complete
+Last activity: 2026-03-10 — Completed 09-03 context window expansion plan
 
-Progress: [█████████░] 95%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -50,8 +50,9 @@ Progress: [█████████░] 95%
 | 1-4 (v1.0) | 11 | Complete |
 | 5-7 (v1.1) | 5 | Complete |
 | 8 (v1.2) | 2 | Complete |
-| 9 (v1.2) | 1/3 | In Progress |
+| 9 (v1.2) | 3/3 | Complete |
 | Phase 09 P01 | 3min | 1 tasks | 4 files |
+| Phase 09 P03 | 5min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -73,6 +74,9 @@ Recent decisions affecting current work:
 - [09-01]: Range cap of 20 enforced at MCP tool level with error, repository uses SQL LIMIT as safety net
 - [09-02]: Post-filter pattern with 3x over-fetch to compensate for section filtering reduction
 - [09-02]: Case-insensitive substring matching against section_path elements
+- [09-03]: context_window clamped to 0-3 at MCP layer to prevent response explosion
+- [09-03]: Section boundary walking stops on first section_path mismatch
+- [09-03]: Overlapping windows merged by book_id with highest-scoring result as primary
 
 ### Pending Todos
 None.
@@ -83,8 +87,8 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-10T21:08:48.825Z
-Stopped at: Completed 09-02-PLAN.md
+Last session: 2026-03-10T21:16:17Z
+Stopped at: Completed 09-03-PLAN.md
 Resume file: None
 
 ---
