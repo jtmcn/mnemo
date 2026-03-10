@@ -1,7 +1,24 @@
+---
+gsd_state_version: 1.0
+milestone: v1.2
+milestone_name: RAG Improvements
+current_phase: 9
+status: completed
+stopped_at: Completed 08-02-PLAN.md
+last_updated: "2026-03-10T16:59:37.166Z"
+last_activity: 2026-03-10 — Completed 08-02 epub path and chunk sizes plan
+progress:
+  total_phases: 2
+  completed_phases: 1
+  total_plans: 2
+  completed_plans: 2
+  percent: 100
+---
+
 # Project State: Mnemo
 
 **Last Updated:** 2026-03-10T16:55Z
-**Current Phase:** Phase 8 — Infrastructure & Quick Wins
+**Current Phase:** 9
 **Overall Progress:** v1.0 shipped, v1.1 shipped, v1.2 in progress
 
 ## Project Reference
