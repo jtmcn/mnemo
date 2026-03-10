@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: RAG Improvements
 current_phase: 9
-status: completed
-stopped_at: Completed 08-02-PLAN.md
-last_updated: "2026-03-10T16:59:37.166Z"
-last_activity: 2026-03-10 — Completed 08-02 epub path and chunk sizes plan
+status: executing
+stopped_at: Completed 09-01-PLAN.md
+last_updated: "2026-03-10T21:08:48.827Z"
+last_activity: 2026-03-10 — Completed 09-01 chunk range retrieval plan
 progress:
   total_phases: 2
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
-  percent: 100
+  total_plans: 5
+  completed_plans: 3
+  percent: 90
 ---
 
 # Project State: Mnemo
@@ -26,21 +26,21 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Ask Claude a question, get answers from your book collection.
-**Current focus:** Phase 8 — Infrastructure & Quick Wins
+**Current focus:** Phase 9 — Search Enrichment
 
 ## Current Position
 
-Phase: 8 of 9 (Infrastructure & Quick Wins)
-Plan: 2 of 2 in current phase
-Status: Phase complete
-Last activity: 2026-03-10 — Completed 08-02 epub path and chunk sizes plan
+Phase: 9 of 9 (Search Enrichment)
+Plan: 1 of 3 in current phase
+Status: In progress
+Last activity: 2026-03-10 — Completed 09-01 chunk range retrieval plan
 
-Progress: [██████████] 100%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 18 (11 v1.0 + 5 v1.1 + 2 v1.2)
+- Total plans completed: 19 (11 v1.0 + 5 v1.1 + 3 v1.2)
 - v1.1 timeline: 7 days (2026-02-11 → 2026-02-17)
 
 **By Phase (v1.0 + v1.1):**
@@ -50,6 +50,8 @@ Progress: [██████████] 100%
 | 1-4 (v1.0) | 11 | Complete |
 | 5-7 (v1.1) | 5 | Complete |
 | 8 (v1.2) | 2 | Complete |
+| 9 (v1.2) | 1/3 | In Progress |
+| Phase 09 P01 | 3min | 1 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -67,6 +69,8 @@ Recent decisions affecting current work:
 - [08-02]: Schema migration via ALTER TABLE with try/except for idempotent duplicate-column handling
 - [08-02]: epub_path stored as resolved absolute path during ingest
 - [08-02]: Chunk size validation returns error string matching MCP tool error pattern
+- [09-01]: Validation in MCP layer, clamping in repository layer -- separation of concerns
+- [09-01]: Range cap of 20 enforced at MCP tool level with error, repository uses SQL LIMIT as safety net
 
 ### Pending Todos
 None.
@@ -77,8 +81,8 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-10
-Stopped at: Completed 08-02-PLAN.md
+Last session: 2026-03-10T21:08:48.825Z
+Stopped at: Completed 09-01-PLAN.md
 Resume file: None
 
 ---

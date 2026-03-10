@@ -27,9 +27,9 @@ Requirements for RAG improvements milestone. Each maps to roadmap phases.
 
 - [ ] **META-01**: `search_books` accepts `section` parameter for substring filtering on section path
 - [ ] **META-02**: Section filtering works in all three search modes (keyword, semantic, hybrid)
-- [ ] **META-03**: New `get_book_chunks` MCP tool fetches contiguous chunk range by book_id and sequence numbers
-- [ ] **META-04**: `get_book_chunks` returns chunks with content, section_path, content_type, and sequence
-- [ ] **META-05**: `get_book_chunks` caps range to max 20 chunks per request
+- [x] **META-03**: New `get_book_chunks` MCP tool fetches contiguous chunk range by book_id and sequence numbers
+- [x] **META-04**: `get_book_chunks` returns chunks with content, section_path, content_type, and sequence
+- [x] **META-05**: `get_book_chunks` caps range to max 20 chunks per request
 
 ### Configurable Chunking
 
@@ -85,9 +85,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SRCH-05 | Phase 9 | Pending |
 | META-01 | Phase 9 | Pending |
 | META-02 | Phase 9 | Pending |
-| META-03 | Phase 9 | Pending |
-| META-04 | Phase 9 | Pending |
-| META-05 | Phase 9 | Pending |
+| META-03 | Phase 9 | Complete |
+| META-04 | Phase 9 | Complete |
+| META-05 | Phase 9 | Complete |
 | CHUNK-01 | Phase 8 | Complete |
 | CHUNK-02 | Phase 8 | Complete |
 | CHUNK-03 | Phase 8 | Complete |
