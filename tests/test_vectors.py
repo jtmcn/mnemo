@@ -316,6 +316,18 @@ class TestNormalization:
         assert len(normalized[0]) == 1024
 
 
+class TestCosineMetric:
+    """Tests that VectorStore uses cosine distance metric."""
+
+    def test_collection_uses_cosine_space(self):
+        """VectorStore collection metadata has hnsw:space=cosine."""
+        client = chromadb.EphemeralClient()
+        config = VectorConfig(collection_name="test_cosine_metric")
+        store = VectorStore(config, client=client)
+        assert store.collection.metadata.get("hnsw:space") == "cosine"
+        store.close()
+
+
 class TestPersistence:
     """Tests for persistence across restarts."""
 
