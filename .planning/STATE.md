@@ -31,16 +31,16 @@ See: .planning/PROJECT.md (updated 2026-03-08)
 ## Current Position
 
 Phase: 9 of 9 (Search Enrichment)
-Plan: 1 of 3 in current phase
+Plan: 2 of 3 in current phase
 Status: In progress
-Last activity: 2026-03-10 — Completed 09-01 chunk range retrieval plan
+Last activity: 2026-03-10 — Completed 09-02 section filtering plan
 
-Progress: [█████████░] 90%
+Progress: [█████████░] 95%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 19 (11 v1.0 + 5 v1.1 + 3 v1.2)
+- Total plans completed: 20 (11 v1.0 + 5 v1.1 + 4 v1.2)
 - v1.1 timeline: 7 days (2026-02-11 → 2026-02-17)
 
 **By Phase (v1.0 + v1.1):**
@@ -71,6 +71,8 @@ Recent decisions affecting current work:
 - [08-02]: Chunk size validation returns error string matching MCP tool error pattern
 - [09-01]: Validation in MCP layer, clamping in repository layer -- separation of concerns
 - [09-01]: Range cap of 20 enforced at MCP tool level with error, repository uses SQL LIMIT as safety net
+- [09-02]: Post-filter pattern with 3x over-fetch to compensate for section filtering reduction
+- [09-02]: Case-insensitive substring matching against section_path elements
 
 ### Pending Todos
 None.
@@ -82,7 +84,7 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-10T21:08:48.825Z
-Stopped at: Completed 09-01-PLAN.md
+Stopped at: Completed 09-02-PLAN.md
 Resume file: None
 
 ---
