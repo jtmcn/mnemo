@@ -551,6 +551,136 @@ class TestSearchServiceMocked:
 
 
 # ============================================================================
+# Cosine Similarity Score Tests
+# ============================================================================
+
+
+class TestSemanticSearchCosineScores:
+    """Tests that semantic search returns cosine similarity scores."""
+
+    @pytest.fixture
+    def mock_chunk_repo(self):
+        repo = MagicMock()
+        return repo
+
+    @pytest.fixture
+    def mock_book_repo(self):
+        repo = MagicMock()
+        return repo
+
+    @pytest.fixture
+    def mock_vector_store(self):
+        store = MagicMock()
+        return store
+
+    @pytest.fixture
+    def mock_embedder(self):
+        embedder = MagicMock()
+        embedder.embed_one.return_value = [0.1] * 1024
+        return embedder
+
+    @pytest.fixture
+    def service(self, mock_chunk_repo, mock_book_repo, mock_vector_store, mock_embedder):
+        svc = SearchService()
+        svc._chunk_repo = mock_chunk_repo
+        svc._book_repo = mock_book_repo
+        svc._vector_store = mock_vector_store
+        svc._embedder = mock_embedder
+        return svc
+
+    def test_semantic_score_is_cosine_similarity(
+        self, service, mock_vector_store, mock_chunk_repo
+    ):
+        """Semantic search score = max(0, 1 - distance) for cosine distance."""
+        # ChromaDB cosine distance of 0.3 -> similarity of 0.7
+        mock_vector_store.query.return_value = [
+            {"id": "chunk-1", "distance": 0.3, "metadata": {}, "document": None},
+        ]
+        mock_chunk = MagicMock(
+            id="chunk-1",
+            book_id="abc123",
+            content="Content",
+            content_type=ContentType.TEXT,
+            section_path=["Ch1"],
+        )
+        mock_chunk_repo.get.return_value = mock_chunk
+        service._book_cache["abc123"] = "Test Book"
+
+        results = service.search("test", mode="semantic")
+
+        assert len(results) == 1
+        assert abs(results[0].score - 0.7) < 1e-6
+
+    def test_semantic_score_clamped_to_zero(
+        self, service, mock_vector_store, mock_chunk_repo
+    ):
+        """Cosine similarity is clamped to 0.0 minimum."""
+        # Distance > 1.0 can happen with non-normalized vectors
+        mock_vector_store.query.return_value = [
+            {"id": "chunk-1", "distance": 1.5, "metadata": {}, "document": None},
+        ]
+        mock_chunk = MagicMock(
+            id="chunk-1",
+            book_id="abc123",
+            content="Content",
+            content_type=ContentType.TEXT,
+            section_path=[],
+        )
+        mock_chunk_repo.get.return_value = mock_chunk
+        service._book_cache["abc123"] = "Test Book"
+
+        results = service.search("test", mode="semantic")
+
+        assert results[0].score == 0.0
+
+    def test_semantic_score_clamped_to_one(
+        self, service, mock_vector_store, mock_chunk_repo
+    ):
+        """Cosine similarity is clamped to 1.0 maximum."""
+        # Distance of exactly 0 -> similarity of 1.0
+        mock_vector_store.query.return_value = [
+            {"id": "chunk-1", "distance": 0.0, "metadata": {}, "document": None},
+        ]
+        mock_chunk = MagicMock(
+            id="chunk-1",
+            book_id="abc123",
+            content="Content",
+            content_type=ContentType.TEXT,
+            section_path=[],
+        )
+        mock_chunk_repo.get.return_value = mock_chunk
+        service._book_cache["abc123"] = "Test Book"
+
+        results = service.search("test", mode="semantic")
+
+        assert results[0].score == 1.0
+
+    def test_keyword_search_still_uses_rrf_scores(
+        self, service, mock_chunk_repo
+    ):
+        """Keyword search results still use RRF-style ranking scores."""
+        mock_chunks = [
+            MagicMock(
+                id=f"chunk-{i}",
+                book_id="abc123",
+                content=f"Content {i}",
+                content_type=ContentType.TEXT,
+                section_path=["Ch1"],
+            )
+            for i in range(3)
+        ]
+        mock_chunk_repo.search_fts.return_value = mock_chunks
+        service._book_cache["abc123"] = "Test Book"
+
+        results = service.search("test", mode="keyword")
+
+        # Should be RRF-style: 1/(60+rank)
+        assert abs(results[0].score - 1.0 / 61) < 1e-9
+        assert abs(results[1].score - 1.0 / 62) < 1e-9
+        assert abs(results[2].score - 1.0 / 63) < 1e-9
+
+
+# ============================================================================
 # SearchService Integration Tests
 # ============================================================================
 
