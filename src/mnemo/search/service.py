@@ -76,7 +76,8 @@ class SearchService:
         content_type: str | None = None,
         mode: Literal["hybrid", "semantic", "keyword"] = "hybrid",
         section: str | None = None,
-    ) -> list[SearchResult]:
+        context_window: int = 0,
+    ) -> list[SearchResult] | list[dict]:
         """Search books with optional filters and mode selection.
 
         Args:
@@ -88,9 +89,13 @@ class SearchService:
             section: Optional section name to filter results (e.g., 'Chapter 3',
                 'Generators'). Case-insensitive substring match against section
                 hierarchy.
+            context_window: Number of neighboring chunks to include around each
+                match (default 0 = no expansion). Expansion stops at section
+                boundaries and overlapping windows are deduplicated.
 
         Returns:
-            List of SearchResult objects sorted by relevance (highest first).
+            If context_window == 0: list of SearchResult (unchanged behavior).
+            If context_window >= 1: list of dicts with expanded context chunks.
             Empty list if query is empty or no matches found.
 
         Raises:
@@ -134,7 +139,156 @@ class SearchService:
             ]
 
         # Trim to original top_k
-        return results[:top_k]
+        results = results[:top_k]
+
+        # Context window expansion
+        if context_window >= 1:
+            expanded = [
+                self._expand_result_context(r, context_window) for r in results
+            ]
+            return self._deduplicate_expanded_results(expanded)
+
+        return results
+
+    def _expand_result_context(self, result: SearchResult, window: int) -> dict:
+        """Expand a search result with neighboring chunks within same section.
+
+        Args:
+            result: The search result to expand
+            window: Number of chunks before/after to include
+
+        Returns:
+            Dict with matched_chunk_id, book_id, start_seq, end_seq, chunks,
+            matched_chunk_ids set, and the original result.
+        """
+        assert self._chunk_repo is not None
+
+        chunk = self._chunk_repo.get(result.chunk_id)
+        if chunk is None:
+            return {
+                "matched_chunk_id": result.chunk_id,
+                "book_id": result.book_id,
+                "start_seq": 0,
+                "end_seq": 0,
+                "chunks": [],
+                "matched_chunk_ids": {result.chunk_id},
+                "result": result,
+            }
+
+        # Fetch candidate neighbors
+        candidates = self._chunk_repo.get_chunk_range(
+            chunk.book_id, chunk.sequence - window, chunk.sequence + window
+        )
+
+        # Filter to same section_path, walking outward from matched chunk
+        matched_section = chunk.section_path
+        filtered: list = []
+
+        # Sort candidates by sequence
+        candidates_sorted = sorted(candidates, key=lambda c: c.sequence)
+
+        # Find the matched chunk index
+        matched_idx = None
+        for i, c in enumerate(candidates_sorted):
+            if c.id == chunk.id:
+                matched_idx = i
+                break
+
+        if matched_idx is None:
+            # Matched chunk not in range (shouldn't happen), return just it
+            return {
+                "matched_chunk_id": result.chunk_id,
+                "book_id": chunk.book_id,
+                "start_seq": chunk.sequence,
+                "end_seq": chunk.sequence,
+                "chunks": [chunk],
+                "matched_chunk_ids": {result.chunk_id},
+                "result": result,
+            }
+
+        # Walk backwards from matched chunk
+        before = []
+        for i in range(matched_idx - 1, -1, -1):
+            if candidates_sorted[i].section_path == matched_section:
+                before.append(candidates_sorted[i])
+            else:
+                break
+        before.reverse()
+
+        # Walk forwards from matched chunk
+        after = []
+        for i in range(matched_idx + 1, len(candidates_sorted)):
+            if candidates_sorted[i].section_path == matched_section:
+                after.append(candidates_sorted[i])
+            else:
+                break
+
+        filtered = before + [candidates_sorted[matched_idx]] + after
+
+        return {
+            "matched_chunk_id": result.chunk_id,
+            "book_id": chunk.book_id,
+            "start_seq": filtered[0].sequence if filtered else chunk.sequence,
+            "end_seq": filtered[-1].sequence if filtered else chunk.sequence,
+            "chunks": filtered,
+            "matched_chunk_ids": {result.chunk_id},
+            "result": result,
+        }
+
+    def _deduplicate_expanded_results(self, expanded: list[dict]) -> list[dict]:
+        """Merge overlapping expanded result windows.
+
+        Groups by book_id, sorts by start_seq, and merges overlapping or
+        adjacent ranges. Preserves all matched_chunk_ids and keeps the
+        highest-scoring result as primary.
+
+        Args:
+            expanded: List of expanded result dicts from _expand_result_context
+
+        Returns:
+            Deduplicated list of expanded result dicts
+        """
+        if not expanded:
+            return []
+
+        # Group by book_id
+        by_book: dict[str, list[dict]] = {}
+        for exp in expanded:
+            by_book.setdefault(exp["book_id"], []).append(exp)
+
+        merged_all: list[dict] = []
+
+        for _book_id, group in by_book.items():
+            # Sort by start_seq
+            group.sort(key=lambda x: x["start_seq"])
+
+            merged: list[dict] = [group[0]]
+
+            for current in group[1:]:
+                prev = merged[-1]
+                # Overlap or adjacent: merge
+                if current["start_seq"] <= prev["end_seq"] + 1:
+                    # Extend range
+                    prev["end_seq"] = max(prev["end_seq"], current["end_seq"])
+                    # Union matched IDs
+                    prev["matched_chunk_ids"] = prev["matched_chunk_ids"] | current["matched_chunk_ids"]
+                    # Merge chunks (deduplicate by id)
+                    existing_ids = {c.id for c in prev["chunks"]}
+                    for c in current["chunks"]:
+                        if c.id not in existing_ids:
+                            prev["chunks"].append(c)
+                            existing_ids.add(c.id)
+                    # Sort chunks by sequence
+                    prev["chunks"].sort(key=lambda c: c.sequence)
+                    # Keep highest-scoring result
+                    if current["result"].score > prev["result"].score:
+                        prev["result"] = current["result"]
+                else:
+                    merged.append(current)
+
+            merged_all.extend(merged)
+
+        return merged_all
 
     def _keyword_search(
         self,
