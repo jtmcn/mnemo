@@ -28,6 +28,25 @@ class ChunkerConfig:
     max_tokens: int = 800
     overlap_tokens: int = 50
 
+    @staticmethod
+    def validate_params(min_tokens: int | None, max_tokens: int | None) -> str | None:
+        """Validate chunk size parameters.
+
+        Args:
+            min_tokens: Minimum tokens per chunk (or None for default)
+            max_tokens: Maximum tokens per chunk (or None for default)
+
+        Returns:
+            Error message string if invalid, None if valid.
+        """
+        if min_tokens is not None and min_tokens < 100:
+            return "chunk_min_tokens must be >= 100"
+        if max_tokens is not None and max_tokens > 2000:
+            return "chunk_max_tokens must be <= 2000"
+        if min_tokens is not None and max_tokens is not None and min_tokens >= max_tokens:
+            return "chunk_min_tokens must be less than chunk_max_tokens"
+        return None
+
 
 class Chunker:
     """Smart chunker that preserves code blocks and links adjacent chunks.

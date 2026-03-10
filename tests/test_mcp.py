@@ -1173,7 +1173,7 @@ class TestLifecycle:
         try:
             # --- Step 1: Add book ---
             # Mock ingest_book to insert the book into our temp DB and return it
-            def mock_ingest(path, embed=True, force=False):
+            def mock_ingest(path, embed=True, force=False, chunker_config=None):
                 book_repo = BookRepository(temp_db["conn"])
                 book_repo.add(lifecycle_book)
                 # Also add chunks so search and get_book_info work

@@ -188,7 +188,13 @@ def _remove_book_impl(book_id: str) -> str:
         return f"Error: {e}"
 
 
-def _add_book_impl(file_path: str, force: bool = False, pre_parsed: "Book | None" = None) -> str:
+def _add_book_impl(
+    file_path: str,
+    force: bool = False,
+    pre_parsed: "Book | None" = None,
+    chunk_min_tokens: int | None = None,
+    chunk_max_tokens: int | None = None,
+) -> str:
     """Add book implementation - see add_book for docs.
 
     Args:
@@ -196,8 +202,25 @@ def _add_book_impl(file_path: str, force: bool = False, pre_parsed: "Book | None
         force: If True, re-index even if duplicate exists
         pre_parsed: Pre-extracted Book metadata (from extract_metadata).
             When called from async wrapper, metadata is extracted before the thread.
+        chunk_min_tokens: Minimum tokens per chunk (default 400, min 100)
+        chunk_max_tokens: Maximum tokens per chunk (default 800, max 2000)
     """
     logger.info(f"add_book: file_path={file_path!r}, force={force}")
+
+    # Validate chunk size parameters
+    from mnemo.chunking.chunker import ChunkerConfig
+
+    validation_error = ChunkerConfig.validate_params(chunk_min_tokens, chunk_max_tokens)
+    if validation_error:
+        return f"Error: {validation_error}"
+
+    # Build chunker config if custom params provided
+    chunker_config = None
+    if chunk_min_tokens is not None or chunk_max_tokens is not None:
+        chunker_config = ChunkerConfig(
+            min_tokens=chunk_min_tokens or 400,
+            max_tokens=chunk_max_tokens or 800,
+        )
 
     # Validate path exists
     path = Path(file_path)
@@ -251,7 +274,9 @@ def _add_book_impl(file_path: str, force: bool = False, pre_parsed: "Book | None
         from mnemo.ingest import remove_book as pipeline_remove
 
         try:
-            book, chunk_count = pipeline_ingest(path, embed=True, force=force)
+            book, chunk_count = pipeline_ingest(
+                path, embed=True, force=force, chunker_config=chunker_config,
+            )
         except Exception as e:
             # Clean up partial data: if book was stored before embedding failed,
             # look it up by hash and remove it
@@ -524,6 +549,8 @@ def update_book_metadata(
 async def add_book(
     file_path: str,
     force: bool = False,
+    chunk_min_tokens: int | None = None,
+    chunk_max_tokens: int | None = None,
     ctx: Context = CurrentContext(),
 ) -> str:
     """Add an EPUB book to your library.
@@ -535,6 +562,8 @@ async def add_book(
     Args:
         file_path: Absolute path to the EPUB file
         force: If true, re-indexes even if the book already exists
+        chunk_min_tokens: Minimum tokens per chunk (default 400, min 100)
+        chunk_max_tokens: Maximum tokens per chunk (default 800, max 2000)
 
     Returns:
         Book details (ID, title, authors, chunk count) on success,
@@ -558,7 +587,10 @@ async def add_book(
 
     try:
         result = await asyncio.wait_for(
-            asyncio.to_thread(_add_book_impl, file_path, force, pre_parsed),
+            asyncio.to_thread(
+                _add_book_impl, file_path, force, pre_parsed,
+                chunk_min_tokens, chunk_max_tokens,
+            ),
             timeout=300,  # 5 minutes
         )
     except asyncio.TimeoutError:
