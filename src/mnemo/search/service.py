@@ -75,6 +75,7 @@ class SearchService:
         book_id: str | None = None,
         content_type: str | None = None,
         mode: Literal["hybrid", "semantic", "keyword"] = "hybrid",
+        section: str | None = None,
     ) -> list[SearchResult]:
         """Search books with optional filters and mode selection.
 
@@ -84,6 +85,9 @@ class SearchService:
             book_id: Optional filter to specific book (6-char hex)
             content_type: Optional filter (text, code, table, diagram, math)
             mode: Search mode - "hybrid", "semantic", or "keyword"
+            section: Optional section name to filter results (e.g., 'Chapter 3',
+                'Generators'). Case-insensitive substring match against section
+                hierarchy.
 
         Returns:
             List of SearchResult objects sorted by relevance (highest first).
@@ -107,16 +111,30 @@ class SearchService:
             except ValueError:
                 logger.warning(f"Invalid content_type '{content_type}', ignoring filter")
 
+        # Over-fetch when section filter active to compensate for post-filter reduction
+        fetch_k = top_k * 3 if section else top_k
+
         # Initialize backends on first use
         self._ensure_initialized()
 
         # Execute search based on mode
         if mode == "keyword":
-            return self._keyword_search(query, top_k, book_id, content_type_enum)
+            results = self._keyword_search(query, fetch_k, book_id, content_type_enum)
         elif mode == "semantic":
-            return self._semantic_search(query, top_k, book_id, content_type)
+            results = self._semantic_search(query, fetch_k, book_id, content_type)
         else:  # hybrid
-            return self._hybrid_search(query, top_k, book_id, content_type, content_type_enum)
+            results = self._hybrid_search(query, fetch_k, book_id, content_type, content_type_enum)
+
+        # Apply section post-filter
+        if section:
+            section_lower = section.lower()
+            results = [
+                r for r in results
+                if r.section_path and any(section_lower in s.lower() for s in r.section_path)
+            ]
+
+        # Trim to original top_k
+        return results[:top_k]
 
     def _keyword_search(
         self,

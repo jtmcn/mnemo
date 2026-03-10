@@ -528,6 +528,7 @@ class TestSearchBooksIntegration:
                 book_id="abc123",
                 content_type="code",
                 mode="semantic",
+                section=None,
             )
         finally:
             tools._search_service = original_service
