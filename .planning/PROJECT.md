@@ -29,14 +29,19 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 - ✓ LLM-tuned docstrings and normalized error conventions — v1.1
 - ✓ Full lifecycle integration test (add → search → update → verify → remove → verify) — v1.1
 
+- ✓ ChromaDB uses cosine distance metric with safe migration path — v1.2
+- ✓ Search results include cosine similarity scores (0-1) — v1.2
+- ✓ Configurable chunk sizes per book at ingest time with validation — v1.2
+- ✓ EPUB file path stored for future re-indexing — v1.2
+- ✓ Context enrichment via chunk expansion (configurable window, section-boundary aware) — v1.2
+- ✓ Section-based filtering on search results across all search modes — v1.2
+- ✓ `get_book_chunks` tool for contiguous deep reading — v1.2
+
 ### Active
 
 - [ ] Semantic chunking for text blocks (embedding-distance-based boundary detection)
-- [ ] Context enrichment via chunk expansion (configurable window, default 1)
-- [ ] Metadata-enriched search (filter by section path, sequence range)
-- [ ] Expose search relevance scores in MCP results
-- [ ] Switch ChromaDB to cosine distance metric
-- [ ] Configurable chunk sizes per book at ingest time
+- [ ] Cross-encoder re-ranking as optional post-retrieval step
+- [ ] Query transformation / expansion for improved recall
 
 ### Out of Scope
 
@@ -55,13 +60,16 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 - Re-embedding after metadata change — expensive, rarely needed
 - Interactive confirmation in tools — MCP is request-response
 - Progress reporting via MCP notifications — future milestone
+- LLM-based chunking — expensive per-chunk, overkill for ~10 books
+- Parent-child chunk hierarchy — context expansion via neighbor chunks achieves same goal more simply
+- GraphRAG / knowledge graph — high complexity, deferred until search quality baseline is solid
 
 ## Context
 
-**Shipped v1.1** with 4,458 LOC Python source + 5,053 LOC tests.
-**Tech stack:** Python 3.11+, uv, ChromaDB, SQLite/FTS5, Databricks GTE-large-en, FastMCP 2.0, Typer, Rich.
-**MCP tools:** 6 total — search_books, list_available_books, get_book_info, update_book_metadata, remove_book, add_book.
-**Known items:** Code chunking heuristics need tuning with real data; MNEMO_BOOKS_DIR path restriction not yet implemented.
+**Shipped v1.2** with 5,135 LOC Python source + 6,583 LOC tests.
+**Tech stack:** Python 3.11+, uv, ChromaDB (cosine), SQLite/FTS5, Databricks GTE-large-en, FastMCP 2.0, Typer, Rich.
+**MCP tools:** 7 total — search_books, list_available_books, get_book_info, get_book_chunks, update_book_metadata, remove_book, add_book.
+**Known items:** Code chunking heuristics need tuning with real data; MNEMO_BOOKS_DIR path restriction not yet implemented; semantic chunking deferred (mixed benchmarks).
 **Tech debt:** typer not in explicit dependencies (works via chromadb transitive dep).
 
 ## Constraints
@@ -92,16 +100,12 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 | Cache clear over selective eviction | _book_cache.clear() on any mutation | ✓ Good — simpler at personal scale |
 | isbn="" clears ISBN | Empty string normalized to NULL in DB | ✓ Good — clean UX for correcting metadata |
 | MNEMO_BOOKS_DIR descoped | Path security not needed for personal use MVP | — Pending — deferred to future milestone |
-
-## Current Milestone: v1.2 RAG Improvements
-
-**Goal:** Improve search quality and chunking intelligence — move from naive RAG to advanced RAG techniques.
-
-**Target features:**
-- Semantic chunking (embedding-distance boundary detection for text blocks)
-- Context enrichment (expand search results with surrounding chunks)
-- Metadata-enriched search (section path and sequence filtering)
-- Quick wins: cosine distance, search scores, configurable chunk sizes
+| Cosine over L2 distance | Better similarity semantics, 0-1 scoring | ✓ Good — cleaner scores, migration worked smoothly |
+| Two-phase collection migration | Preserve collection name through delete-recreate | ✓ Good — safe, idempotent |
+| Post-filter with over-fetch | Section filtering in Python after ChromaDB/FTS5 retrieval | ✓ Good — reliable substring matching, 3x over-fetch compensates |
+| Context window clamped 0-3 | Prevent response explosion from large windows | ✓ Good — practical limit for MCP responses |
+| Semantic chunking deferred | Mixed benchmarks, current chunking works well | ✓ Good — avoided complexity without clear benefit |
+| Section boundary walking | Context expansion stops at section boundaries | ✓ Good — prevents cross-section contamination |
 
 ---
-*Last updated: 2026-03-08 after v1.2 milestone start*
+*Last updated: 2026-03-10 after v1.2 milestone*

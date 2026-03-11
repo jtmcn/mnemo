@@ -1,5 +1,34 @@
 # Project Milestones: Mnemo
 
+## v1.2 RAG Improvements (Shipped: 2026-03-11)
+
+**Delivered:** Advanced RAG techniques — cosine similarity scoring, context-aware search expansion, section filtering, configurable chunking, and deep reading via chunk ranges.
+
+**Phases completed:** 8-9 (5 plans total)
+
+**Key accomplishments:**
+
+- Migrated ChromaDB from L2 to cosine distance with safe batch copy, count verification, and CLI command
+- Search results include real cosine similarity scores (0-1) for relevance transparency
+- Configurable chunk sizes per book at ingest time with validation (min/max token bounds)
+- Section-based filtering on search results across all three search modes (keyword, semantic, hybrid)
+- Context window expansion with section-boundary awareness and overlap deduplication
+- New `get_book_chunks` MCP tool for contiguous deep reading of chunk ranges
+
+**Stats:**
+
+- 17 files modified (2,038 insertions, 19 deletions)
+- 11,718 lines of Python (5,135 source + 6,583 tests)
+- 2 phases, 5 plans, 15 commits
+- 3 days from milestone start to ship (2026-03-08 → 2026-03-10)
+- 18/18 requirements satisfied, audit passed
+
+**Git range:** `test(08-02): add failing tests for epub_path` → `docs(phase-09): complete phase execution`
+
+**What's next:** Planning next milestone
+
+---
+
 ## v1.1 Book Management (Shipped: 2026-02-17)
 
 **Delivered:** MCP tools for full book lifecycle management — Claude can add, remove, and edit ebook metadata without CLI context-switching.

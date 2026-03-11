@@ -1,7 +1,11 @@
 {
   "mode": "yolo",
-  "depth": "standard",
   "parallelization": true,
   "commit_docs": true,
-  "created": "2026-01-19"
+  "created": "2026-01-19",
+  "granularity": "standard",
+  "workflow": {
+    "research": true,
+    "_auto_chain_active": false
+  }
 }
