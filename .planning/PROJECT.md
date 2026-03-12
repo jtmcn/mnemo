@@ -39,9 +39,22 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 
 ### Active
 
-- [ ] Semantic chunking for text blocks (embedding-distance-based boundary detection)
-- [ ] Cross-encoder re-ranking as optional post-retrieval step
-- [ ] Query transformation / expansion for improved recall
+- [ ] Fix EPUB text parsing artifacts (joined words across HTML tags)
+- [ ] Clean author name parsing (strip semicolons, trailing delimiters)
+- [ ] Detect and label front-matter/TOC sections instead of "Unknown section"
+- [ ] Section filter matches against full hierarchy path (not just leaf name)
+- [ ] New `get_book_structure` MCP tool for browsing section hierarchy
+- [ ] Context window results visually delineate match vs surrounding chunks
+
+## Current Milestone: v1.3 Quality & Polish
+
+**Goal:** Fix parsing artifacts and search UX issues discovered during real-world MCP evaluation.
+
+**Target features:**
+- Broader EPUB parse cleanup (whitespace, authors, section attribution)
+- Section filter hierarchy traversal
+- TOC/structure browsing via new MCP tool
+- Context window clarity in search results
 
 ### Out of Scope
 
@@ -63,6 +76,9 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 - LLM-based chunking — expensive per-chunk, overkill for ~10 books
 - Parent-child chunk hierarchy — context expansion via neighbor chunks achieves same goal more simply
 - GraphRAG / knowledge graph — high complexity, deferred until search quality baseline is solid
+- Semantic chunking — mixed benchmarks, current chunking works well, deferred
+- Cross-encoder re-ranking — future milestone
+- Query transformation / expansion — future milestone
 
 ## Context
 
@@ -108,4 +124,4 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 | Section boundary walking | Context expansion stops at section boundaries | ✓ Good — prevents cross-section contamination |
 
 ---
-*Last updated: 2026-03-10 after v1.2 milestone*
+*Last updated: 2026-03-12 after v1.3 milestone start*
