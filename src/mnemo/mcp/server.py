@@ -9,6 +9,8 @@ import sys
 
 from fastmcp import FastMCP
 
+from mnemo import __version__
+
 # Configure logging to stderr (critical for STDIO)
 logging.basicConfig(
     level=logging.INFO,
@@ -17,7 +19,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-mcp = FastMCP("mnemo")
+mcp = FastMCP(f"mnemo v{__version__}")
 
 # Import tools to register them (use full path to avoid circular import when running as -m)
 import mnemo.mcp.tools  # noqa: F401, E402
