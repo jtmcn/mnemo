@@ -20,6 +20,15 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
+from mnemo import __version__
+
+
+def version_callback(value: bool) -> None:
+    if value:
+        print(f"mnemo {__version__}")
+        raise typer.Exit()
+
+
 app = typer.Typer(
     name="mnemo",
     help="Personal technical book library with semantic search via MCP",
@@ -358,6 +367,16 @@ def serve() -> None:
     import mnemo.mcp.tools  # noqa: F401 - ensure tools are registered
 
     mcp.run()
+
+
+@app.callback()
+def app_callback(
+    version: Annotated[
+        bool,
+        typer.Option("--version", "-V", help="Show version and exit", callback=version_callback, is_eager=True),
+    ] = False,
+) -> None:
+    """Personal technical book library with semantic search via MCP."""
 
 
 def main() -> None:
