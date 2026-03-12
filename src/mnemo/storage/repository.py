@@ -422,7 +422,7 @@ class ChunkRepository:
 
         # Escape any quotes in words by doubling them (FTS5 escape sequence)
         escaped_words = [w.replace('"', '""') for w in words]
-        return " ".join(f'"{w}"' for w in escaped_words if w)
+        return " OR ".join(f'"{w}"' for w in escaped_words if w)
 
     def _row_to_chunk(self, row: sqlite3.Row) -> Chunk:
         """Convert a database row to a Chunk instance."""

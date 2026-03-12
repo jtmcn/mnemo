@@ -138,6 +138,10 @@ class SearchService:
                 if r.section_path and any(section_lower in s.lower() for s in r.section_path)
             ]
 
+        # Cross-book diversity re-ranking (only when not filtering to a single book)
+        if not book_id:
+            results = self._diversify_results(results, top_k)
+
         # Trim to original top_k
         results = results[:top_k]
 
@@ -414,6 +418,9 @@ class SearchService:
                 book_id=book_id,
                 content_type=content_type,
             )
+            # Filter out low-quality semantic results (cosine distance > 1.0
+            # means similarity < 0, i.e. essentially unrelated content)
+            vector_results = [vr for vr in vector_results if vr["distance"] <= 1.0]
             semantic_ids = [vr["id"] for vr in vector_results]
         except Exception as e:
             logger.warning(f"Semantic search failed, using keyword-only: {e}")
@@ -472,6 +479,55 @@ class SearchService:
             )
 
         return results
+
+    @staticmethod
+    def _diversify_results(
+        results: list[SearchResult], top_k: int
+    ) -> list[SearchResult]:
+        """Re-rank results using round-robin interleaving by book_id.
+
+        Groups results by book, then picks one per book per round.
+        Book order each round is determined by best remaining score.
+        Within-book ordering (by score) is preserved.
+
+        Args:
+            results: Scored search results, already sorted by score descending
+            top_k: Maximum results to return
+
+        Returns:
+            Diversified list of up to top_k results
+        """
+        if not results:
+            return results
+
+        # Group by book_id, preserving score order within each group
+        groups: dict[str, list[SearchResult]] = {}
+        for r in results:
+            groups.setdefault(r.book_id, []).append(r)
+
+        # If only one book, no diversification needed
+        if len(groups) <= 1:
+            return results
+
+        # Round-robin interleaving
+        diversified: list[SearchResult] = []
+        while len(diversified) < top_k:
+            # Remove exhausted groups
+            groups = {bid: g for bid, g in groups.items() if g}
+            if not groups:
+                break
+
+            # Order books by their best remaining score (descending)
+            ordered_books = sorted(
+                groups.keys(), key=lambda bid: groups[bid][0].score, reverse=True
+            )
+
+            for bid in ordered_books:
+                if len(diversified) >= top_k:
+                    break
+                diversified.append(groups[bid].pop(0))
+
+        return diversified
 
     def _ensure_initialized(self) -> None:
         """Lazy initialization of database connections and vector store."""

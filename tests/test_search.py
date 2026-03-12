@@ -1338,3 +1338,156 @@ class TestContextWindow:
         assert len(results) == 1
         result = results[0]
         assert result["matched_chunk_ids"] == {"c2", "c4"}
+
+
+# ============================================================================
+# FTS5 Query Sanitization Tests
+# ============================================================================
+
+
+class TestSanitizeFtsQuery:
+    """Tests for _sanitize_fts_query OR-joined behavior."""
+
+    @pytest.fixture
+    def chunk_repo(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        conn = get_connection(db_path)
+        return ChunkRepository(conn)
+
+    def test_sanitize_fts_query_uses_or(self, chunk_repo):
+        """Multi-word queries are joined with OR."""
+        result = chunk_repo._sanitize_fts_query("knowledge graph construction")
+        assert result == '"knowledge" OR "graph" OR "construction"'
+
+    def test_sanitize_fts_query_single_word(self, chunk_repo):
+        """Single word has no OR."""
+        result = chunk_repo._sanitize_fts_query("knowledge")
+        assert result == '"knowledge"'
+        assert "OR" not in result
+
+    def test_sanitize_fts_query_empty(self, chunk_repo):
+        """Empty query returns empty string."""
+        assert chunk_repo._sanitize_fts_query("") == ""
+        assert chunk_repo._sanitize_fts_query("   ") == ""
+
+
+# ============================================================================
+# Diversity Re-ranking Tests
+# ============================================================================
+
+
+class TestDiversifyResults:
+    """Tests for cross-book diversity re-ranking."""
+
+    @staticmethod
+    def _make_result(chunk_id, book_id, score):
+        return SearchResult(
+            chunk_id=chunk_id,
+            book_id=book_id,
+            book_title=f"Book {book_id}",
+            content="content",
+            content_type="text",
+            section_path=["Ch1"],
+            score=score,
+            source="keyword",
+        )
+
+    def test_diversify_results_round_robin(self):
+        """Two books interleave in round-robin fashion."""
+        results = [
+            self._make_result("a1", "bookA", 0.9),
+            self._make_result("a2", "bookA", 0.8),
+            self._make_result("b1", "bookB", 0.85),
+            self._make_result("a3", "bookA", 0.7),
+            self._make_result("b2", "bookB", 0.6),
+        ]
+        diversified = SearchService._diversify_results(results, top_k=5)
+        book_ids = [r.book_id for r in diversified]
+        # First round: bookA (0.9), bookB (0.85); second round: bookA (0.8), bookB (0.6); third: bookA (0.7)
+        assert book_ids == ["bookA", "bookB", "bookA", "bookB", "bookA"]
+
+    def test_diversify_results_single_book_passthrough(self):
+        """Single book returns results unchanged."""
+        results = [
+            self._make_result("a1", "bookA", 0.9),
+            self._make_result("a2", "bookA", 0.8),
+        ]
+        diversified = SearchService._diversify_results(results, top_k=5)
+        assert diversified == results
+
+    def test_diversify_results_respects_score_order(self):
+        """Within-book order (by score) is preserved."""
+        results = [
+            self._make_result("a1", "bookA", 0.9),
+            self._make_result("a2", "bookA", 0.8),
+            self._make_result("a3", "bookA", 0.5),
+            self._make_result("b1", "bookB", 0.85),
+            self._make_result("b2", "bookB", 0.3),
+        ]
+        diversified = SearchService._diversify_results(results, top_k=6)
+        book_a_results = [r for r in diversified if r.book_id == "bookA"]
+        book_b_results = [r for r in diversified if r.book_id == "bookB"]
+        assert [r.score for r in book_a_results] == [0.9, 0.8, 0.5]
+        assert [r.score for r in book_b_results] == [0.85, 0.3]
+
+    def test_diversify_results_empty(self):
+        """Empty input returns empty output."""
+        assert SearchService._diversify_results([], top_k=5) == []
+
+    def test_diversify_results_top_k_limit(self):
+        """Returns at most top_k results."""
+        results = [
+            self._make_result("a1", "bookA", 0.9),
+            self._make_result("b1", "bookB", 0.85),
+            self._make_result("a2", "bookA", 0.8),
+            self._make_result("b2", "bookB", 0.6),
+        ]
+        diversified = SearchService._diversify_results(results, top_k=2)
+        assert len(diversified) == 2
+
+
+# ============================================================================
+# Semantic Quality Gate Tests
+# ============================================================================
+
+
+class TestHybridSemanticQualityGate:
+    """Tests for filtering low-quality semantic results in hybrid search."""
+
+    @pytest.fixture
+    def service(self):
+        svc = SearchService()
+        svc._chunk_repo = MagicMock()
+        svc._book_repo = MagicMock()
+        svc._vector_store = MagicMock()
+        svc._embedder = MagicMock()
+        svc._embedder.embed_one.return_value = [0.1] * 1024
+        svc._book_cache["abc123"] = "Test Book"
+        return svc
+
+    def test_hybrid_filters_low_quality_semantic(self, service):
+        """Semantic results with cosine distance > 1.0 are filtered before RRF."""
+        # Setup keyword results
+        mock_chunk = MagicMock(
+            id="c1",
+            book_id="abc123",
+            content="keyword match",
+            content_type=ContentType.TEXT,
+            section_path=["Ch1"],
+        )
+        service._chunk_repo.search_fts.return_value = [mock_chunk]
+
+        # Setup vector results: one good, one bad
+        service._vector_store.query.return_value = [
+            {"id": "c1", "distance": 0.5},   # good: similarity 0.5
+            {"id": "c2", "distance": 1.5},   # bad: similarity -0.5
+        ]
+
+        service._chunk_repo.get.return_value = mock_chunk
+
+        results = service.search("test query", mode="hybrid", top_k=5)
+
+        # c2 should not appear in results (filtered by quality gate)
+        result_ids = [r.chunk_id for r in results]
+        assert "c2" not in result_ids
