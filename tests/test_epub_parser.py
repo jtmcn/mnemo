@@ -10,7 +10,11 @@ from mnemo.epub import EPUBParser
 from mnemo.epub.content import ContentBlock
 from mnemo.epub.metadata import extract_metadata, normalize_isbn
 from mnemo.models import Book, ContentType
-from tests.fixtures.epub_factory import create_epub_with_code, create_test_epub
+from tests.fixtures.epub_factory import (
+    create_epub_with_code,
+    create_epub_with_front_matter,
+    create_test_epub,
+)
 
 
 class TestNormalizeIsbn:
@@ -190,6 +194,78 @@ class TestSemicolonAuthorSplit:
         book = extract_metadata(epub_path)
 
         assert book.authors == ["Alice Smith"]
+
+
+class TestFrontMatterLabels:
+    """Tests for PARSE-03: front-matter section label inference."""
+
+    def test_front_matter_cover_label(self, tmp_path: Path) -> None:
+        epub_path = create_epub_with_front_matter(
+            front_matter_items=[{"filename": "cover.xhtml", "content": "<p>Cover page</p>"}],
+            output_path=tmp_path / "cover_fm.epub",
+        )
+        parser = EPUBParser()
+
+        _, blocks = parser.parse(epub_path)
+
+        cover_blocks = [b for b in blocks if "cover.xhtml" in b.source_file]
+        assert len(cover_blocks) > 0, "Expected blocks from cover.xhtml"
+        for block in cover_blocks:
+            assert block.section_path == ["Cover"], (
+                f"Expected ['Cover'], got {block.section_path}"
+            )
+
+    def test_front_matter_toc_label(self, tmp_path: Path) -> None:
+        epub_path = create_epub_with_front_matter(
+            front_matter_items=[{"filename": "toc.xhtml", "content": "<p>Table of Contents</p>"}],
+            output_path=tmp_path / "toc_fm.epub",
+        )
+        parser = EPUBParser()
+
+        _, blocks = parser.parse(epub_path)
+
+        toc_blocks = [b for b in blocks if "toc.xhtml" in b.source_file]
+        assert len(toc_blocks) > 0, "Expected blocks from toc.xhtml"
+        for block in toc_blocks:
+            assert block.section_path == ["Table of Contents"], (
+                f"Expected ['Table of Contents'], got {block.section_path}"
+            )
+
+    def test_unknown_href_no_label(self, tmp_path: Path) -> None:
+        epub_path = create_epub_with_front_matter(
+            front_matter_items=[
+                {"filename": "random_file.xhtml", "content": "<p>Unknown content</p>"}
+            ],
+            output_path=tmp_path / "unknown_fm.epub",
+        )
+        parser = EPUBParser()
+
+        _, blocks = parser.parse(epub_path)
+
+        unknown_blocks = [b for b in blocks if "random_file.xhtml" in b.source_file]
+        assert len(unknown_blocks) > 0, "Expected blocks from random_file.xhtml"
+        for block in unknown_blocks:
+            assert block.section_path == [], (
+                f"Expected [], got {block.section_path} (no false positive for unknown filename)"
+            )
+
+    def test_front_matter_prefix_match(self, tmp_path: Path) -> None:
+        epub_path = create_epub_with_front_matter(
+            front_matter_items=[
+                {"filename": "preface_01.xhtml", "content": "<p>Preface content</p>"}
+            ],
+            output_path=tmp_path / "preface_fm.epub",
+        )
+        parser = EPUBParser()
+
+        _, blocks = parser.parse(epub_path)
+
+        preface_blocks = [b for b in blocks if "preface_01.xhtml" in b.source_file]
+        assert len(preface_blocks) > 0, "Expected blocks from preface_01.xhtml"
+        for block in preface_blocks:
+            assert block.section_path == ["Preface"], (
+                f"Expected ['Preface'], got {block.section_path}"
+            )
 
 
 class TestTocParsing:
