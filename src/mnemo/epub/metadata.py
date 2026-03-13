@@ -144,6 +144,9 @@ def _extract_title(epub_book: epub.EpubBook, epub_path: Path) -> str:
 def _extract_authors(epub_book: epub.EpubBook) -> list[str]:
     """Extract author list from EPUB metadata.
 
+    Handles semicolon-delimited creator strings (e.g. "Smith, Alice; Jones, Bob;")
+    by splitting on semicolons and filtering empty parts after stripping.
+
     Args:
         epub_book: Parsed EPUB book object
 
@@ -152,7 +155,11 @@ def _extract_authors(epub_book: epub.EpubBook) -> list[str]:
     """
     creators = epub_book.get_metadata("DC", "creator")
     if creators:
-        authors = [str(creator[0]).strip() for creator in creators if creator and creator[0]]
+        raw_strings = [str(c[0]).strip() for c in creators if c and c[0]]
+        authors: list[str] = []
+        for raw in raw_strings:
+            parts = [p.strip() for p in raw.split(";")]
+            authors.extend(p for p in parts if p)
         if authors:
             return authors
 
