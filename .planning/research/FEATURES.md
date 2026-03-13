@@ -1,333 +1,317 @@
-# Feature Landscape: v1.2 RAG Improvements
+# Feature Landscape: v1.3 Quality & Polish
 
-**Domain:** Advanced RAG techniques for technical book search
-**Milestone:** v1.2 RAG Improvements (subsequent milestone; chunking, search, and MCP tools already exist)
-**Researched:** 2026-03-08
-**Confidence:** MEDIUM-HIGH
+**Domain:** EPUB text parsing quality and search UX improvements
+**Milestone:** v1.3 Quality & Polish (subsequent milestone; all v1.2 RAG features already built)
+**Researched:** 2026-03-12
+**Confidence:** HIGH (all features are well-scoped bug fixes and small additions against a known codebase)
 
 ---
 
 ## Context
 
-Mnemo has a working hybrid search pipeline: fixed-token chunking (400-800 tokens), FTS5 keyword search, ChromaDB semantic search with L2 distance on L2-normalized GTE-large-en embeddings, and RRF fusion. This milestone improves search quality through better chunking, richer search results, and structural navigation.
+Mnemo v1.2 is fully functional with hybrid search, context window expansion, section filtering, and 7 MCP tools. This milestone fixes real-world parsing artifacts and UX gaps discovered during actual use. All features operate against the existing stack with no schema changes required except possibly a new `book_sections` table for `get_book_structure`.
 
 Existing infrastructure that these features build on:
-- `Chunker` with `ChunkerConfig(min_tokens, max_tokens, overlap_tokens)` and atomic CODE/TABLE/DIAGRAM/MATH handling
-- `prev_chunk_id`/`next_chunk_id` linking between adjacent chunks
-- `section_path` stored in both SQLite (JSON array) and ChromaDB metadata (joined string)
-- `sequence` field indexed per book (`idx_chunks_sequence`)
-- `VectorStore._normalize()` that L2-normalizes all embeddings before storage
-- `SearchResult` with `score` field (RRF score, already computed but not prominently displayed)
+- `_normalize_text()` in `content.py`: collapses whitespace via `re.sub(r"\s+", " ", text)` — but only applied to text assembled from `NavigableString` fragments, not to inline elements whose text is gathered via `get_text(strip=True)`
+- `_extract_authors()` in `metadata.py`: strips whitespace on each creator entry but does no further normalization of semicolons or trailing delimiters
+- `toc_mapping` in `parser.py`: built from EPUB3 nav or EPUB2 NCX; spine items not in the TOC map get `section_path = []` which renders as `"Unknown section"` in formatted output
+- Section filter in `service.py`: checks `any(section_lower in s.lower() for s in r.section_path)` — substring match against leaf path segments only, not against assembled hierarchy string
+- `_format_enriched_results()` in `tools.py`: uses inline text markers `**>>> MATCHED (seq N) <<<**` and `*[context, seq N]*` — functional but low visual clarity in Claude's rendered output
+- No MCP tool exists to browse section structure without running a search
 
 ---
 
 ## Table Stakes
 
-Features that move search quality from "functional" to "good." Without these, users hit basic limitations quickly.
+Features that fix observable bugs. Without these, parsed content is wrong, authors display with garbage characters, and sections are mislabeled.
 
-### 1. Context Enrichment via Chunk Expansion
+### 1. EPUB Text Artifact Cleanup (Joined Words Across HTML Tags)
 
-**Description:** When a search returns a matched chunk, also fetch the N surrounding chunks (before and after) to provide reading context. A code block without the explanation before it, or a concept without the example after it, gives incomplete answers.
+**What goes wrong today:** EPUB HTML uses inline elements (`<em>`, `<strong>`, `<span>`, `<a>`, `<code>`) extensively. When BeautifulSoup's `get_text(strip=True)` is called on a parent paragraph, inline elements' text is concatenated with no separator — `"the<em>iterator</em>protocol"` becomes `"theiteratorprotocol"`. The current `_normalize_text()` only normalizes what is already a joined string; it cannot reinsert spaces that were never emitted.
 
-**How it works:**
-1. User searches, gets back N result chunks as today
-2. For each result chunk, follow `prev_chunk_id` links backward `window` times and `next_chunk_id` links forward `window` times
-3. Collect all chunks in the window, ordered by sequence
-4. Return the matched chunk with surrounding chunks clearly delimited (e.g., `[context before]` / `[matched]` / `[context after]`)
-5. Deduplicate: if two matched chunks have overlapping windows, merge into one context block
+**Root cause:** In `_extract_blocks_from_element`, the fallthrough case for unrecognized tags calls `child.get_text(strip=True)` and appends the result directly to `current_text_parts`. This correctly gets the full text of a paragraph but the strip=True collapses inter-element spacing. When the paragraph contains multiple inline elements, the words from those elements are run together.
+
+**Expected behavior:** `"the <em>iterator</em> protocol"` → `"the iterator protocol"`. Words should be space-separated across inline element boundaries regardless of original HTML whitespace.
+
+**Fix approach:** Use `get_text(separator=" ")` instead of `get_text(strip=True)` on the fallthrough case, then pass through `_normalize_text()` to collapse any excess whitespace. Alternatively, walk inline children and join with a space before normalizing.
 
 **Complexity:** Low
-- Uses existing `prev_chunk_id`/`next_chunk_id` links -- no schema changes
-- Requires `ChunkRepository.get()` calls to fetch neighbors (already exists)
-- Add `context_window` parameter to `search_books` MCP tool (default 1)
+- Single-line change in `_extract_blocks_from_element` fallthrough
+- Existing `_normalize_text()` handles over-spacing correctly
+- No schema changes; re-ingest needed for existing books to benefit
+- Must not affect code block extraction (code uses `get_text()` without separator deliberately to preserve formatting)
 
-**Dependencies on existing:** `prev_chunk_id`/`next_chunk_id` fields on Chunk model, `ChunkRepository.get()`.
+**Dependencies:** `content.py:_extract_blocks_from_element` fallthrough case only.
 
-**Implementation notes:**
-- Default window of 1 (one chunk before, one chunk after) triples the context per result
-- Window of 0 preserves current behavior (backward compatible)
-- Alternative to linked-list traversal: query by `book_id` + `sequence BETWEEN (seq-window) AND (seq+window)` which is faster (indexed) and avoids N+1 queries
-- Cap total expanded token count to prevent massive responses (e.g., max 3000 tokens per expanded result)
-
-**Confidence:** HIGH -- standard RAG pattern, well-documented in [NirDiamant RAG_Techniques](https://github.com/NirDiamant/RAG_Techniques/blob/main/all_rag_techniques/context_enrichment_window_around_chunk.ipynb) and [Microsoft Azure RAG guide](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/rag/rag-enrichment-phase)
+**Confidence:** HIGH — verified by reading the code; root cause is unambiguous.
 
 ---
 
-### 2. Expose Search Relevance Scores
+### 2. Author Name Parsing Cleanup (Semicolons, Trailing Delimiters)
 
-**Description:** The RRF score is already computed and stored in `SearchResult.score`, but the formatted output only shows `Match: semantic/keyword/both`. Exposing the numeric score lets Claude judge confidence and decide whether to search again with different terms.
+**What goes wrong today:** Some EPUB metadata tools store multiple authors in a single `dc:creator` field separated by semicolons (e.g., `"Alice Smith; Bob Jones"`) or store trailing delimiters (e.g., `"Alice Smith;"` or `"Alice Smith, "`). The current `_extract_authors()` does only `.strip()` on each creator string. The result is author names displayed as `"Alice Smith; Bob Jones"` instead of `["Alice Smith", "Bob Jones"]`, or `"Alice Smith;"` with a trailing semicolon.
 
-**How it works:**
-- In `_format_search_results`, add the score to the output line: `**Score:** 0.032 | **Match:** both`
-- For semantic-only mode, also show the raw ChromaDB distance (currently discarded)
-- Normalize scores to be interpretable: RRF scores are tiny (0.016-0.033 range), so either show as-is with explanation or normalize to 0-100 scale
+**Root cause:** `_extract_authors()` in `metadata.py` assumes each `dc:creator` element is a single author. The Dublin Core spec does allow one creator per element, but many EPUB generators pack multiple authors into one field.
+
+**Expected behavior:**
+- `"Alice Smith; Bob Jones"` → `["Alice Smith", "Bob Jones"]`
+- `"Alice Smith,"` → `["Alice Smith"]`
+- `"Alice Smith; "` → `["Alice Smith"]`
+- `"Alice Smith"` → `["Alice Smith"]` (no change for clean data)
+
+**Fix approach:** After reading creator values, split on `;` and `,` (heuristically — comma only when not part of a "Last, First" name), strip each fragment, filter empty strings. The safest rule: split on `;` always (unambiguous separator), split on `,` only when the resulting fragments don't look like "Last, First" format (i.e., more than one comma in the string). Or more practically: split on `;` only, then strip trailing commas from each fragment.
 
 **Complexity:** Low
-- One-line change to `_format_search_results` formatting string
-- Optionally add raw distance to `SearchResult` model (new field `distance: float | None`)
+- Logic change in `_extract_authors()` only
+- No schema change; updated metadata can be applied without re-ingest (just update the book's author list via `update_book_metadata`)
+- Must not split legitimate single-author names that contain commas (e.g., "Smith, John" in Last-First format)
 
-**Dependencies on existing:** `SearchResult.score` (already populated), `_format_search_results` in `tools.py`.
+**Dependencies:** `metadata.py:_extract_authors` only. `normalize_isbn` pattern nearby shows the right model for this kind of normalization.
 
-**Confidence:** HIGH
+**Confidence:** HIGH — EPUB spec and common tool behavior well understood; root cause in code is clear.
 
 ---
 
-### 3. Switch ChromaDB to Cosine Distance
+### 3. Front-Matter and TOC Section Detection (Eliminate "Unknown Section")
 
-**Description:** Current collection uses `l2` (L2/Euclidean) distance. Since all embeddings are already L2-normalized before storage, L2 distance and cosine distance produce identical ranking. The difference is score readability: cosine distance ranges 0-1 (0 = identical, 1 = orthogonal), while L2 on normalized vectors ranges 0-2 and is harder to interpret.
+**What goes wrong today:** EPUB spine items that are not listed in the TOC (front matter, copyright page, title page, TOC navigation page itself) get `section_path = []` from `toc_mapping.get(href, [])`. This renders in output as `"Unknown section"`. These sections are real content (copyright, preface, etc.) but the TOC typically does not link to them.
 
-**How it works:**
-- ChromaDB does not allow changing the distance metric on an existing collection
-- Migration required: create new collection with `{"hnsw": {"space": "cosine"}}`, copy all data from old collection, delete old collection
-- Write a one-time migration script (CLI command or standalone script)
-- Update `VectorStore.__init__` to use `cosine` for new collections
+**Root cause:** The `toc_mapping` dictionary in `content.py:extract_content` is keyed by EPUB item href. Items not appearing as TOC link targets simply get no entry. The empty list fallback produces the "Unknown section" label in `tools.py`.
 
-**Complexity:** Low
-- Migration script is ~30 lines: batch-read from old collection, batch-write to new
-- No re-embedding needed (same vectors, different distance function)
-- Risk: data loss if migration is interrupted mid-transfer
+**Expected behavior:** Front-matter items should be labeled based on their likely role:
+- Item named `cover.xhtml` or `title_page.xhtml` → `["Front Matter"]`
+- Item named `toc.xhtml` or `nav.xhtml` → `["Table of Contents"]`
+- Item named `copyright.xhtml`, `colophon.xhtml` → `["Front Matter"]`
+- Items that appear in the spine before the first TOC entry → `["Front Matter"]`
+- Heuristic: parse `<title>` element or first `<h1>`/`<h2>` from the item for a label
 
-**Dependencies on existing:** `VectorStore`, `VectorConfig`.
+**Fix approach:** After building `toc_mapping`, add a second pass:
+1. Sort spine items in order
+2. For items not in `toc_mapping`, check filename heuristics (cover, toc, copyright, colophon, preface, intro)
+3. Fallback: use the item's `<title>` tag or first heading text
+4. Final fallback: label as "Front Matter" if the item appears before the first mapped TOC entry, or as "Back Matter" if after the last
 
-**Implementation notes:**
-- Safe migration approach: create `mnemo_cosine` collection, migrate data, verify counts match, update `VectorConfig.collection_name` to `mnemo_cosine`, then delete old `mnemo` collection
-- ChromaDB does not support collection renaming, so either keep new name or delete-then-recreate
-- Since retrieval ranking is unchanged (math is equivalent for normalized vectors), this is zero-risk to search quality
+**Complexity:** Low-Medium
+- Logic addition in `parser.py` or `content.py` — no new dependencies
+- Filename heuristics cover ~80% of cases; heading fallback covers the rest
+- No schema change; re-ingest needed for existing books to benefit
+- "Unknown section" fallback in `tools.py` becomes the true last resort only for truly unlabeled items
 
-**Confidence:** HIGH -- verified in [ChromaDB docs](https://docs.trychroma.com/docs/collections/configure) and [ChromaDB FAQ](https://cookbook.chromadb.dev/faq/)
+**Dependencies:** `content.py:extract_content` and/or `parser.py:_parse_toc` for the pre-processing step.
+
+**Confidence:** HIGH — EPUB structural conventions for front/back matter are well established (EPUB3 spec uses `epub:type` attributes like `cover`, `toc`, `frontmatter`).
 
 ---
 
 ## Differentiators
 
-Features that meaningfully improve search quality beyond baseline. Not strictly required but provide significant value.
+Features that meaningfully improve the search and navigation experience beyond correctness fixes.
 
-### 4. Semantic Chunking for Text Blocks
+### 4. Section Filter Hierarchy Traversal (Match Against Full Path)
 
-**Description:** Replace fixed-token splitting for TEXT blocks with embedding-distance-based boundary detection. Instead of splitting every 400-800 tokens at sentence boundaries, embed each sentence and split where topics shift (detected by high cosine distance between consecutive sentence embeddings).
+**What goes wrong today:** The section filter in `service.py` checks `any(section_lower in s.lower() for s in r.section_path)`. This compares the filter string against each individual path segment. Searching `section="Chapter 3"` works if "Chapter 3" is a segment. But `section="Part I > Chapter 3"` or `section="concurrency"` against a path like `["Part I", "Chapter 3", "Concurrent Programming"]` will fail unless the exact segment text matches.
 
-**How it works:**
-1. Split text block into sentences (regex or `nltk.sent_tokenize`)
-2. Embed each sentence via `DatabricksEmbedder.embed_batch()`
-3. Compute cosine distance between consecutive sentence pairs: `dist[i] = 1 - cosine_sim(emb[i], emb[i+1])`
-4. Identify boundary points where distance exceeds threshold (95th percentile of all distances in the document, or tunable absolute threshold)
-5. Group sentences between boundaries into chunks
-6. Merge chunks below `min_tokens` with nearest neighbor
-7. Split chunks exceeding `max_tokens` using existing sentence-boundary splitting as fallback
+**More important gap:** A filter like `section="Chapter 3"` will match the leaf segment "Chapter 3" but will also incorrectly match a section named "Chapter 3: Advanced Topics" in a *different* part when the user intended to restrict to a specific subtree. Hierarchy-aware matching would check "does the section_path contain this segment at any level, in order?"
 
-**Complexity:** Medium-High
-- Requires embedding every sentence during ingest (extra API calls and latency)
-- For a 500-chunk book with ~10 sentences per chunk: ~5,000 sentence embeddings
-- At Databricks batch API pricing: adds ~20-30 seconds to ingest
-- Must handle edge cases: very short sentences, single-sentence paragraphs, sentences that are actually code inline
-- Existing books need re-ingestion + re-embedding to benefit
+**Expected behavior:**
+- `section="Part I"` should match all chunks under Part I, including nested chapters and sections
+- `section="Part I > Chapter 3"` should match only chunks under Chapter 3 within Part I
+- `section="generators"` should match any chunk in a section whose *assembled path* contains "generators" (current substring behavior, unchanged)
+- Simple substring against the assembled path string handles both cases elegantly
 
-**Dependencies on existing:** `Chunker._create_text_chunks()` (replacement target), `ChunkerConfig` (min/max bounds still apply), `DatabricksEmbedder.embed_batch()`.
+**Fix approach:** Instead of checking individual segments, join `section_path` with ` > ` and do the substring check against the joined string. This is a one-line change that naturally supports both leaf and multi-level path filters:
 
-**Implementation notes:**
-- Atomic types (CODE, TABLE, DIAGRAM, MATH) remain unchanged -- semantic chunking only applies to TEXT blocks
-- The threshold is the critical tuning parameter. Too low = too many small chunks (benchmarks show semantic chunking averaged 43 tokens per chunk and scored 54% accuracy vs recursive at 69%). The min_tokens guard is essential.
-- Consider a configurable flag: `semantic_chunking: bool = False` on `ChunkerConfig`, defaulting off so existing behavior is preserved
-- Store chunking method in book metadata for traceability
+```python
+# Current (segment-by-segment)
+any(section_lower in s.lower() for s in r.section_path)
 
-**Confidence:** MEDIUM -- benchmarks show mixed results. [Firecrawl 2026 benchmark](https://www.firecrawl.dev/blog/best-chunking-strategies-rag) placed recursive splitting first at 69%, semantic chunking at 54%. However, a [clinical study](https://pmc.ncbi.nlm.nih.gov/articles/PMC12649634/) found topic-aligned chunking hit 87% vs 13% for fixed-size. The difference is likely the min/max token guardrails preventing fragment generation. With proper bounds, semantic chunking should outperform fixed, but empirical tuning is needed.
+# Fixed (full-path substring)
+section_lower in " > ".join(r.section_path).lower()
+```
 
----
+This also aligns with how `get_book_chunks` already formats the section for display.
 
-### 5. Metadata-Enriched Search: Section Path Filtering
+**Complexity:** Very Low
+- One-line change in `service.py:search()`
+- No schema change
+- Backward compatible: single-segment filters still work the same way
+- Existing tests need updating to verify full-path behavior
 
-**Description:** Add section path filtering to `search_books` so users can say "search chapter 3" or "search the generators section." Currently, the only filters are `book_id` and `content_type`.
+**Dependencies:** `service.py:search()` section filter block only.
 
-**How it works:**
-- Add `section` parameter to `search_books` MCP tool
-- For SQLite/FTS5 search: add `WHERE section_path LIKE '%Chapter 3%'` or use `json_each()` for exact matching
-- For ChromaDB search: use `where` clause with `$contains` on the `section_path` metadata field (stored as `"Part I > Chapter 3 > Generators"`)
-- Support partial matching: "Chapter 3" matches any chunk whose section_path contains "Chapter 3"
-
-**Complexity:** Medium
-- SQLite side: straightforward LIKE or json_each query on existing indexed data
-- ChromaDB side: `$contains` operator on string metadata works for substring matching
-- The tricky part is UI/UX: what does the user type? Full path? Partial? Regex? Keep it simple -- substring match.
-
-**Dependencies on existing:** `section_path` stored in both SQLite (JSON array) and ChromaDB metadata (joined string). `SearchFilter` model, `SearchService.search()`, `VectorStore.query()`.
-
-**Implementation notes:**
-- Extend `SearchFilter` with `section: str | None`
-- Add `section` parameter to `search_books` MCP tool
-- For ChromaDB: `where={"section_path": {"$contains": section_value}}`
-- For FTS5: add `AND c.section_path LIKE ?` with `%{section_value}%`
-
-**Confidence:** HIGH -- uses existing stored data, standard query patterns
+**Confidence:** HIGH — the fix is evident from reading the code; the assembled-string approach is already used in display formatting.
 
 ---
 
-### 6. Metadata-Enriched Search: Sequence Range Fetching
+### 5. `get_book_structure` MCP Tool (TOC Browsing)
 
-**Description:** After finding a relevant chunk, allow fetching a contiguous range of chunks by sequence number. "Give me chunks 15-25 from this book" enables reading flow beyond the context window.
+**What does not exist today:** There is no way to ask "what sections does this book have?" without running a search and inferring from section_path values in results. Claude cannot orient in a book before searching it.
+
+**Expected behavior:** Given a `book_id`, return the hierarchical section structure of the book — effectively a table of contents with the section labels stored on chunks. Claude can then use this to decide which sections to search or filter.
 
 **How it works:**
-- New MCP tool `get_book_chunks(book_id, start_sequence, end_sequence)` or add parameters to `search_books`
-- SQL: `SELECT * FROM chunks WHERE book_id = ? AND sequence BETWEEN ? AND ? ORDER BY sequence`
-- Return chunks in sequence order with content and metadata
+- Query `SELECT DISTINCT section_path, MIN(sequence) as first_seq FROM chunks WHERE book_id = ? GROUP BY section_path ORDER BY first_seq`
+- Parse `section_path` JSON arrays, deduplicate, and reconstruct the tree
+- Return as indented markdown text representing the hierarchy
+
+**Output example:**
+```
+## Book Structure: Python Cookbook
+
+- Part I: Text
+  - Chapter 1: Strings and Text
+  - Chapter 2: Numbers, Dates, and Times
+- Part II: Data Structures
+  - Chapter 3: Iterators and Generators
+    - Generators
+    - Coroutines
+- Front Matter
+- Table of Contents
+```
 
 **Complexity:** Low-Medium
-- SQL query is trivial (index exists: `idx_chunks_sequence`)
-- Decision: new tool vs parameter on existing tool
-- New tool is cleaner: `search_books` finds, `get_book_chunks` reads
+- SQL query is trivial (no schema change)
+- Tree reconstruction from flat list of `section_path` arrays: group by first N path elements, build nested structure
+- No new dependencies
+- Format as markdown with indentation for readability in Claude's UI
+- `readOnlyHint=True` annotation
 
-**Dependencies on existing:** `chunks.sequence` field, `idx_chunks_sequence` index, `ChunkRepository`.
+**Dependencies:** `chunks` table (existing), `ChunkRepository`, `tools.py` for registration.
 
-**Implementation notes:**
-- Recommend a new MCP tool rather than overloading `search_books`
-- Cap range to prevent massive responses (e.g., max 20 chunks per request)
-- Include section_path in output so Claude knows what section the chunks belong to
-- Mark as `readOnlyHint=True`
-
-**Confidence:** HIGH
+**Confidence:** HIGH — data already stored; only display logic is new.
 
 ---
 
-### 7. Configurable Chunk Sizes per Book
+### 6. Context Window Result Clarity (Match vs Context Delineation)
 
-**Description:** Allow specifying min/max token sizes when adding a book via MCP. Dense mathematical books benefit from smaller chunks (200-400 tokens); narrative books work better with larger chunks (600-1000 tokens).
+**What goes wrong today:** `_format_enriched_results()` uses `**>>> MATCHED (seq N) <<<**` for matched chunks and `*[context, seq N]*` for surrounding chunks. In Claude Desktop's markdown rendering, the difference between bold and italic is subtle. When scanning a long enriched response, it is easy to confuse which chunk was the actual match and which is contextual padding.
 
-**How it works:**
-- Add optional `chunk_min_tokens` and `chunk_max_tokens` parameters to `add_book` MCP tool
-- Pass through to `ChunkerConfig` during `ingest_book()`
-- Defaults remain 400/800 if not specified
+**Expected behavior:** The matched chunk should be visually unambiguous. Options:
+1. Use a horizontal rule separator with a clear label before the match: `---\n**MATCH:**`
+2. Use a distinct header style: `### Matched (seq N)` vs `#### Context (seq N)`
+3. Add a summary line at the top of each expanded result showing match metadata, separate from context chunks
 
-**Complexity:** Low
-- `ChunkerConfig` already supports these parameters
-- `ingest_book()` already accepts `chunker_config`
-- Only need to wire MCP tool parameters through to the pipeline
+**Recommended approach:** Add a header block before matched chunks with `---` separator and `**MATCH** (seq N):` label, and use a softer label like `[context +N]` / `[context -N]` for surrounding chunks to indicate relative position (before or after match). This makes the visual distinction clear in rendered markdown.
 
-**Dependencies on existing:** `ChunkerConfig`, `ingest_book(chunker_config=...)`, `add_book` MCP tool.
+**Complexity:** Very Low
+- Change to `_format_enriched_results()` in `tools.py` only
+- No logic change, formatting only
+- No schema change
+- Requires reviewing output with actual Claude Desktop to validate visual clarity
 
-**Implementation notes:**
-- Validate: `min_tokens >= 100`, `max_tokens <= 2000`, `min_tokens < max_tokens`
-- Book must be re-ingested (with `force=true`) to change chunk sizes
-- Consider storing the chunk config used in book metadata for reproducibility (optional, not required)
+**Dependencies:** `tools.py:_format_enriched_results` only.
 
-**Confidence:** HIGH
+**Confidence:** HIGH — purely a formatting change; the fix is self-contained.
 
 ---
 
 ## Anti-Features
 
-Features to explicitly NOT build in v1.2.
+Features to explicitly NOT build in v1.3.
 
-### LLM-Based Chunking
+### Re-Embedding After Metadata Change
 
-**Why avoid:** Using GPT/Claude to decide chunk boundaries is expensive per chunk (~$0.01-0.05 per chunk at scale), slow (adds seconds per chunk), non-deterministic, and overkill for ~10 books. Semantic chunking via embeddings achieves 80% of the benefit at 10% of the cost.
+**Why avoid:** Re-embedding is expensive (calls Databricks API for every chunk in the book) and slow. Author name cleanup and section label fixes are metadata changes only — the text content being embedded is unchanged. The embedding already captures semantic meaning; the section_path in the embedding metadata could be updated in-place in ChromaDB if truly needed, but search quality is unaffected by author name display.
 
-**What to do instead:** Embedding-distance semantic chunking with min/max token guardrails.
-
----
-
-### Agentic/Multi-Hop Retrieval
-
-**Why avoid:** Adds tool-chaining complexity (planning loops, state management) for marginal gain. Claude itself already performs multi-turn search naturally -- it calls `search_books` multiple times with refined queries.
-
-**What to do instead:** Keep `search_books` as a single-shot tool. Let Claude handle multi-step reasoning.
+**What to do instead:** `update_book_metadata` already exists for correcting author/title. Section path labels live in SQLite chunk records and ChromaDB metadata; a re-index with `force=true` applies fixes for books that need it.
 
 ---
 
-### Parent-Child Chunk Hierarchy / Auto-Merging
+### EPUB Write-Back (Modifying Source Files)
 
-**Why avoid:** Requires tree structure in storage, complex merge logic, and careful handling of cross-level navigation. Context enrichment via neighbor expansion achieves the same goal (providing surrounding context) with far less complexity.
+**Why avoid:** Mnemo is explicitly read-only on EPUBs by design decision. Even if author normalization or section labeling could be improved in the source file, modifying user files is out of scope and potentially destructive.
 
-**What to do instead:** Context enrichment with configurable window size.
-
----
-
-### Chunk-Level Summaries/Keywords in Metadata
-
-**Why avoid:** Requires LLM call per chunk during ingest, dramatically increasing ingest cost and time. The embedding itself captures semantic meaning; adding a summary is redundant for retrieval.
-
-**What to do instead:** Rely on embeddings for semantic matching and `section_path` for structural context.
+**What to do instead:** All corrections happen in Mnemo's internal SQLite/ChromaDB storage.
 
 ---
 
-### Cross-Encoder Re-Ranking
+### Automatic Re-Ingest on Parsing Fix
 
-**Why avoid:** Adds a heavy model dependency and inference cost per query. RRF fusion of keyword + semantic search is already a strong ranking baseline. At ~10 books, the improvement is marginal.
+**Why avoid:** Silently re-ingesting all books when parsing logic changes would be slow and surprising. Re-embedding costs real API time and money.
 
-**What to do instead:** Keep RRF fusion. Revisit only if search quality is measurably poor after v1.2.
+**What to do instead:** User runs `mnemo add --force <path>` or calls `add_book(force=true)` to update an existing book. Document which books benefit from re-ingest in the milestone release notes.
 
 ---
 
-### Automatic Re-Chunking on Strategy Change
+### Smart Author Format Detection ("Last, First" vs "First Last")
 
-**Why avoid:** Silently re-ingesting books when chunking config changes is destructive, slow (requires re-embedding), and confusing. Users should make this decision explicitly.
+**Why avoid:** Detecting and normalizing author name format (e.g., converting "Smith, John" to "John Smith") requires heuristics that will misfire. The goal is to strip garbage delimiters (semicolons, trailing commas), not to reformat legitimate names. Name format normalization is a separate problem better solved by explicit `update_book_metadata` correction.
 
-**What to do instead:** Document: "Re-add with `force=true` to apply new chunking strategy."
+**What to do instead:** Strip semicolons and trailing delimiter characters; do not reorder or reformat author name components.
+
+---
+
+### `get_book_structure` Caching in DB
+
+**Why avoid:** The section hierarchy can be reconstructed on demand from the chunks table with a single GROUP BY query. Adding a separate `book_sections` table creates schema complexity and synchronization burden. At personal scale (~10 books), the on-demand query is fast enough.
+
+**What to do instead:** Query on demand in `get_book_structure`.
 
 ---
 
 ## Feature Dependencies
 
 ```
-Independent quick wins (do first):
-  Cosine distance migration ──> Score exposure (benefits from 0-1 cosine distances)
+Independent, no prereqs (do in any order):
+  Author name cleanup ──> no other feature depends on it
+  Context window clarity ──> no other feature depends on it
 
-Independent medium features (do in parallel):
-  Context enrichment (uses existing prev/next links)
-  Section path filtering (extends search params)
-  Configurable chunk sizes (extends add_book params)
-  Sequence range fetching (new tool or param)
+Parsing fixes (logically grouped, do together):
+  Text artifact cleanup ──┐
+  Front matter detection ──┤─> re-ingest existing books to see full benefit
+                           ↓
+                     (both improve section_path quality)
 
-Depends on quick wins + medium features:
-  Semantic chunking (most complex; benefits from configurable chunk sizes
-                     existing first as min/max guardrails; requires re-ingest)
+Depends on parsing fixes (order after):
+  Section filter hierarchy traversal ──> benefits from cleaner section_path
+                                         (but works correctly regardless)
+  get_book_structure tool ──> better output when section labels are clean,
+                              but functional regardless of label quality
 ```
 
-**Critical ordering insight:** Semantic chunking should be implemented last because:
-1. It is the most complex feature with the most risk
-2. Existing books must be re-ingested + re-embedded to benefit
-3. Configurable chunk sizes should exist first so min/max bounds are tunable
-4. Cosine distance should be migrated first so the embedding comparison during chunking uses the right metric
-5. All other features work with both old (fixed) and new (semantic) chunks
+**Ordering recommendation:**
+1. Text artifact cleanup + author normalization (parsing fixes, low risk, no dependencies)
+2. Front matter detection (slightly more logic, benefits from same re-ingest pass)
+3. Section filter hierarchy traversal (one-line fix, do immediately — tiny scope)
+4. Context window clarity (formatting only, do last since it requires visual QA)
+5. `get_book_structure` tool (new tool, slightly larger scope, natural last item)
 
 ---
 
 ## MVP Recommendation
 
-### Must Have (ordered by implementation sequence):
+### Must Have (core correctness):
 
-1. **Cosine distance migration** -- One-time script, improves score interpretability, no behavioral change. Unblocks meaningful score display.
-2. **Search scores exposure** -- Tiny change to formatting, lets Claude judge result confidence.
-3. **Context enrichment** -- Highest-value single feature. Transforms isolated chunks into readable passages.
-4. **Configurable chunk sizes** -- Small API change, prepares infrastructure for semantic chunking.
+1. **Text artifact cleanup** — Fixes joined-word parsing bug. Every real-world EPUB is affected. Low risk, high impact on search quality since joined words will not match queries.
+2. **Author name cleanup** — Fixes display garbage. Users see "Alice Smith; Bob Jones" as a single string. Low risk, self-contained.
+3. **Front matter detection** — Eliminates misleading "Unknown section" labels. Makes `get_book_structure` output immediately useful.
+4. **Section filter hierarchy traversal** — One-line fix that makes section filtering behave as users expect when specifying multi-level paths.
 
-### Should Have:
+### Should Have (UX improvements):
 
-5. **Section path filtering** -- Enables structural navigation, medium effort.
-6. **Sequence range fetching** -- Companion to context enrichment for deeper reading.
-7. **Semantic chunking** -- Highest complexity, highest potential upside, but existing fixed chunking is functional. Needs empirical tuning.
+5. **Context window result clarity** — Makes enriched search results readable at a glance. Formatting-only change.
+6. **`get_book_structure` tool** — Enables pre-search orientation. Low-medium effort, high value for systematic book exploration.
 
 ### Explicitly Defer:
 
-- Cross-encoder re-ranking
-- LLM-based chunking
-- Chunk metadata enrichment (summaries, keywords)
-- Parent-child hierarchy
+- Any re-embedding workflow — out of scope for a quality/polish milestone
+- Author format normalization (Last, First rearrangement) — correctness risk outweighs benefit
+- Caching of book structure — premature optimization at personal scale
 
 ---
 
 ## Sources
 
-### Semantic Chunking
-- [Firecrawl: Best Chunking Strategies for RAG 2026](https://www.firecrawl.dev/blog/best-chunking-strategies-rag) -- Benchmarks: recursive 69% vs semantic 54%
-- [Milvus: Max-Min Semantic Chunking](https://milvus.io/blog/embedding-first-chunking-second-smarter-rag-retrieval-with-max-min-semantic-chunking.md) -- Advanced boundary detection algorithm
-- [Superlinked VectorHub: Semantic Chunking](https://superlinked.com/vectorhub/articles/semantic-chunking) -- Algorithm walkthrough and tradeoffs
-- [Clinical Decision Support Chunking Study](https://pmc.ncbi.nlm.nih.gov/articles/PMC12649634/) -- Topic-aligned at 87% vs fixed at 13%
+All findings based on direct codebase inspection (HIGH confidence — no external sources needed for bug analysis):
 
-### Context Enrichment
-- [NirDiamant RAG_Techniques: Context Enrichment Window](https://github.com/NirDiamant/RAG_Techniques/blob/main/all_rag_techniques/context_enrichment_window_around_chunk.ipynb) -- Reference implementation
-- [Microsoft Azure RAG Enrichment Phase](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/rag/rag-enrichment-phase) -- Enterprise patterns
-- [PIXION: RAG Context Enrichment Strategies](https://pixion.co/blog/rag-strategies-context-enrichment) -- Sentence window vs auto-merging comparison
+- `src/mnemo/epub/content.py` — `_extract_blocks_from_element`, `_normalize_text` (text artifact root cause)
+- `src/mnemo/epub/metadata.py` — `_extract_authors` (author normalization root cause)
+- `src/mnemo/epub/parser.py` — `_parse_toc`, `extract_content` section_path fallback (unknown section root cause)
+- `src/mnemo/search/service.py` — section filter logic (hierarchy traversal gap)
+- `src/mnemo/mcp/tools.py` — `_format_enriched_results`, `_format_search_results` (context clarity gap)
+- `src/mnemo/storage/database.py` — schema (confirms no schema change needed for most features)
+- `.planning/PROJECT.md` — milestone scope confirmation
 
-### ChromaDB Distance Metrics
-- [ChromaDB Collection Configuration Docs](https://docs.trychroma.com/docs/collections/configure) -- Distance metric options, cosine setup
-- [ChromaDB FAQ/Cookbook](https://cookbook.chromadb.dev/faq/) -- Migration approach for changing metrics
-- [LangChain Discussion: Changing ChromaDB Distance](https://github.com/langchain-ai/langchain/discussions/22422) -- Confirms migration-only approach
+### Supporting references:
+- [EPUB3 Structural Semantics Vocabulary](https://www.w3.org/TR/epub-ssv/) — `epub:type` values for front/back matter detection (cover, toc, frontmatter, colophon)
+- [EPUB3 Navigation Document spec](https://www.w3.org/TR/epub-nav/) — nav element structure used by `_parse_epub3_nav`
