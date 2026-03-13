@@ -200,3 +200,89 @@ print(data["key"])
         chapters=chapters,
         output_path=output_path,
     )
+
+
+def create_epub_with_front_matter(
+    front_matter_items: list[dict[str, str]],
+    output_path: Path | None = None,
+) -> Path:
+    """Create a test EPUB with spine-only front-matter items not in the TOC.
+
+    Useful for testing PARSE-03: front-matter label inference for items that
+    exist in the spine but are absent from the EPUB's NAV/NCX table of contents.
+
+    Args:
+        front_matter_items: List of dicts with 'filename' and 'content' keys.
+            'filename' is the xhtml filename (e.g., "cover.xhtml"),
+            'content' is the HTML body content.
+        output_path: Where to save the EPUB (temp file if None)
+
+    Returns:
+        Path to the created EPUB file
+    """
+    book = epub.EpubBook()
+    book.set_identifier("test-front-matter-epub-id")
+    book.set_title("Front Matter Test Book")
+    book.set_language("en")
+    book.add_author("Test Author")
+
+    # Create one normal chapter that will be in both spine and TOC
+    normal_chapter = epub.EpubHtml(
+        title="Chapter 1",
+        file_name="chap_01.xhtml",
+        lang="en",
+    )
+    normal_chapter.set_content(
+        b"""<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>Chapter 1</title></head>
+<body>
+<h1>Chapter 1</h1>
+<p>This is the first chapter.</p>
+</body>
+</html>"""
+    )
+    book.add_item(normal_chapter)
+
+    # Create front-matter items (spine only, NOT in TOC)
+    front_matter_epub_items = []
+    for fm in front_matter_items:
+        filename = fm["filename"]
+        content_body = fm.get("content", "<p>Front matter content.</p>")
+        stem = filename.rsplit(".", 1)[0] if "." in filename else filename
+
+        fm_item = epub.EpubHtml(
+            title=stem.capitalize(),
+            file_name=filename,
+            lang="en",
+        )
+        fm_item.set_content(
+            f"""<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>{stem}</title></head>
+<body>
+{content_body}
+</body>
+</html>""".encode("utf-8")
+        )
+        book.add_item(fm_item)
+        front_matter_epub_items.append(fm_item)
+
+    # TOC contains only the normal chapter (front-matter items are excluded)
+    book.toc = [normal_chapter]
+
+    # Spine: nav first, then front-matter items, then normal chapter
+    book.spine = ["nav"] + front_matter_epub_items + [normal_chapter]
+
+    # Add navigation files
+    book.add_item(epub.EpubNcx())
+    book.add_item(epub.EpubNav())
+
+    # Determine output path
+    if output_path is None:
+        fd, path_str = tempfile.mkstemp(suffix=".epub")
+        output_path = Path(path_str)
+    else:
+        output_path = Path(output_path)
+
+    epub.write_epub(str(output_path), book)
+
+    return output_path
