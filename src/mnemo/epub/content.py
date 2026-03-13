@@ -323,8 +323,10 @@ def _extract_blocks_from_element(
             blocks.extend(nested_blocks)
             continue
 
-        # For other elements, accumulate their text
-        text = child.get_text(strip=True)
+        # For other elements, accumulate their text.
+        # Use separator=" " so adjacent inline children (span, em, strong) produce
+        # space-separated words instead of joined strings like "astrategy".
+        text = child.get_text(separator=" ", strip=True)
         if text:
             current_text_parts.append(text)
 
