@@ -11,7 +11,7 @@ Requirements for the Quality & Polish milestone. Each maps to roadmap phases.
 
 - [x] **PARSE-01**: EPUB text extraction preserves word boundaries across inline HTML elements (no joined words like "astrategy")
 - [x] **PARSE-02**: Author names are split on semicolons and cleaned of trailing delimiters (e.g., "Smith; Jones;" → ["Smith", "Jones"])
-- [ ] **PARSE-03**: Front-matter and TOC content gets a descriptive section label instead of "Unknown section"
+- [x] **PARSE-03**: Front-matter and TOC content gets a descriptive section label instead of "Unknown section"
 
 ### Search
 
@@ -52,7 +52,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | PARSE-01 | Phase 10 | Complete |
 | PARSE-02 | Phase 10 | Complete |
-| PARSE-03 | Phase 10 | Pending |
+| PARSE-03 | Phase 10 | Complete |
 | SRCH-01 | Phase 11 | Pending |
 | TOOL-01 | Phase 11 | Pending |
 | TOOL-02 | Phase 12 | Pending |
