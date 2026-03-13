@@ -120,6 +120,78 @@ class TestContentExtraction:
         assert "    " in python_code.content or "\t" in python_code.content
 
 
+class TestWordBoundaryFix:
+    """Tests for PARSE-01: word boundary preservation across inline elements."""
+
+    def test_word_boundaries_preserved_across_inline_elements(self, tmp_path: Path) -> None:
+        epub_path = create_test_epub(
+            title="Word Boundary Test",
+            authors=["Test Author"],
+            chapters=[
+                {
+                    "title": "Chapter 1",
+                    "content": "<p><span>a</span><span>strategy</span> for <em>success</em></p>",
+                }
+            ],
+            output_path=tmp_path / "word_boundary.epub",
+        )
+        parser = EPUBParser()
+
+        _, blocks = parser.parse(epub_path)
+
+        text_blocks = [b for b in blocks if b.content_type == ContentType.TEXT]
+        all_text = " ".join(b.content for b in text_blocks)
+        assert "astrategy" not in all_text
+        assert "a strategy" in all_text
+
+    def test_inline_sibling_word_boundaries(self, tmp_path: Path) -> None:
+        epub_path = create_test_epub(
+            title="Sibling Boundary Test",
+            authors=["Test Author"],
+            chapters=[
+                {
+                    "title": "Chapter 1",
+                    "content": "<p><em>bold</em><strong>text</strong> here</p>",
+                }
+            ],
+            output_path=tmp_path / "sibling_boundary.epub",
+        )
+        parser = EPUBParser()
+
+        _, blocks = parser.parse(epub_path)
+
+        text_blocks = [b for b in blocks if b.content_type == ContentType.TEXT]
+        all_text = " ".join(b.content for b in text_blocks)
+        assert "boldtext" not in all_text
+        assert "bold text" in all_text
+
+
+class TestSemicolonAuthorSplit:
+    """Tests for PARSE-02: semicolon-delimited author splitting."""
+
+    def test_semicolon_delimited_authors(self, tmp_path: Path) -> None:
+        epub_path = create_test_epub(
+            title="Multi Author Book",
+            raw_creators=["Smith, Alice; Jones, Bob;"],
+            output_path=tmp_path / "multi_author.epub",
+        )
+
+        book = extract_metadata(epub_path)
+
+        assert book.authors == ["Smith, Alice", "Jones, Bob"]
+
+    def test_author_trailing_semicolon(self, tmp_path: Path) -> None:
+        epub_path = create_test_epub(
+            title="Single Author Book",
+            raw_creators=["Alice Smith;"],
+            output_path=tmp_path / "single_author.epub",
+        )
+
+        book = extract_metadata(epub_path)
+
+        assert book.authors == ["Alice Smith"]
+
+
 class TestTocParsing:
     """Tests for TOC parsing and section hierarchy."""
 

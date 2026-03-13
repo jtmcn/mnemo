@@ -16,21 +16,24 @@ def create_test_epub(
     language: str = "en",
     chapters: list[dict[str, Any]] | None = None,
     output_path: Path | None = None,
+    raw_creators: list[str] | None = None,
 ) -> Path:
     """Create a minimal test EPUB file.
 
     Args:
         title: Book title
-        authors: List of author names
+        authors: List of author names (each becomes a separate dc:creator)
         isbn: ISBN identifier
         language: Book language code
         chapters: List of chapter dicts with 'title', 'content', and optional 'filename'
         output_path: Where to save the EPUB (temp file if None)
+        raw_creators: Raw dc:creator strings added as-is (bypasses add_author splitting).
+            Use this to test semicolon-delimited author strings like "Smith; Jones".
 
     Returns:
         Path to the created EPUB file
     """
-    if authors is None:
+    if authors is None and raw_creators is None:
         authors = ["Test Author"]
     if chapters is None:
         chapters = [
@@ -48,8 +51,13 @@ def create_test_epub(
     book.set_title(title)
     book.set_language(language)
 
-    for author in authors:
-        book.add_author(author)
+    if raw_creators is not None:
+        # Add raw creator strings as single dc:creator elements (no splitting)
+        for raw in raw_creators:
+            book.add_metadata("DC", "creator", raw)
+    elif authors is not None:
+        for author in authors:
+            book.add_author(author)
 
     if isbn:
         # Add ISBN with proper OPF namespace scheme
