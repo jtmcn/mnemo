@@ -50,18 +50,18 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PARSE-01 | Pending | Pending |
-| PARSE-02 | Pending | Pending |
-| PARSE-03 | Pending | Pending |
-| SRCH-01 | Pending | Pending |
-| TOOL-01 | Pending | Pending |
-| TOOL-02 | Pending | Pending |
+| PARSE-01 | Phase 10 | Pending |
+| PARSE-02 | Phase 10 | Pending |
+| PARSE-03 | Phase 10 | Pending |
+| SRCH-01 | Phase 11 | Pending |
+| TOOL-01 | Phase 11 | Pending |
+| TOOL-02 | Phase 12 | Pending |
 
 **Coverage:**
 - v1.3 requirements: 6 total
-- Mapped to phases: 0
-- Unmapped: 6 ⚠️
+- Mapped to phases: 6
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-03-12*
-*Last updated: 2026-03-12 after initial definition*
+*Last updated: 2026-03-12 after roadmap creation*
