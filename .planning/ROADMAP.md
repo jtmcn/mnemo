@@ -55,10 +55,11 @@
   2. A book with multiple semicolon-delimited authors (e.g. `"Smith, Alice; Jones, Bob;"`) stores them as separate author strings, not a single garbled value
   3. Front-matter spine items (cover, TOC, copyright, preface) appear with descriptive section labels (e.g. "Table of Contents") rather than "Unknown section"
   4. Code block indentation is fully preserved — whitespace normalization never touches `ContentType.CODE` chunks
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 10-01: TBD
+- [ ] 10-01-PLAN.md — Fix word-joining bug (PARSE-01) and author semicolon splitting (PARSE-02)
+- [ ] 10-02-PLAN.md — Add front-matter section label inference (PARSE-03)
 
 ### Phase 11: Search Filter and MCP Tool
 **Goal**: Section filtering matches anywhere in the hierarchy path and Claude can browse a book's full section structure before searching
@@ -102,7 +103,7 @@ Phases execute in numeric order: 10 → 11 → 12
 | 7. Tool Polish & Integration | v1.1 | 2/2 | Complete | 2026-02-17 |
 | 8. Infrastructure & Quick Wins | v1.2 | 2/2 | Complete | 2026-03-10 |
 | 9. Search Enrichment | v1.2 | 3/3 | Complete | 2026-03-10 |
-| 10. Parser Quality Fixes | v1.3 | 0/? | Not started | - |
+| 10. Parser Quality Fixes | v1.3 | 0/2 | Not started | - |
 | 11. Search Filter and MCP Tool | v1.3 | 0/? | Not started | - |
 | 12. Output Formatting | v1.3 | 0/? | Not started | - |
 
