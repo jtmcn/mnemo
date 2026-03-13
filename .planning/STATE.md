@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Quality & Polish
-current_phase: 10
-status: ready_to_plan
-stopped_at: null
-last_updated: "2026-03-12T00:00:00.000Z"
-last_activity: 2026-03-12 — Roadmap created for v1.3 (Phases 10-12)
+current_phase: Phase 10 — Parser Quality Fixes (ready to plan)
+status: planning
+stopped_at: "Completed 10-01-PLAN.md: PARSE-01 and PARSE-02 fixes"
+last_updated: "2026-03-13T06:04:53.458Z"
+last_activity: 2026-03-12 — Roadmap created, Phase 10 is next
 progress:
   total_phases: 3
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 2
+  completed_plans: 1
   percent: 0
 ---
 
@@ -53,6 +53,7 @@ Progress: [░░░░░░░░░░] 0% (v1.3)
 | v1.1 Book Management | 5-7 | 5 | Shipped |
 | v1.2 RAG Improvements | 8-9 | 5 | Shipped |
 | v1.3 Quality & Polish | 10-12 | TBD | In progress |
+| Phase 10-parser-quality-fixes P01 | 2 | 1 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -63,6 +64,8 @@ Key decisions relevant to v1.3:
 - Whitespace normalization must be gated to `ContentType.TEXT` only — applying to code blocks silently destroys indentation
 - `get_book_structure` reads from SQLite exclusively — re-parsing EPUB would produce mismatched output vs. search results
 - Author normalization may change `book_id` on re-index (hash includes `primary_author`) — acceptable, document it
+- [Phase 10-parser-quality-fixes]: Only catch-all branch in _extract_blocks_from_element gets separator=' '; code/table/diagram/math branches untouched to preserve indentation
+- [Phase 10-parser-quality-fixes]: Semicolon splitting in _extract_authors applied to all dc:creator strings; no-op for single-author books without semicolons
 
 ### Pending Todos
 None.
@@ -73,8 +76,8 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-12
-Stopped at: Roadmap created for v1.3. Ready to plan Phase 10.
+Last session: 2026-03-13T06:04:53.456Z
+Stopped at: Completed 10-01-PLAN.md: PARSE-01 and PARSE-02 fixes
 Resume file: None
 
 ---
