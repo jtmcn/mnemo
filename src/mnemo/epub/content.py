@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import warnings
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from bs4 import BeautifulSoup, NavigableString, Tag, XMLParsedAsHTMLWarning
@@ -17,6 +18,31 @@ from mnemo.models import ContentType
 
 # EPUB content is XHTML but lxml HTML parser handles real-world EPUBs better
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
+
+# Maps filename stems to human-readable front-matter section labels.
+# Used by _infer_front_matter_label to assign descriptive labels to spine items
+# that are absent from the EPUB's NAV/NCX table of contents.
+FRONT_MATTER_STEMS: dict[str, str] = {
+    "cover": "Cover",
+    "toc": "Table of Contents",
+    "contents": "Table of Contents",
+    "copyright": "Copyright",
+    "copyrights": "Copyright",
+    "title": "Title Page",
+    "titlepage": "Title Page",
+    "title-page": "Title Page",
+    "dedication": "Dedication",
+    "preface": "Preface",
+    "foreword": "Foreword",
+    "introduction": "Introduction",
+    "intro": "Introduction",
+    "acknowledgements": "Acknowledgements",
+    "acknowledgments": "Acknowledgements",
+    "about": "About",
+    "colophon": "Colophon",
+    "halftitle": "Half Title",
+    "half-title": "Half Title",
+}
 
 if TYPE_CHECKING:
     from ebooklib.epub import EpubBook
@@ -76,6 +102,29 @@ LATEX_BLOCK_PATTERN = re.compile(r"\\\[.*?\\\]", re.DOTALL)
 LATEX_INLINE_PATTERN = re.compile(r"\$[^$]+\$")
 
 
+def _infer_front_matter_label(href: str) -> list[str] | None:
+    """Infer a section label for unmapped spine items via filename heuristics.
+
+    Tries exact stem match, then prefix/suffix matching against FRONT_MATTER_STEMS.
+    Returns None if no match found (content remains unlabeled).
+
+    Args:
+        href: EPUB item href (e.g., "OEBPS/cover.xhtml", "preface_01.xhtml")
+
+    Returns:
+        Single-element section path or None
+    """
+    stem = Path(href).stem.lower()
+    # Exact match
+    if stem in FRONT_MATTER_STEMS:
+        return [FRONT_MATTER_STEMS[stem]]
+    # Prefix/suffix match (e.g., "preface_01", "cover2")
+    for key, label in FRONT_MATTER_STEMS.items():
+        if stem.startswith(key) or stem.endswith(key):
+            return [label]
+    return None
+
+
 def extract_content(
     epub_book: "EpubBook",
     toc_mapping: dict[str, list[str]],
@@ -112,6 +161,12 @@ def extract_content(
     for item in spine_items:
         href = item.get_name()
         section_path = toc_mapping.get(href, [])
+
+        # PARSE-03: infer label for front-matter items not in TOC
+        if not section_path:
+            inferred = _infer_front_matter_label(href)
+            if inferred:
+                section_path = inferred
 
         # Parse HTML content
         content = item.get_content()
