@@ -58,8 +58,8 @@
 **Plans**: 2 plans
 
 Plans:
-- [ ] 10-01-PLAN.md — Fix word-joining bug (PARSE-01) and author semicolon splitting (PARSE-02)
-- [ ] 10-02-PLAN.md — Add front-matter section label inference (PARSE-03)
+- [x] 10-01-PLAN.md — Fix word-joining bug (PARSE-01) and author semicolon splitting (PARSE-02)
+- [x] 10-02-PLAN.md — Add front-matter section label inference (PARSE-03)
 
 ### Phase 11: Search Filter and MCP Tool
 **Goal**: Section filtering matches anywhere in the hierarchy path and Claude can browse a book's full section structure before searching
@@ -70,10 +70,10 @@ Plans:
   2. `get_book_structure` returns an indented markdown hierarchy of all sections for a given book
   3. `get_book_structure` reads exclusively from SQLite — it reflects the indexed data, not a live re-parse of the EPUB file
   4. `get_book_structure` has `readOnlyHint=True` annotation and appears in `TestToolAnnotations`
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 11-01: TBD
+- [ ] 11-01-PLAN.md — Hierarchy-aware section filter (SRCH-01) and get_book_structure tool (TOOL-01)
 
 ### Phase 12: Output Formatting
 **Goal**: Context window search results make it immediately clear which chunk matched the query and which chunks are surrounding context
@@ -103,8 +103,8 @@ Phases execute in numeric order: 10 → 11 → 12
 | 7. Tool Polish & Integration | v1.1 | 2/2 | Complete | 2026-02-17 |
 | 8. Infrastructure & Quick Wins | v1.2 | 2/2 | Complete | 2026-03-10 |
 | 9. Search Enrichment | v1.2 | 3/3 | Complete | 2026-03-10 |
-| 10. Parser Quality Fixes | 2/2 | Complete    | 2026-03-13 | - |
-| 11. Search Filter and MCP Tool | v1.3 | 0/? | Not started | - |
+| 10. Parser Quality Fixes | v1.3 | 2/2 | Complete | 2026-03-13 |
+| 11. Search Filter and MCP Tool | v1.3 | 0/1 | Not started | - |
 | 12. Output Formatting | v1.3 | 0/? | Not started | - |
 
 ---
