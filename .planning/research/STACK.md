@@ -1,21 +1,25 @@
-# Technology Stack: v1.2 RAG Improvements
+# Technology Stack: v1.3 Quality & Polish
 
 **Project:** Mnemo
-**Milestone:** v1.2 RAG Improvements (semantic chunking, context enrichment, metadata search, quick wins)
-**Researched:** 2026-03-08
+**Milestone:** v1.3 Quality & Polish (EPUB text cleanup, author normalization, section hierarchy, TOC browsing)
+**Researched:** 2026-03-12
 **Overall Confidence:** HIGH
 
 ## Executive Summary
 
-The v1.2 milestone requires **zero new runtime dependencies**. All six features can be built using the existing stack (numpy, chromadb, tiktoken, sqlite3, pydantic). The critical findings are:
+The v1.3 milestone requires **zero new runtime dependencies**. All five features can be built using the existing stack. The critical findings are:
 
-1. **Semantic chunking** is a ~100-line algorithm using numpy cosine similarity on embeddings the project already generates via Databricks. No chunking library (chonkie, langchain, etc.) is needed or advisable.
-2. **Cosine distance** requires a ChromaDB collection recreation (not a migration) -- the space parameter is immutable after creation. Use `configuration={"hnsw": {"space": "cosine"}}` on ChromaDB 1.5.0 (already installed).
-3. **Context enrichment** uses existing SQLite `prev_chunk_id`/`next_chunk_id` links -- the schema already supports chunk expansion with zero changes.
-4. **Metadata search** uses existing ChromaDB `$and` where clauses and SQLite indexes on `section_path` and `sequence`.
-5. **Search scores and configurable chunks** are pure code changes to existing models and configs.
+1. **EPUB whitespace/text cleanup** — The root cause is `child.get_text(strip=True)` in `content.py` line 327. Adding `separator=" "` to all `get_text()` calls for inline-element text accumulation fixes joined words. The fix is ~5 targeted call-site changes using the `separator` parameter that has existed in BeautifulSoup since at least 4.9.0. No new library needed.
 
-This is an algorithm and configuration milestone, not a dependency milestone.
+2. **Author name normalization** — EPUB `dc:creator` metadata sometimes embeds multiple authors in one string (semicolon-delimited, e.g. `"Smith, John; Doe, Jane"`) or appends trailing delimiters. Python stdlib `re` is fully sufficient to split on semicolons/commas, strip surrounding whitespace, and discard empty elements. No external parser (`nameparser`, `ebookmeta`) is needed for this scope.
+
+3. **Front-matter / TOC section detection** — ebooklib 0.20's `epub.read_epub()` returns the TOC as `Section`/`Link` objects via `epub_book.toc`. These objects carry the label text already used by the existing `_parse_epub3_nav` / `_parse_epub2_ncx` code. Detecting front-matter items (Cover, Table of Contents, Preface) requires only a label-matching heuristic using stdlib `re` — no new library.
+
+4. **Section filter hierarchy traversal** — The existing post-filter in `service.py` (line 135–139) already performs a substring check across `section_path`. The change is purely to fix what paths are stored — if blocks extracted before the first heading get section_path `[]` or `["Unknown"]`, fixing the parser to assign proper TOC-derived paths eliminates the symptom. No new data structure is needed.
+
+5. **`get_book_structure` MCP tool** — Reads distinct `section_path` JSON arrays from SQLite `chunks` table, reconstructs the hierarchy tree in Python, and returns markdown. No additional storage, no new library. FastMCP 2.14.x (pinned `<3`) supports `str` return type (the project's existing convention); returning formatted markdown from the tool is consistent with all seven existing tools.
+
+This is a parser correctness and MCP surface milestone, not a dependency milestone.
 
 ---
 
@@ -23,237 +27,200 @@ This is an algorithm and configuration milestone, not a dependency milestone.
 
 ### New Dependencies: NONE
 
-Every capability maps to what is already installed:
-
-| Feature | Requires | Provided By | Installed |
-|---------|----------|-------------|-----------|
-| Semantic chunking (embedding distances) | Cosine similarity, embeddings | `numpy>=1.26` (2.4.2), `httpx` (Databricks API) | Yes |
-| Sentence splitting for semantic chunking | Sentence boundary detection | `re` (stdlib) | Yes |
-| Context enrichment (chunk expansion) | Adjacent chunk retrieval | `sqlite3` (stdlib), existing `prev_chunk_id`/`next_chunk_id` | Yes |
-| Metadata-enriched search (section path) | ChromaDB metadata filtering | `chromadb>=1.0.0` (1.5.0) | Yes |
-| Cosine distance metric | ChromaDB collection config | `chromadb>=1.0.0` (1.5.0) | Yes |
-| Search scores in results | Model field addition | `pydantic>=2.0` | Yes |
-| Configurable chunk sizes | Config parameter | `pydantic>=2.0` or `dataclasses` (stdlib) | Yes |
-| Token counting for chunk size validation | Token counting | `tiktoken>=0.5` | Yes |
+| Feature | Requires | Provided By | Status |
+|---------|----------|-------------|--------|
+| Fix `get_text()` whitespace between HTML elements | `separator` param on BeautifulSoup `get_text()` | `beautifulsoup4>=4.12` | Already installed |
+| Split semicolon-delimited author strings | String splitting, regex | `re` (stdlib) | Already available |
+| Detect front-matter section labels | Label text matching | `re` (stdlib), existing `_parse_epub3_nav` / `_parse_epub2_ncx` | Already available |
+| Section hierarchy traversal (filter matches full path) | Substring search across path list | `str.lower()` + `in` (Python builtins) | Already available |
+| `get_book_structure` tool — query distinct sections | SELECT DISTINCT on JSON column | `sqlite3` (stdlib) | Already available |
+| `get_book_structure` tool — reconstruct tree | Dict-based tree building | Python builtins | Already available |
+| `get_book_structure` tool — MCP registration | `@mcp.tool` decorator | `fastmcp>=2.14,<3` | Already installed |
 
 ---
 
 ## Feature-by-Feature Stack Analysis
 
-### 1. Semantic Chunking (Embedding-Distance Boundary Detection)
+### 1. EPUB Whitespace Fix (Joined Words Across HTML Tags)
 
-**What it does:** Instead of splitting text at fixed token counts, embed each sentence, compute cosine similarity between consecutive sentences, and split where similarity drops below a threshold.
-
-**Algorithm (implement from scratch, ~100 lines):**
-1. Split text block into sentences (regex, already have `re` in tokenizer.py)
-2. Batch-embed sentences via existing `DatabricksEmbedder.embed_batch()`
-3. Compute cosine similarity between consecutive sentence embeddings (numpy)
-4. Detect boundaries where similarity drops below threshold (percentile-based)
-5. Group sentences into chunks respecting `max_tokens` constraint
-
-**Why NOT use chonkie or other chunking libraries:**
-
-| Library | Why Not |
-|---------|---------|
-| chonkie | Adds 505KB+ dependency, requires adapting BaseEmbeddings interface to wrap Databricks client, introduces sentence-transformers transitive dep for its default model. The core algorithm is trivial with numpy. |
-| langchain text splitters | Massive dependency for one function. Project explicitly avoids langchain. |
-| semantic-chunking (PyPI) | Low-maintenance package, unnecessary abstraction over simple cosine similarity. |
-| llama-index | Same issue as langchain -- heavy framework dependency for a focused algorithm. |
-
-**Key integration point:** The semantic chunker slots into `Chunker._create_text_chunks()` as an alternative strategy. Code/diagram/math/table blocks remain atomic (never split). Only TEXT blocks use semantic boundaries.
-
-**numpy cosine similarity (already available):**
+**Root cause:** In `content.py` line 327, text from non-special inline elements is accumulated with:
 ```python
-import numpy as np
-
-def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
-    """Cosine similarity between two vectors."""
-    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+text = child.get_text(strip=True)
+if text:
+    current_text_parts.append(text)
 ```
 
-**Sentence splitting:** Use regex similar to the existing `split_by_tokens` in `tokenizer.py`. The `re` module in stdlib is sufficient -- no need for NLTK or spacy sentence tokenizers for technical book text.
+Then at flush time (line 177, 334): `" ".join(current_text_parts)`.
 
-**Embedding cost consideration:** Semantic chunking embeds every sentence during ingestion. For a 500-page book with ~5000 sentences, that is ~100 batches of 50 = 100 API calls. This is a one-time ingestion cost, acceptable at personal scale.
+The `" ".join()` adds a space *between separate block-level text parts*, but within a single `child.get_text(strip=True)` call, text from sibling child elements is concatenated without any separator. For example, `<p>See <a href="...">Chapter 3</a> for details</p>` → `get_text(strip=True)` → `"SeeChapter 3for details"`.
 
-**Confidence:** HIGH -- the algorithm is well-documented (Greg Kamradt's approach), numpy cosine similarity is trivial, and the project already has the embedding infrastructure.
+**Fix:** Add `separator=" "` to `get_text()` calls wherever text is extracted for accumulation into prose blocks. BeautifulSoup's `get_text(separator=" ", strip=True)` inserts the separator between the text of each child element, then strips leading/trailing whitespace from each piece.
+
+After extraction, the existing `_normalize_text()` regex (`re.sub(r"\s+", " ", text).strip()`) collapses any double-spaces introduced by the separator, so no second-pass cleanup is needed.
+
+**Call sites to fix in `content.py`:**
+- Line 327: `child.get_text(strip=True)` for "other elements" accumulation
+- Line 190: `child.get_text(strip=True)` for heading text (minimal impact but consistent)
+
+**Do NOT change:** `get_text()` on code blocks and diagrams — whitespace is significant there.
+
+**BeautifulSoup `separator` param:** Exists since BS4 4.x, well before the project's `>=4.12` pin. The project currently runs 4.14.3 (released Nov 30, 2025). HIGH confidence this works exactly as documented.
+
+**No new dependency needed.**
+
+**Confidence:** HIGH — BeautifulSoup `get_text(separator=" ")` is the canonical fix for this exact problem, documented in the official BS4 docs and confirmed by Launchpad bug #1768330.
 
 ---
 
-### 2. Cosine Distance Metric (ChromaDB)
+### 2. Author Name Normalization
 
-**Current state:** Collection uses `metadata={"hnsw:space": "l2"}` (line 57 of `vectors/store.py`).
+**Root cause:** Some EPUBs encode multiple authors in a single `dc:creator` element using semicolons: `"Smith, John; Doe, Jane"`. The current `_extract_authors()` in `metadata.py` (line 155) takes each `creator[0]` as a single string and strips whitespace, but does not split on semicolons.
 
-**Target state:** Use `configuration={"hnsw": {"space": "cosine"}}` with ChromaDB 1.5.0.
+A related artifact: some tools append trailing semicolons: `"Smith, John;"`.
 
-**Critical constraint: Space is immutable.** ChromaDB does not support changing the distance metric on an existing collection. The collection must be deleted and recreated.
-
-**Migration approach:**
-1. Delete existing ChromaDB collection
-2. Recreate with `configuration={"hnsw": {"space": "cosine"}}`
-3. Re-embed all books (chunks are preserved in SQLite)
-
-**API change in store.py:**
+**Fix in `_extract_authors()` — stdlib `re` only:**
 ```python
-# OLD (legacy metadata format)
-self.collection = self.client.get_or_create_collection(
-    name=self.config.collection_name,
-    metadata={"hnsw:space": "l2"},
-)
-
-# NEW (ChromaDB 1.0+ configuration format)
-self.collection = self.client.get_or_create_collection(
-    name=self.config.collection_name,
-    configuration={"hnsw": {"space": "cosine"}},
-)
+def _split_and_clean_author(raw: str) -> list[str]:
+    """Split semicolon-delimited authors and clean trailing delimiters."""
+    # Split on semicolon (primary multi-author delimiter in EPUB metadata)
+    parts = re.split(r"\s*;\s*", raw)
+    # Strip leading/trailing whitespace and discard empty parts
+    return [p.strip() for p in parts if p.strip()]
 ```
 
-**Why cosine over L2:** With L2 on normalized vectors (which is what the project currently does via `_normalize()`), L2 and cosine are mathematically equivalent. However, switching to native cosine means:
-- No manual L2 normalization needed before storage (ChromaDB handles it)
-- Distance values are interpretable (0 = identical, 2 = opposite)
-- Industry standard for text embeddings
+Apply to each raw `creator[0]` string before appending to the authors list.
 
-**Important:** After switching to cosine, the `_normalize()` method can potentially be kept for safety (cosine distance on pre-normalized vectors is fine) or removed. Keeping it is safer -- it is a no-op on already-normalized vectors.
+**Do NOT strip accents or apply NFKD normalization.** Author names must preserve their original Unicode representation (accented characters, non-Latin scripts). Stripping accents discards linguistically significant content (e.g. `García` → `Garcia` would be wrong). The only normalization needed is: split on delimiters, strip surrounding whitespace.
 
-**Confidence:** HIGH -- verified on ChromaDB 1.5.0 docs, `configuration` parameter format confirmed.
+**nameparser library:** Not needed. The problem is delimiter splitting, not structured name parsing (First/Last/Title). Adding nameparser would solve a different problem (name part decomposition) that the project does not need.
 
-**Sources:**
-- [ChromaDB Collection Configuration](https://docs.trychroma.com/docs/collections/configure)
-- [ChromaDB Migration Guide](https://docs.trychroma.com/deployment/migration)
+**ebookmeta library:** Not needed. The project uses ebooklib directly and only needs to fix the post-extraction parsing.
+
+**Confidence:** HIGH — the fix is a single-function stdlib change, no external library needed.
 
 ---
 
-### 3. Context Enrichment (Chunk Expansion)
+### 3. Front-Matter / TOC Section Detection
 
-**What it does:** When a search returns chunk X, also retrieve chunks X-1 and X+1 (or configurable window) to provide surrounding context.
+**Root cause:** EPUB spine items that precede the first body chapter (Cover, Table of Contents, Copyright, Preface) often have a `section_path` of `[]` after TOC parsing, causing them to display as "Unknown section" in search results.
 
-**Existing infrastructure (zero schema changes):**
-- `Chunk.prev_chunk_id` and `Chunk.next_chunk_id` already exist in the model
-- `ChunkRepository.get()` retrieves a chunk by ID
-- Chunks are already linked during `Chunker._link_chunks()`
+The TOC mappings in `_parse_epub3_nav` and `_parse_epub2_ncx` only populate paths for items that appear in the TOC `<a>` links. Spine items not linked in the TOC (e.g. cover pages) get no mapping.
 
-**Implementation approach:**
-1. After search returns results, for each result chunk, follow `prev_chunk_id`/`next_chunk_id` links
-2. Retrieve N adjacent chunks in each direction (configurable window, default 1)
-3. Concatenate content in sequence order for the enriched result
+**Fix:** Two complementary approaches, both using only existing stack:
 
-**Alternative approach (sequence-based):**
-Instead of following linked-list pointers (N+1 queries per result), query by `book_id` and `sequence` range:
+1. **TOC href fallback:** After parsing the nav/NCX, for spine items with no TOC mapping, check the item's filename (`item.get_name()`). Patterns like `cover.xhtml`, `toc.xhtml`, `copyright.xhtml`, `colophon.xhtml` can be matched with a short regex dict to assign canonical section labels.
+
+2. **ebooklib `epub_book.toc` for label extraction:** The `epub_book.toc` attribute returns a nested tuple of `(Section, [children])` or `Link` objects. Each `Link` has a `.title` attribute. This is the same data used by `_parse_epub3_nav`, so no additional library call is needed — just add a filename-to-label fallback dict.
+
+**Example patterns to detect:**
+```python
+FRONT_MATTER_PATTERNS = {
+    r"cover": "Cover",
+    r"toc|contents|nav": "Table of Contents",
+    r"copyright|copy": "Copyright",
+    r"preface|foreword": "Preface",
+    r"intro": "Introduction",
+    r"colophon|about": "About",
+    r"dedication": "Dedication",
+}
+```
+
+**Confidence:** HIGH — this is a heuristic filename-to-label mapping using stdlib `re`. The ebooklib `.toc` attribute is stable across 0.18–0.20.
+
+---
+
+### 4. Section Filter Hierarchy Traversal
+
+**Current state:** The post-filter in `service.py` line 135–139:
+```python
+results = [
+    r for r in results
+    if r.section_path and any(section_lower in s.lower() for s in r.section_path)
+]
+```
+
+This already matches against any element in the `section_path` list. The issue is not the filter logic — it is that some chunks have incomplete or missing section paths (fixed by #1 and #3 above), so filter terms don't find matches they should.
+
+**Change needed:** Minimal. After fixing the parser to assign correct section paths, confirm the existing filter logic is sufficient. The `any(section_lower in s.lower() for s in r.section_path)` approach correctly matches at any level of the hierarchy (e.g. `section="Chapter 3"` matches a chunk with path `["Part I", "Chapter 3", "Generators"]`).
+
+**No new logic needed** if the parser fixes properly populate section_path on all chunks.
+
+**One potential improvement:** The filter currently checks leaf-only paths. If a user searches `section="Part I"` and chunks have `section_path=["Part I", "Chapter 3"]`, the current check `"part i" in "Part I".lower()` already works. No change needed.
+
+**Confidence:** HIGH — the filter logic is correct; the fix is upstream in the parser.
+
+---
+
+### 5. `get_book_structure` MCP Tool
+
+**What it does:** Given a `book_id`, query the `chunks` table for all distinct `section_path` values, reconstruct the section tree, and return a formatted outline showing the book's structure with chunk counts per section.
+
+**Data source:** `section_path` is already stored as a JSON array in the `chunks` table. A SQLite query retrieves all distinct paths:
 ```sql
-SELECT * FROM chunks
-WHERE book_id = ? AND sequence BETWEEN ? AND ?
-ORDER BY sequence
+SELECT section_path, COUNT(*) as chunk_count
+FROM chunks
+WHERE book_id = ?
+GROUP BY section_path
+ORDER BY MIN(sequence)
 ```
-This is a single query per result and uses the existing index `idx_chunks_sequence ON chunks(book_id, sequence)`.
 
-**Recommendation:** Use the sequence-based approach. It is more efficient (one query instead of following a linked list) and the index already exists.
+Each `section_path` (deserialized from JSON) is a `list[str]` like `["Part I", "Chapter 3", "Generators"]`. Building a tree from these requires only a nested dict, then rendering to markdown indentation — stdlib only.
 
-**No new dependencies required.**
+**MCP tool signature (consistent with existing tools):**
+```python
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True,
+        destructiveHint=False,
+        openWorldHint=False,
+    )
+)
+def get_book_structure(book_id: str) -> str:
+    """Browse the section hierarchy of a book. ..."""
+```
 
-**Confidence:** HIGH -- the schema and indexes already support this pattern.
+**Return type:** `str` (markdown-formatted outline). This matches the return type of all 7 existing tools. FastMCP 2.14.x serializes `str` returns as a text content block, which is what Claude Desktop / Claude Code expect.
+
+**FastMCP version note:** The project pins `fastmcp>=2.14,<3`. FastMCP 3.x (latest: 3.1.0, released Mar 3 2026) is excluded by the pin. FastMCP 3.x introduced breaking API changes. The `<3` pin is correct and should not be relaxed for this milestone.
+
+**No schema changes needed.** `section_path` and `sequence` are already indexed (`idx_chunks_sequence`). The `GROUP BY section_path` query will use the index efficiently.
+
+**New method to add to `ChunkRepository`:**
+```python
+def get_section_summary(self, book_id: str) -> list[tuple[list[str], int]]:
+    """Return distinct section paths with chunk counts, ordered by first appearance."""
+```
+
+This follows the existing repository pattern and stays within the `storage` module — no new file needed.
+
+**Confidence:** HIGH — query and tree reconstruction are straightforward stdlib operations. FastMCP tool registration follows existing patterns exactly.
 
 ---
 
-### 4. Metadata-Enriched Search (Section Path Filtering)
+## Version Status of Existing Dependencies
 
-**What it does:** Allow search queries to filter by section path (e.g., "only search in Chapter 3") and sequence range.
+| Package | Pinned Constraint | Latest Available | Action |
+|---------|------------------|-----------------|--------|
+| `beautifulsoup4` | `>=4.12` | 4.14.3 (Nov 30, 2025) | No change to pin; fix uses existing `separator` param |
+| `ebooklib` | `>=0.18` | 0.20 (Oct 26, 2025) | Consider bumping to `>=0.18,<0.21` for stability, but 0.20 is backward-compatible |
+| `lxml` | `>=5.0` | 6.0.2 (Sep 22, 2025) | No change needed; BS4's lxml parser behavior is stable |
+| `fastmcp` | `>=2.14,<3` | 2.14.5 (Feb 3, 2026) in 2.x; 3.1.0 latest | Keep `<3` — FastMCP 3.x has breaking changes, migration not in scope |
+| `re` (stdlib) | — | Python 3.11+ | Author normalization and section detection use only stdlib |
 
-**ChromaDB metadata filtering (already supported):**
-The `section_path` is already stored as a metadata string in ChromaDB (joined with " > "):
-```python
-metadatas = [{
-    "book_id": chunk.book_id,
-    "content_type": chunk.content_type.value,
-    "section_path": " > ".join(chunk.section_path),
-    "sequence": chunk.sequence,
-}]
-```
-
-ChromaDB supports `$contains` for substring matching on metadata:
-```python
-where={"section_path": {"$contains": "Chapter 3"}}
-```
-
-**SQLite filtering (for keyword search):**
-Add a WHERE clause on `section_path` column (JSON array stored as TEXT):
-```sql
-WHERE json_extract(section_path, '$') LIKE '%Chapter 3%'
-```
-Or add a new `section_path_text` column with the flattened path for simpler filtering.
-
-**SearchFilter model extension:**
-```python
-@dataclass
-class SearchFilter:
-    book_id: str | None = None
-    content_type: str | None = None
-    section_path: str | None = None        # NEW: filter by section
-    sequence_min: int | None = None         # NEW: filter by sequence range
-    sequence_max: int | None = None         # NEW: filter by sequence range
-```
-
-**No new dependencies required.**
-
-**Confidence:** HIGH -- ChromaDB `$contains` operator is documented, SQLite JSON functions are stdlib.
-
----
-
-### 5. Search Scores in Results
-
-**What it does:** Expose raw relevance scores from ChromaDB (distance) and FTS5 (rank) alongside the RRF fusion score.
-
-**Current state:** `SearchResult.score` contains the RRF score. ChromaDB distances are computed but discarded after ranking.
-
-**Changes needed:**
-1. Add `semantic_distance` and `keyword_rank` fields to `SearchResult`
-2. Pass ChromaDB `distance` values through the search pipeline
-3. For cosine distance: lower = more similar (0 to 2 range)
-
-**SearchResult model extension:**
-```python
-@dataclass
-class SearchResult:
-    # ... existing fields ...
-    score: float                              # RRF fusion score
-    semantic_distance: float | None = None    # NEW: raw ChromaDB distance
-    keyword_rank: int | None = None           # NEW: FTS5 rank position
-```
-
-**No new dependencies required.**
-
-**Confidence:** HIGH -- straightforward model and pipeline change.
-
----
-
-### 6. Configurable Chunk Sizes
-
-**What it does:** Allow per-book chunk size configuration at ingest time, overriding the default 400-800 token range.
-
-**Current state:** `ChunkerConfig` already supports `min_tokens`, `max_tokens`, and `overlap_tokens` as constructor parameters. The `ingest_book()` function already accepts `chunker_config: ChunkerConfig | None`.
-
-**What needs to change:**
-1. Expose `ChunkerConfig` parameters through CLI (`mnemo add --min-tokens 200 --max-tokens 600`)
-2. Expose through MCP `add_book` tool parameters
-3. Optionally store the config used per book in SQLite (for re-embedding reference)
-
-**Schema consideration:** Consider adding `chunk_config` column to `books` table (JSON blob) so re-embedding can use the same settings. This is a minor schema migration.
-
-**No new dependencies required.**
-
-**Confidence:** HIGH -- the config infrastructure already exists, just needs exposure.
+**ebooklib 0.18 → 0.20:** The 0.20 release (Oct 2025) is labeled "the final version supporting Python 2.7" — it is backward-compatible with the API used in this project (`epub.read_epub()`, `.get_items()`, `.toc`, `.get_metadata()`). Bumping the pin to `>=0.18` (unchanged) continues to work; no forced upgrade is needed for v1.3.
 
 ---
 
 ## Alternatives Considered
 
-| Category | Recommendation | Alternative | Why Not |
-|----------|---------------|-------------|---------|
-| Semantic chunking | Implement from scratch (~100 LOC) | chonkie library | Adds dependency + transitive deps (sentence-transformers), requires wrapping Databricks API in BaseEmbeddings interface. Algorithm is trivial with numpy. |
-| Semantic chunking | Implement from scratch | langchain text splitters | Massive dependency for one function. Project does not use langchain. |
-| Sentence splitting | stdlib `re` | NLTK `sent_tokenize` | NLTK requires downloading models at runtime. Regex handles technical text adequately (abbreviations like "e.g." can be handled with a negative lookbehind). |
-| Sentence splitting | stdlib `re` | spaCy | Heavy NLP dependency (hundreds of MB) for sentence splitting. Massive overkill. |
-| Cosine similarity | numpy (already installed) | scipy | scipy is a transitive dep of chromadb but not explicitly declared. numpy is already a direct dependency and `np.dot` + `np.linalg.norm` is 2 lines. |
-| Chunk expansion | Sequence-based SQL query | Follow prev/next linked list | Linked list traversal requires N queries per direction per result. Sequence range query is single query with existing index. |
-| Distance metric | ChromaDB native cosine | Keep L2 with manual normalization | Mathematically equivalent for normalized vectors, but native cosine is cleaner and gives interpretable distance values. |
+| Feature | Recommendation | Alternative | Why Not |
+|---------|---------------|-------------|---------|
+| Author delimiter splitting | stdlib `re.split(r"\s*;\s*", ...)` | `nameparser` library | nameparser solves First/Last/Title decomposition — not needed. Single-function stdlib change is simpler and has no transitive deps. |
+| Author delimiter splitting | stdlib `re.split` | `ebookmeta` library | Adds a new library for one parsing fix. The project already uses ebooklib directly. |
+| Front-matter detection | Filename regex heuristics | Full TOC re-parse with ebooklib `.toc` | `.toc` is already used by the parser; the problem is spine items *outside* the TOC, so a filename fallback is the right tool. |
+| `get_book_structure` return type | `str` (markdown) | `dict` / JSON | All 7 existing tools return `str`. Returning `dict` would require updating the tool convention and tests. Markdown is immediately readable by Claude without extra parsing. |
+| `get_book_structure` data source | SQLite `section_path` column | Re-parse EPUB at query time | Re-parsing requires the EPUB file to be present and is expensive. SQLite already has all section data from ingest. |
+| Whitespace fix | `get_text(separator=" ")` | Custom HTML walker extracting text nodes individually | BS4's `separator` parameter is the canonical solution documented in official BS4 docs. Custom walker adds complexity for no benefit. |
 
 ---
 
@@ -263,24 +230,22 @@ class SearchResult:
 
 | File | Change | Feature |
 |------|--------|---------|
-| `src/mnemo/chunking/chunker.py` | Add semantic chunking strategy alongside fixed-token | Semantic chunking |
-| `src/mnemo/chunking/tokenizer.py` | Add sentence splitting function | Semantic chunking |
-| `src/mnemo/vectors/store.py` | Change `metadata={"hnsw:space": "l2"}` to `configuration={"hnsw": {"space": "cosine"}}` | Cosine distance |
-| `src/mnemo/search/service.py` | Add chunk expansion logic, pass through raw scores | Context enrichment, search scores |
-| `src/mnemo/search/models.py` | Add `semantic_distance`, `keyword_rank`, `section_path` filter fields | Search scores, metadata search |
-| `src/mnemo/vectors/store.py` | Add `section_path` to `_build_where()` | Metadata search |
-| `src/mnemo/ingest.py` | Pass chunk config params through | Configurable chunks |
-| `src/mnemo/mcp/tools.py` | Add chunk config params to `add_book`, expose scores | Configurable chunks, scores |
-| `src/mnemo/cli.py` | Add `--min-tokens`/`--max-tokens` flags | Configurable chunks |
-| `src/mnemo/storage/repository.py` | Add `get_by_sequence_range()` method | Context enrichment |
+| `src/mnemo/epub/content.py` | Add `separator=" "` to `get_text()` calls at text-accumulation sites | Whitespace fix |
+| `src/mnemo/epub/metadata.py` | Split semicolon-delimited authors in `_extract_authors()` | Author normalization |
+| `src/mnemo/epub/parser.py` | Add filename-based front-matter label fallback in `_parse_toc()` | Front-matter detection |
+| `src/mnemo/storage/repository.py` | Add `get_section_summary(book_id)` method to `ChunkRepository` | `get_book_structure` tool |
+| `src/mnemo/mcp/tools.py` | Add `_get_book_structure_impl()` and `get_book_structure` tool | New MCP tool |
 
 ### Files That Do NOT Change
 
 | File | Why Not |
 |------|---------|
-| `src/mnemo/models.py` | Chunk model already has `section_path`, `sequence`, `prev_chunk_id`, `next_chunk_id` |
-| `src/mnemo/embeddings/client.py` | Embedding client is used as-is for semantic chunking sentence embeddings |
-| `src/mnemo/storage/database.py` | Schema changes are minimal (possibly one column for chunk_config), but core schema is sufficient |
+| `src/mnemo/search/service.py` | Section filter logic is already correct; parser fixes eliminate the root cause |
+| `src/mnemo/models.py` | No schema changes — `section_path: list[str]` already exists |
+| `src/mnemo/storage/database.py` | No schema changes — `section_path` column and index already exist |
+| `src/mnemo/vectors/store.py` | No vector behavior changes |
+| `src/mnemo/chunking/` | Chunking strategy unchanged |
+| `pyproject.toml` | No new dependencies |
 
 ---
 
@@ -288,15 +253,12 @@ class SearchResult:
 
 | Suggestion | Why Not |
 |------------|---------|
-| `chonkie` | Trivial algorithm does not justify a dependency with its own embedding abstraction layer and transitive deps. 100 lines of numpy is simpler than adapting the BaseEmbeddings interface. |
-| `langchain` | Framework dependency for one utility function. Against project philosophy. |
-| `nltk` | Requires runtime model downloads for sentence tokenization. Regex is sufficient. |
-| `spacy` | Hundreds of MB for sentence splitting. Massive overkill at personal scale. |
-| `scipy` | numpy already provides cosine similarity in 2 lines. scipy adds nothing. |
-| `sentence-transformers` | Project uses Databricks GTE-large-en, not local models. Adding a local model framework is wrong direction. |
-| `pydantic-settings` | No new environment variables in this milestone. |
-| `alembic` / migration tool | One optional column addition does not justify a migration framework. `ALTER TABLE ADD COLUMN` is sufficient. |
-| `redis` / caching layer | Embedding cache for semantic chunking is unnecessary -- embeddings are computed once at ingest time and discarded. Sentence embeddings are intermediate, not stored. |
+| `nameparser` | Solves name part decomposition (First/Last/Title), not the delimiter-splitting problem this milestone has. Adds a dependency for a one-line fix. |
+| `ebookmeta` | Alternative EPUB metadata library. Project uses ebooklib; adding a second EPUB library for a metadata fix is unnecessary complexity. |
+| `html2text` | Converts HTML to Markdown. Irrelevant — the project already uses BeautifulSoup for structured extraction, not full-document conversion. |
+| `ftfy` | Fixes Unicode text encoding artifacts. Not the source of the current whitespace issue (which is structural, not encoding). |
+| `Upgrade fastmcp to 3.x` | FastMCP 3.0 introduced breaking API changes. The project's `<3` pin is correct. No features in v1.3 require FastMCP 3.x capabilities. |
+| `unidecode` | Strips all non-ASCII from text. Destructive for multilingual author names. Never use for name data. |
 
 ---
 
@@ -311,45 +273,33 @@ dependencies = [
     "pydantic>=2.0",
     "httpx>=0.27",
     "tenacity>=8.3",
-    "numpy>=1.26",          # <-- cosine similarity for semantic chunking
-    "chromadb>=1.0.0",      # <-- 1.5.0 installed, supports configuration param
+    "numpy>=1.26",
+    "chromadb>=1.0.0",
     "fastmcp>=2.14,<3",
 ]
 ```
 
-No new lines needed.
-
----
-
-## Installed Version Verification
-
-| Package | Required | Installed | Status |
-|---------|----------|-----------|--------|
-| chromadb | >=1.0.0 | 1.5.0 | OK -- supports `configuration={"hnsw": {"space": "cosine"}}` |
-| numpy | >=1.26 | 2.4.2 | OK -- `np.dot`, `np.linalg.norm` for cosine similarity |
-| tiktoken | >=0.5 | (installed) | OK -- `cl100k_base` for token counting |
-| pydantic | >=2.0 | (installed) | OK -- model extensions |
-| httpx | >=0.27 | (installed) | OK -- Databricks API for sentence embeddings |
-| tenacity | >=8.3 | (installed) | OK -- retry logic for embedding API |
+No new lines. No version bumps required.
 
 ---
 
 ## Sources
 
 ### Official Documentation (HIGH confidence)
-- [ChromaDB Collection Configuration](https://docs.trychroma.com/docs/collections/configure) -- `configuration` parameter format, space options
-- [ChromaDB Migration Guide](https://docs.trychroma.com/deployment/migration) -- immutability of collection settings
-- [ChromaDB Cookbook - Collections](https://cookbook.chromadb.dev/core/collections/) -- `get_or_create_collection` behavior
+- [BeautifulSoup get_text() docs](https://beautiful-soup-4.readthedocs.io/en/latest/) — `separator` and `strip` parameters for `get_text()`
+- [BeautifulSoup Launchpad bug #1768330](https://bugs.launchpad.net/bugs/1768330) — canonical bug report confirming `separator=" "` as the fix for joined words
+- [FastMCP Tools documentation](https://gofastmcp.com/servers/tools) — return type handling, `str` serialization
+- [FastMCP PyPI](https://pypi.org/project/fastmcp/) — 2.14.5 is latest 2.x; 3.1.0 is latest overall (breaking change, excluded by `<3` pin)
+- [ebooklib PyPI](https://pypi.org/project/EbookLib/) — 0.20 is latest stable (Oct 26, 2025), backward-compatible API
+- [beautifulsoup4 PyPI](https://pypi.org/project/beautifulsoup4/) — 4.14.3 (Nov 30, 2025)
+- [lxml PyPI](https://pypi.org/project/lxml/) — 6.0.2 (Sep 22, 2025)
+- [Python unicodedata docs](https://docs.python.org/3/library/unicodedata.html) — NFC vs NFKD normalization guidance
 
 ### Verified by Codebase Inspection (HIGH confidence)
-- `src/mnemo/vectors/store.py` -- current L2 distance config, `_normalize()` method
-- `src/mnemo/chunking/chunker.py` -- current `ChunkerConfig`, atomic vs text splitting
-- `src/mnemo/search/service.py` -- current search pipeline, score handling
-- `src/mnemo/models.py` -- `Chunk.prev_chunk_id`, `next_chunk_id`, `section_path`, `sequence`
-- `src/mnemo/storage/database.py` -- existing `idx_chunks_sequence` index
-- `src/mnemo/storage/repository.py` -- existing `ChunkRepository.get()`, `get_by_book()`
-
-### Community/Research Sources (MEDIUM confidence)
-- [Semantic Chunking via Embedding Distance](https://superlinked.com/vectorhub/articles/semantic-chunking) -- Greg Kamradt's boundary detection approach
-- [Chonkie Library](https://github.com/chonkie-inc/chonkie) -- evaluated and rejected (unnecessary dependency)
-- [ChromaDB Defaults to L2](https://razikus.substack.com/p/chromadb-defaults-to-l2-distance-why-that-might-not-be-the-best-choice-ac3d47461245) -- rationale for cosine over L2
+- `src/mnemo/epub/content.py` — `get_text(strip=True)` call sites, `_normalize_text()`, text accumulation pattern
+- `src/mnemo/epub/metadata.py` — `_extract_authors()` current implementation
+- `src/mnemo/epub/parser.py` — `_parse_epub3_nav()`, `_parse_epub2_ncx()`, `_infer_from_headings()` — TOC mapping gaps
+- `src/mnemo/search/service.py` — existing section post-filter logic (line 135–139)
+- `src/mnemo/storage/repository.py` — `ChunkRepository` existing methods, `section_path` column access pattern
+- `src/mnemo/mcp/tools.py` — existing tool registration pattern, `_impl` + `@mcp.tool` convention, all tools return `str`
+- `src/mnemo/models.py` — `Chunk.section_path: list[str]` already exists, stored as JSON in SQLite
