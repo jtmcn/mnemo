@@ -1613,7 +1613,9 @@ class TestSearchBooksContextWindow:
 
             assert "Found 1 results:" in result
             assert "MATCHED" not in result
+            assert "MATCH" not in result
             assert "[context, seq" not in result
+            assert "Context \u2014" not in result
             assert "Test Book" in result
         finally:
             tools._search_service = original_service
@@ -1667,9 +1669,10 @@ class TestSearchBooksContextWindow:
             result = tools._search_books_impl("test", context_window=1)
 
             assert "with context" in result
-            assert "MATCHED (seq 1)" in result
-            assert "[context, seq 0]" in result
-            assert "[context, seq 2]" in result
+            assert "MATCH \u2014 seq 1" in result
+            assert "Context \u2014 seq 0" in result
+            assert "Context \u2014 seq 2" in result
+            assert "---" in result
         finally:
             tools._search_service = original_service
 
