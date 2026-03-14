@@ -735,6 +735,65 @@ async def add_book(
     return result
 
 
+def _get_book_structure_impl(book_id: str) -> str:
+    """Get book structure implementation - see get_book_structure for docs."""
+    logger.info(f"get_book_structure: book_id={book_id}")
+
+    if not book_id or len(book_id) != 6:
+        return "Error: book_id must be a 6-character identifier"
+
+    try:
+        book_repo = _get_book_repo()
+        book = book_repo.get(book_id)
+        if not book:
+            return f"Error: Book not found: {book_id}"
+
+        chunk_repo = _get_chunk_repo()
+        rows = chunk_repo.get_section_structure(book_id)
+
+        if not rows:
+            return f"## {book.title}\n\nNo sections found."
+
+        lines = [f"## {book.title}", ""]
+        for sp in rows:
+            if not sp:
+                continue
+            depth = len(sp) - 1
+            indent = "  " * depth
+            label = sp[-1]
+            lines.append(f"{indent}- {label}")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        logger.exception("get_book_structure failed")
+        return f"Error: {e}"
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True,
+        destructiveHint=False,
+        openWorldHint=False,
+    )
+)
+def get_book_structure(book_id: str) -> str:
+    """Get the section hierarchy for a book.
+
+    Returns an indented markdown outline of all sections in a book,
+    ordered by reading sequence. Use this before searching to understand
+    what chapters or sections exist, then pass a section name to
+    search_books to filter results.
+
+    Args:
+        book_id: 6-character book identifier (from list_available_books)
+
+    Returns:
+        Indented markdown section outline, or an error message starting with "Error:"
+    """
+    return _get_book_structure_impl(book_id)
+
+
 @mcp.tool(
     annotations=ToolAnnotations(
         readOnlyHint=True,
