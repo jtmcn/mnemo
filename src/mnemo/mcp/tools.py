@@ -495,13 +495,15 @@ def _format_enriched_results(expanded_results: list[dict]) -> str:
             f"**Type:** {result.content_type} | "
             f"**Match:** {result.source}"
         )
-        lines.append("")
 
         for chunk in exp["chunks"]:
+            lines.append("")
+            lines.append("---")
             if chunk.id in matched_ids:
-                lines.append(f"**>>> MATCHED (seq {chunk.sequence}) <<<**")
+                lines.append(f"**[MATCH \u2014 seq {chunk.sequence}]**")
             else:
-                lines.append(f"*[context, seq {chunk.sequence}]*")
+                lines.append(f"*[Context \u2014 seq {chunk.sequence}]*")
+            lines.append("")
 
             content = chunk.content
             if len(content) > 2000:
@@ -512,7 +514,7 @@ def _format_enriched_results(expanded_results: list[dict]) -> str:
             else:
                 lines.append(content)
 
-            lines.append("")
+        lines.append("")
 
     return "\n".join(lines)
 
