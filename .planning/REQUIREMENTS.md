@@ -20,7 +20,7 @@ Requirements for the Quality & Polish milestone. Each maps to roadmap phases.
 ### MCP Tools
 
 - [x] **TOOL-01**: New `get_book_structure` MCP tool returns the section hierarchy for a book
-- [x] **TOOL-02**: Context window search results visually delineate matched chunks from surrounding context
+- [ ] **TOOL-02**: Context window search results visually delineate matched chunks from surrounding context
 
 ## Future Requirements
 
@@ -55,13 +55,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PARSE-03 | Phase 10 | Complete |
 | SRCH-01 | Phase 11 | Complete |
 | TOOL-01 | Phase 11 | Complete |
-| TOOL-02 | Phase 12 | Complete |
+| TOOL-02 | Phase 13 | Pending |
 
 **Coverage:**
 - v1.3 requirements: 6 total
-- Mapped to phases: 6
+- Satisfied: 5
+- Pending: 1 (TOOL-02 → Phase 13)
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-03-12*
-*Last updated: 2026-03-12 after roadmap creation*
+*Last updated: 2026-03-14 after gap closure planning*

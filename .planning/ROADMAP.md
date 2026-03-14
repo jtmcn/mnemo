@@ -5,7 +5,7 @@
 - ✅ **v1.0 MVP** — Phases 1-4 (shipped 2026-02-10) — [Archive](milestones/v1.0-ROADMAP.md)
 - ✅ **v1.1 Book Management** — Phases 5-7 (shipped 2026-02-17) — [Archive](milestones/v1.1-ROADMAP.md)
 - ✅ **v1.2 RAG Improvements** — Phases 8-9 (shipped 2026-03-10) — [Archive](milestones/v1.2-ROADMAP.md)
-- 🚧 **v1.3 Quality & Polish** — Phases 10-12 (in progress)
+- 🚧 **v1.3 Quality & Polish** — Phases 10-13 (in progress)
 
 ## Phases
 
@@ -43,6 +43,7 @@
 - [x] **Phase 10: Parser Quality Fixes** - Clean EPUB text extraction, author normalization, and front-matter section labels (completed 2026-03-13)
 - [x] **Phase 11: Search Filter and MCP Tool** - Hierarchy-aware section filtering and new `get_book_structure` tool (completed 2026-03-14)
 - [x] **Phase 12: Output Formatting** - Visual delineation of matched vs. context chunks in enriched search results (completed 2026-03-14)
+- [ ] **Phase 13: Audit Gap Closure** - Close verification gaps, fix SUMMARY frontmatter, fix stale test assertions
 
 ## Phase Details
 
@@ -87,6 +88,23 @@ Plans:
 Plans:
 - [ ] 12-01-PLAN.md — Strengthen enriched result formatting with --- separators and [MATCH]/[Context] labels
 
+### Phase 13: Audit Gap Closure
+**Goal**: Close all verification and documentation gaps identified by the v1.3 milestone audit so the milestone can pass re-audit
+**Depends on**: Phase 12
+**Requirements**: TOOL-02, SRCH-01, TOOL-01
+**Gap Closure**: Closes gaps from v1.3-MILESTONE-AUDIT.md
+**Success Criteria** (what must be TRUE):
+  1. Phase 12 has a VERIFICATION.md confirming TOOL-02 is satisfied
+  2. Phase 11 SUMMARY frontmatter lists SRCH-01 and TOOL-01 in requirements_completed
+  3. ROADMAP 12-01-PLAN checkbox is checked
+  4. `test_tools_registered` asserts all 8 registered tools
+  5. `TestToolAnnotations` docstring reflects correct tool count
+  6. All pre-existing test failures in Phase 11 scope are resolved or documented
+**Plans**: 1 plan
+
+Plans:
+- [ ] 13-01-PLAN.md — Fix verification gaps, SUMMARY frontmatter, stale test assertions, and pre-existing test failures
+
 ## Progress
 
 **Execution Order:**
@@ -106,6 +124,7 @@ Phases execute in numeric order: 10 → 11 → 12
 | 10. Parser Quality Fixes | v1.3 | 2/2 | Complete | 2026-03-13 |
 | 11. Search Filter and MCP Tool | 1/1 | Complete    | 2026-03-14 | - |
 | 12. Output Formatting | 1/1 | Complete   | 2026-03-14 | - |
+| 13. Audit Gap Closure | v1.3 | 0/1 | Planned | - |
 
 ---
 *Roadmap created: 2026-01-19*
