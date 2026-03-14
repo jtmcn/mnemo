@@ -73,7 +73,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 11-01-PLAN.md — Hierarchy-aware section filter (SRCH-01) and get_book_structure tool (TOOL-01)
+- [x] 11-01-PLAN.md — Hierarchy-aware section filter (SRCH-01) and get_book_structure tool (TOOL-01)
 
 ### Phase 12: Output Formatting
 **Goal**: Context window search results make it immediately clear which chunk matched the query and which chunks are surrounding context
@@ -82,10 +82,10 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. Enriched search results visually distinguish the matched chunk from its context neighbors (e.g. with a separator line and position label)
   2. A human reviewing the raw markdown output in Claude Desktop can identify the matched chunk at a glance without reading chunk content
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 12-01: TBD
+- [ ] 12-01-PLAN.md — Strengthen enriched result formatting with --- separators and [MATCH]/[Context] labels
 
 ## Progress
 
@@ -105,7 +105,7 @@ Phases execute in numeric order: 10 → 11 → 12
 | 9. Search Enrichment | v1.2 | 3/3 | Complete | 2026-03-10 |
 | 10. Parser Quality Fixes | v1.3 | 2/2 | Complete | 2026-03-13 |
 | 11. Search Filter and MCP Tool | 1/1 | Complete    | 2026-03-14 | - |
-| 12. Output Formatting | v1.3 | 0/? | Not started | - |
+| 12. Output Formatting | v1.3 | 0/1 | Not started | - |
 
 ---
 *Roadmap created: 2026-01-19*
