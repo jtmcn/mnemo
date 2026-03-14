@@ -1046,6 +1046,35 @@ class TestSectionFilter:
 
         assert len(results) == 3
 
+    def test_section_filter_matches_hierarchy_path(self, service, mock_chunk_repo):
+        """Filtering by a parent section name returns chunks from all subsections.
+
+        When filtering by 'Chapter 5', a chunk with section_path
+        ['Part II', 'Chapter 5', 'Section 5.1'] should match because
+        'Chapter 5' appears in the joined path string.
+
+        Also tests cross-level matching: filtering by 'Chapter 5 > Section'
+        matches the same chunk via the join separator.
+        """
+        deep_chunk = self._make_chunk(
+            "deep", ["Part II", "Chapter 5", "Section 5.1"]
+        )
+        unrelated_chunk = self._make_chunk(
+            "unrelated", ["Part I", "Chapter 1", "Introduction"]
+        )
+        mock_chunk_repo.search_fts.return_value = [deep_chunk, unrelated_chunk]
+
+        # Filtering by parent section name matches subsection chunks
+        results_parent = service.search("test", mode="keyword", section="Chapter 5")
+        assert len(results_parent) == 1
+        assert results_parent[0].chunk_id == "deep"
+
+        # Cross-level match: the joined path "Part II > Chapter 5 > Section 5.1"
+        # contains the substring "Chapter 5 > Section"
+        results_cross = service.search("test", mode="keyword", section="Chapter 5 > Section")
+        assert len(results_cross) == 1
+        assert results_cross[0].chunk_id == "deep"
+
 
 class TestRRFIntegration:
     """Tests verifying RRF fusion behavior in SearchService."""
