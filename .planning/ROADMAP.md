@@ -41,7 +41,7 @@
 **Milestone Goal:** Fix parsing artifacts and search UX issues discovered during real-world MCP evaluation. No new dependencies, no schema changes — surgical fixes to five source files.
 
 - [x] **Phase 10: Parser Quality Fixes** - Clean EPUB text extraction, author normalization, and front-matter section labels (completed 2026-03-13)
-- [ ] **Phase 11: Search Filter and MCP Tool** - Hierarchy-aware section filtering and new `get_book_structure` tool
+- [x] **Phase 11: Search Filter and MCP Tool** - Hierarchy-aware section filtering and new `get_book_structure` tool (completed 2026-03-14)
 - [ ] **Phase 12: Output Formatting** - Visual delineation of matched vs. context chunks in enriched search results
 
 ## Phase Details
@@ -104,7 +104,7 @@ Phases execute in numeric order: 10 → 11 → 12
 | 8. Infrastructure & Quick Wins | v1.2 | 2/2 | Complete | 2026-03-10 |
 | 9. Search Enrichment | v1.2 | 3/3 | Complete | 2026-03-10 |
 | 10. Parser Quality Fixes | v1.3 | 2/2 | Complete | 2026-03-13 |
-| 11. Search Filter and MCP Tool | v1.3 | 0/1 | Not started | - |
+| 11. Search Filter and MCP Tool | 1/1 | Complete   | 2026-03-14 | - |
 | 12. Output Formatting | v1.3 | 0/? | Not started | - |
 
 ---
