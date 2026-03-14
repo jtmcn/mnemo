@@ -396,6 +396,27 @@ class ChunkRepository:
         ).fetchone()
         return row["count"]
 
+    def get_section_structure(self, book_id: str) -> list[list[str]]:
+        """Get unique section paths in reading order for a book.
+
+        Args:
+            book_id: 6-char hex book identifier
+
+        Returns:
+            List of section path lists, ordered by first occurrence in book
+        """
+        rows = self.conn.execute(
+            """
+            SELECT section_path, MIN(sequence) as first_seq
+            FROM chunks
+            WHERE book_id = ? AND section_path != '[]'
+            GROUP BY section_path
+            ORDER BY first_seq
+            """,
+            (book_id,),
+        ).fetchall()
+        return [json.loads(row["section_path"]) for row in rows]
+
     def _sanitize_fts_query(self, query: str) -> str:
         """Sanitize a query for FTS5.
 
