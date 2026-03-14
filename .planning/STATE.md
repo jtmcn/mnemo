@@ -4,14 +4,14 @@ milestone: v1.3
 milestone_name: Quality & Polish
 current_phase: 11
 status: planning
-stopped_at: "Completed 10-02-PLAN.md (PARSE-03: front-matter section label inference)"
-last_updated: "2026-03-13T06:07:55.444Z"
+stopped_at: "Completed 11-01-PLAN.md (SRCH-01: hierarchy section filter + TOOL-01: get_book_structure MCP tool)"
+last_updated: "2026-03-14T01:09:42.648Z"
 last_activity: 2026-03-12 — Roadmap created, Phase 10 is next
 progress:
   total_phases: 3
-  completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  completed_phases: 2
+  total_plans: 3
+  completed_plans: 3
   percent: 0
 ---
 
@@ -55,6 +55,7 @@ Progress: [░░░░░░░░░░] 0% (v1.3)
 | v1.3 Quality & Polish | 10-12 | TBD | In progress |
 | Phase 10-parser-quality-fixes P01 | 2 | 1 tasks | 5 files |
 | Phase 10-parser-quality-fixes P02 | 8 | 1 tasks | 3 files |
+| Phase 11 P01 | 190 | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -69,6 +70,8 @@ Key decisions relevant to v1.3:
 - [Phase 10-parser-quality-fixes]: Semicolon splitting in _extract_authors applied to all dc:creator strings; no-op for single-author books without semicolons
 - [Phase 10-parser-quality-fixes]: FRONT_MATTER_STEMS uses exact dict lookup first then startswith/endswith for prefix/suffix match — no fuzzy matching
 - [Phase 10-parser-quality-fixes]: _infer_front_matter_label returns None (not empty list) when no stem matches to distinguish no-inference from inferred-empty
+- [Phase 11]: Join-based section filter (' > '.join) is a strict superset of any() — backward compatible and adds cross-level match capability
+- [Phase 11]: get_book_structure reads exclusively from SQLite via ChunkRepository — no EPUB re-parsing
 
 ### Pending Todos
 None.
@@ -79,8 +82,8 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-13T06:05:45.204Z
-Stopped at: Completed 10-02-PLAN.md (PARSE-03: front-matter section label inference)
+Last session: 2026-03-14T01:09:42.647Z
+Stopped at: Completed 11-01-PLAN.md (SRCH-01: hierarchy section filter + TOOL-01: get_book_structure MCP tool)
 Resume file: None
 
 ---
