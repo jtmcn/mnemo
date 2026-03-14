@@ -135,7 +135,7 @@ class SearchService:
             section_lower = section.lower()
             results = [
                 r for r in results
-                if r.section_path and any(section_lower in s.lower() for s in r.section_path)
+                if r.section_path and section_lower in " > ".join(r.section_path).lower()
             ]
 
         # Cross-book diversity re-ranking (only when not filtering to a single book)
