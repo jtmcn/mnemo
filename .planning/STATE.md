@@ -4,14 +4,14 @@ milestone: v1.3
 milestone_name: Quality & Polish
 current_phase: 12
 status: planning
-stopped_at: "Completed 11-01-PLAN.md (SRCH-01: hierarchy section filter + TOOL-01: get_book_structure MCP tool)"
-last_updated: "2026-03-14T01:12:10.761Z"
+stopped_at: "Checkpoint: visual QA in Claude Desktop for 12-01 enriched output formatting"
+last_updated: "2026-03-14T04:05:02.446Z"
 last_activity: 2026-03-12 — Roadmap created, Phase 10 is next
 progress:
   total_phases: 3
-  completed_phases: 2
-  total_plans: 3
-  completed_plans: 3
+  completed_phases: 3
+  total_plans: 4
+  completed_plans: 4
   percent: 0
 ---
 
@@ -56,6 +56,7 @@ Progress: [░░░░░░░░░░] 0% (v1.3)
 | Phase 10-parser-quality-fixes P01 | 2 | 1 tasks | 5 files |
 | Phase 10-parser-quality-fixes P02 | 8 | 1 tasks | 3 files |
 | Phase 11 P01 | 190 | 2 tasks | 7 files |
+| Phase 12-output-formatting P01 | 47 | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,7 @@ Key decisions relevant to v1.3:
 - [Phase 10-parser-quality-fixes]: _infer_front_matter_label returns None (not empty list) when no stem matches to distinguish no-inference from inferred-empty
 - [Phase 11]: Join-based section filter (' > '.join) is a strict superset of any() — backward compatible and adds cross-level match capability
 - [Phase 11]: get_book_structure reads exclusively from SQLite via ChunkRepository — no EPUB re-parsing
+- [Phase 12-output-formatting]: Use --- horizontal rule + bold/italic label on own line for chunk delineation in enriched search output
 
 ### Pending Todos
 None.
@@ -82,8 +84,8 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-14T01:09:42.647Z
-Stopped at: Completed 11-01-PLAN.md (SRCH-01: hierarchy section filter + TOOL-01: get_book_structure MCP tool)
+Last session: 2026-03-14T04:05:02.444Z
+Stopped at: Checkpoint: visual QA in Claude Desktop for 12-01 enriched output formatting
 Resume file: None
 
 ---
