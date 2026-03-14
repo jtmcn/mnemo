@@ -42,7 +42,7 @@
 
 - [x] **Phase 10: Parser Quality Fixes** - Clean EPUB text extraction, author normalization, and front-matter section labels (completed 2026-03-13)
 - [x] **Phase 11: Search Filter and MCP Tool** - Hierarchy-aware section filtering and new `get_book_structure` tool (completed 2026-03-14)
-- [ ] **Phase 12: Output Formatting** - Visual delineation of matched vs. context chunks in enriched search results
+- [x] **Phase 12: Output Formatting** - Visual delineation of matched vs. context chunks in enriched search results (completed 2026-03-14)
 
 ## Phase Details
 
@@ -105,7 +105,7 @@ Phases execute in numeric order: 10 → 11 → 12
 | 9. Search Enrichment | v1.2 | 3/3 | Complete | 2026-03-10 |
 | 10. Parser Quality Fixes | v1.3 | 2/2 | Complete | 2026-03-13 |
 | 11. Search Filter and MCP Tool | 1/1 | Complete    | 2026-03-14 | - |
-| 12. Output Formatting | v1.3 | 0/1 | Not started | - |
+| 12. Output Formatting | 1/1 | Complete   | 2026-03-14 | - |
 
 ---
 *Roadmap created: 2026-01-19*
