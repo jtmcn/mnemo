@@ -1036,3 +1036,98 @@ class TestFTSSyncTriggers:
         # Should no longer be in FTS
         results = chunk_repo.search_fts("Deletable")
         assert len(results) == 0
+
+
+class TestChunkRepositoryGetSectionStructure:
+    """Tests for ChunkRepository.get_section_structure method."""
+
+    @pytest.fixture
+    def db_with_structured_chunks(self, conn, book_repo, chunk_repo, sample_book):
+        """Set up a book with chunks having known section_paths."""
+        book_repo.add(sample_book)
+
+        # Insert chunks with various section_paths (some duplicated, some empty)
+        chunks = [
+            Chunk(
+                id=str(uuid.uuid4()),
+                book_id=sample_book.id,
+                content="Intro content",
+                content_type=ContentType.TEXT,
+                token_count=10,
+                section_path=["Part I", "Chapter 1"],
+                sections=["Chapter 1"],
+                sequence=0,
+            ),
+            Chunk(
+                id=str(uuid.uuid4()),
+                book_id=sample_book.id,
+                content="More intro content",
+                content_type=ContentType.TEXT,
+                token_count=10,
+                section_path=["Part I", "Chapter 1"],  # duplicate path
+                sections=["Chapter 1"],
+                sequence=1,
+            ),
+            Chunk(
+                id=str(uuid.uuid4()),
+                book_id=sample_book.id,
+                content="Section 1.1 content",
+                content_type=ContentType.TEXT,
+                token_count=10,
+                section_path=["Part I", "Chapter 1", "Section 1.1"],
+                sections=["Chapter 1", "Section 1.1"],
+                sequence=2,
+            ),
+            Chunk(
+                id=str(uuid.uuid4()),
+                book_id=sample_book.id,
+                content="Chapter 2 content",
+                content_type=ContentType.TEXT,
+                token_count=10,
+                section_path=["Part I", "Chapter 2"],
+                sections=["Chapter 2"],
+                sequence=3,
+            ),
+            Chunk(
+                id=str(uuid.uuid4()),
+                book_id=sample_book.id,
+                content="No section content",
+                content_type=ContentType.TEXT,
+                token_count=10,
+                section_path=[],  # empty path — should be excluded
+                sections=[],
+                sequence=4,
+            ),
+        ]
+        chunk_repo.add_many(chunks)
+        return sample_book
+
+    def test_get_section_structure_returns_unique_paths_in_order(
+        self, chunk_repo, db_with_structured_chunks
+    ):
+        """get_section_structure returns unique non-empty paths in reading order."""
+        book_id = db_with_structured_chunks.id
+        result = chunk_repo.get_section_structure(book_id)
+
+        # Should have 3 unique non-empty paths (duplicates collapsed, empty excluded)
+        assert len(result) == 3
+        assert result[0] == ["Part I", "Chapter 1"]
+        assert result[1] == ["Part I", "Chapter 1", "Section 1.1"]
+        assert result[2] == ["Part I", "Chapter 2"]
+
+    def test_get_section_structure_excludes_empty_paths(
+        self, chunk_repo, db_with_structured_chunks
+    ):
+        """Chunks with section_path=[] are excluded from structure."""
+        book_id = db_with_structured_chunks.id
+        result = chunk_repo.get_section_structure(book_id)
+
+        # No empty lists in result
+        assert [] not in result
+        assert all(len(sp) > 0 for sp in result)
+
+    def test_get_section_structure_empty_book(self, chunk_repo, book_repo, sample_book):
+        """Book with no chunks returns empty list."""
+        book_repo.add(sample_book)
+        result = chunk_repo.get_section_structure(sample_book.id)
+        assert result == []

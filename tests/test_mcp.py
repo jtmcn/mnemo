@@ -28,7 +28,7 @@ class TestServerSetup:
         assert mcp.name == "mnemo"
 
     def test_tools_registered(self):
-        """Verify all six tools are registered with the server."""
+        """Verify all seven tools are registered with the server."""
         from mnemo.mcp.server import mcp
 
         # FastMCP stores tools in _tool_manager
@@ -39,6 +39,7 @@ class TestServerSetup:
         assert "update_book_metadata" in tool_names
         assert "remove_book" in tool_names
         assert "add_book" in tool_names
+        assert "get_book_structure" in tool_names
 
 
 class TestToolAnnotations:
@@ -83,6 +84,16 @@ class TestToolAnnotations:
 
         tool = mcp._tool_manager._tools["add_book"]
         assert tool.annotations is not None
+        assert tool.annotations.openWorldHint is False
+
+    def test_get_book_structure_has_read_only_annotations(self):
+        """get_book_structure has readOnlyHint=True."""
+        from mnemo.mcp.server import mcp
+
+        tool = mcp._tool_manager._tools["get_book_structure"]
+        assert tool.annotations is not None
+        assert tool.annotations.readOnlyHint is True
+        assert tool.annotations.destructiveHint is False
         assert tool.annotations.openWorldHint is False
 
 
@@ -1679,3 +1690,114 @@ class TestSearchBooksContextWindow:
             assert call_kwargs["context_window"] == 3
         finally:
             tools._search_service = original_service
+
+
+class TestGetBookStructure:
+    """Tests for _get_book_structure_impl and get_book_structure MCP tool."""
+
+    def _make_book(self, book_id="abc123", title="Test Book"):
+        return Book(
+            id=book_id,
+            title=title,
+            authors=["Author One"],
+            isbn=None,
+            file_hash="a" * 64,
+            default_language=None,
+            structure_source="toc",
+            added_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+
+    def test_invalid_book_id_too_short(self):
+        """book_id shorter than 6 chars returns validation error."""
+        from mnemo.mcp.tools import _get_book_structure_impl
+
+        result = _get_book_structure_impl("abc")
+        assert result == "Error: book_id must be a 6-character identifier"
+
+    def test_invalid_book_id_too_long(self):
+        """book_id longer than 6 chars returns validation error."""
+        from mnemo.mcp.tools import _get_book_structure_impl
+
+        result = _get_book_structure_impl("abc1234")
+        assert result == "Error: book_id must be a 6-character identifier"
+
+    def test_invalid_book_id_empty(self):
+        """Empty book_id returns validation error."""
+        from mnemo.mcp.tools import _get_book_structure_impl
+
+        result = _get_book_structure_impl("")
+        assert result == "Error: book_id must be a 6-character identifier"
+
+    def test_nonexistent_book(self):
+        """Valid book_id format but book not in DB returns error."""
+        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _get_book_structure_impl
+
+        mock_book_repo = MagicMock()
+        mock_book_repo.get.return_value = None
+
+        with patch.object(tools, "_get_book_repo", return_value=mock_book_repo):
+            result = _get_book_structure_impl("abc123")
+
+        assert result == "Error: Book not found: abc123"
+
+    def test_book_with_no_sections(self):
+        """Book with no structured chunks returns 'No sections found.'"""
+        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _get_book_structure_impl
+
+        mock_book_repo = MagicMock()
+        mock_book_repo.get.return_value = self._make_book()
+
+        mock_chunk_repo = MagicMock()
+        mock_chunk_repo.get_section_structure.return_value = []
+
+        with patch.object(tools, "_get_book_repo", return_value=mock_book_repo):
+            with patch.object(tools, "_get_chunk_repo", return_value=mock_chunk_repo):
+                result = _get_book_structure_impl("abc123")
+
+        assert "Test Book" in result
+        assert "No sections found." in result
+
+    def test_book_with_sections_returns_indented_hierarchy(self):
+        """Valid book with sections returns indented markdown hierarchy."""
+        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _get_book_structure_impl
+
+        mock_book_repo = MagicMock()
+        mock_book_repo.get.return_value = self._make_book()
+
+        mock_chunk_repo = MagicMock()
+        mock_chunk_repo.get_section_structure.return_value = [
+            ["Part I"],
+            ["Part I", "Chapter 1"],
+            ["Part I", "Chapter 1", "Section 1.1"],
+            ["Part I", "Chapter 2"],
+        ]
+
+        with patch.object(tools, "_get_book_repo", return_value=mock_book_repo):
+            with patch.object(tools, "_get_chunk_repo", return_value=mock_chunk_repo):
+                result = _get_book_structure_impl("abc123")
+
+        assert "## Test Book" in result
+        assert "- Part I" in result
+        assert "  - Chapter 1" in result
+        assert "    - Section 1.1" in result
+        assert "  - Chapter 2" in result
+
+    def test_book_structure_header_contains_title(self):
+        """Output starts with '## {book.title}'."""
+        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _get_book_structure_impl
+
+        mock_book_repo = MagicMock()
+        mock_book_repo.get.return_value = self._make_book(title="Learning Python")
+
+        mock_chunk_repo = MagicMock()
+        mock_chunk_repo.get_section_structure.return_value = [["Chapter 1"]]
+
+        with patch.object(tools, "_get_book_repo", return_value=mock_book_repo):
+            with patch.object(tools, "_get_chunk_repo", return_value=mock_chunk_repo):
+                result = _get_book_structure_impl("abc123")
+
+        assert result.startswith("## Learning Python")
