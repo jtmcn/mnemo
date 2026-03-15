@@ -103,7 +103,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 13-01-PLAN.md — Fix verification gaps, SUMMARY frontmatter, stale test assertions, and pre-existing test failures
+- [x] 13-01-PLAN.md — Fix verification gaps, SUMMARY frontmatter, stale test assertions, and pre-existing test failures
 
 ## Progress
 
