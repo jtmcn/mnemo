@@ -24,6 +24,7 @@ decisions:
   - "Join-based section filter (' > '.join) is a strict superset of any() — backward compatible and adds cross-level match capability"
   - "get_book_structure reads exclusively from SQLite via ChunkRepository — no EPUB re-parsing"
   - "Pre-existing test failures (test_server_imports_without_side_effects, TestAddBookAsync) are out of scope — not caused by this plan"
+requirements-completed: [SRCH-01, TOOL-01]
 metrics:
   duration_seconds: 190
   completed_date: "2026-03-14"
