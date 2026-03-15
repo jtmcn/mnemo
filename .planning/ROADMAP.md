@@ -86,7 +86,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 12-01-PLAN.md — Strengthen enriched result formatting with --- separators and [MATCH]/[Context] labels
+- [x] 12-01-PLAN.md — Strengthen enriched result formatting with --- separators and [MATCH]/[Context] labels
 
 ### Phase 13: Audit Gap Closure
 **Goal**: Close all verification and documentation gaps identified by the v1.3 milestone audit so the milestone can pass re-audit
