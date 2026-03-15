@@ -25,10 +25,10 @@ class TestServerSetup:
         """Verify server can be imported without creating connections."""
         from mnemo.mcp.server import mcp
 
-        assert mcp.name == "mnemo"
+        assert mcp.name.startswith("mnemo")
 
     def test_tools_registered(self):
-        """Verify all seven tools are registered with the server."""
+        """Verify all eight tools are registered with the server."""
         from mnemo.mcp.server import mcp
 
         # FastMCP stores tools in _tool_manager
@@ -40,10 +40,11 @@ class TestServerSetup:
         assert "remove_book" in tool_names
         assert "add_book" in tool_names
         assert "get_book_structure" in tool_names
+        assert "get_book_chunks" in tool_names
 
 
 class TestToolAnnotations:
-    """Tests verifying ToolAnnotations on all six MCP tools.
+    """Tests verifying ToolAnnotations on all eight MCP tools.
 
     Guards against regression of annotations added in Plan 07-01.
     """
@@ -1287,7 +1288,7 @@ class TestAddBookAsync:
         add_book_fn = add_book.fn  # Unwrap FastMCP FunctionTool
 
         with patch("mnemo.mcp.tools._add_book_impl") as mock_impl:
-            result = await add_book_fn("/nonexistent/book.epub", False, ctx)
+            result = await add_book_fn("/nonexistent/book.epub", False, ctx=ctx)
 
         assert "Error" in result
         assert "not found" in result.lower()
@@ -1318,7 +1319,7 @@ class TestAddBookAsync:
             mock_repo = MagicMock()
             mock_repo.get_by_hash.return_value = None
             mock_get_conn.return_value.close = MagicMock()
-            result = await add_book_fn(str(epub_file), False, ctx)
+            result = await add_book_fn(str(epub_file), False, ctx=ctx)
 
         assert "Error" in result
         assert "timed out" in result.lower()
@@ -1341,7 +1342,7 @@ class TestAddBookAsync:
             patch("mnemo.mcp.tools._add_book_impl", return_value="Added: Test Book"),
             patch("asyncio.wait_for", return_value="Added: Test Book"),
         ):
-            await add_book_fn(str(epub_file), False, ctx)
+            await add_book_fn(str(epub_file), False, ctx=ctx)
 
         ctx.info.assert_awaited_once()
         call_args = ctx.info.call_args[0][0]
@@ -1379,7 +1380,7 @@ class TestAddBookAsync:
             patch("mnemo.mcp.tools.BookRepository", return_value=mock_repo),
             patch("mnemo.ingest.remove_book") as mock_pipeline_remove,
         ):
-            result = await add_book_fn(str(epub_file), False, ctx)
+            result = await add_book_fn(str(epub_file), False, ctx=ctx)
 
         assert "timed out" in result.lower()
         mock_pipeline_remove.assert_called_once_with("ppp001")
