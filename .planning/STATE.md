@@ -4,14 +4,14 @@ milestone: v1.3
 milestone_name: Quality & Polish
 current_phase: 12
 status: planning
-stopped_at: "Completed 12-01-PLAN.md (TOOL-02: enriched output formatting with MATCH/Context labels, visual QA approved)"
-last_updated: "2026-03-14T04:12:19.058Z"
+stopped_at: "Completed 13-01-PLAN.md (Audit gap closure: VERIFICATION.md, test fixes, frontmatter, ROADMAP)"
+last_updated: "2026-03-15T21:08:52.840Z"
 last_activity: 2026-03-12 — Roadmap created, Phase 10 is next
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 4
-  completed_plans: 4
+  total_phases: 4
+  completed_phases: 4
+  total_plans: 5
+  completed_plans: 5
   percent: 0
 ---
 
@@ -57,6 +57,7 @@ Progress: [░░░░░░░░░░] 0% (v1.3)
 | Phase 10-parser-quality-fixes P02 | 8 | 1 tasks | 3 files |
 | Phase 11 P01 | 190 | 2 tasks | 7 files |
 | Phase 12-output-formatting P01 | 47 | 1 tasks | 2 files |
+| Phase 13-audit-gap-closure P01 | 163 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -74,6 +75,8 @@ Key decisions relevant to v1.3:
 - [Phase 11]: Join-based section filter (' > '.join) is a strict superset of any() — backward compatible and adds cross-level match capability
 - [Phase 11]: get_book_structure reads exclusively from SQLite via ChunkRepository — no EPUB re-parsing
 - [Phase 12-output-formatting]: Use --- horizontal rule + bold/italic label on own line for chunk delineation in enriched search output
+- [Phase 13-audit-gap-closure]: TestAddBookAsync failures caused by ctx positional arg mapped to chunk_min_tokens — fixed by ctx=ctx keyword syntax
+- [Phase 13-audit-gap-closure]: Phase 12 VERIFICATION.md created with 2/2 truths verified and TOOL-02 SATISFIED with line-number citations
 
 ### Pending Todos
 None.
@@ -83,8 +86,8 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-14T04:12:19.056Z
-Stopped at: Completed 12-01-PLAN.md (TOOL-02: enriched output formatting with MATCH/Context labels, visual QA approved)
+Last session: 2026-03-15T21:08:52.838Z
+Stopped at: Completed 13-01-PLAN.md (Audit gap closure: VERIFICATION.md, test fixes, frontmatter, ROADMAP)
 Resume file: None
 
 ---
