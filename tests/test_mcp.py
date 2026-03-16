@@ -1306,12 +1306,13 @@ class TestAddBookAsync:
         mock_pre = MagicMock()
         mock_pre.file_hash = "a" * 64
 
+        async def fake_wait_for_timeout(*a, **kw):
+            raise asyncio.TimeoutError
+
         with (
             patch("mnemo.epub.metadata.extract_metadata", return_value=mock_pre),
-            patch(
-                "mnemo.mcp.tools.asyncio.wait_for",
-                side_effect=asyncio.TimeoutError,
-            ),
+            patch("mnemo.mcp.tools.asyncio.to_thread", lambda *a, **kw: "stub"),
+            patch("mnemo.mcp.tools.asyncio.wait_for", new=fake_wait_for_timeout),
             patch("mnemo.mcp.tools.init_db"),
             patch("mnemo.mcp.tools.get_connection") as mock_get_conn,
         ):
@@ -1336,10 +1337,14 @@ class TestAddBookAsync:
         mock_pre = MagicMock()
         mock_pre.file_hash = "b" * 64
 
+        async def fake_wait_for(*a, **kw):
+            return "Added: Test Book"
+
         with (
             patch("mnemo.epub.metadata.extract_metadata", return_value=mock_pre),
             patch("mnemo.mcp.tools._add_book_impl", return_value="Added: Test Book"),
-            patch("asyncio.wait_for", return_value="Added: Test Book"),
+            patch("mnemo.mcp.tools.asyncio.to_thread", lambda *a, **kw: "stub"),
+            patch("mnemo.mcp.tools.asyncio.wait_for", new=fake_wait_for),
         ):
             await add_book_fn(str(epub_file), False, ctx=ctx)
 
@@ -1368,12 +1373,13 @@ class TestAddBookAsync:
 
         mock_conn = MagicMock()
 
+        async def fake_wait_for_timeout(*a, **kw):
+            raise asyncio.TimeoutError
+
         with (
             patch("mnemo.epub.metadata.extract_metadata", return_value=mock_pre),
-            patch(
-                "mnemo.mcp.tools.asyncio.wait_for",
-                side_effect=asyncio.TimeoutError,
-            ),
+            patch("mnemo.mcp.tools.asyncio.to_thread", lambda *a, **kw: "stub"),
+            patch("mnemo.mcp.tools.asyncio.wait_for", new=fake_wait_for_timeout),
             patch("mnemo.mcp.tools.init_db"),
             patch("mnemo.mcp.tools.get_connection", return_value=mock_conn),
             patch("mnemo.mcp.tools.BookRepository", return_value=mock_repo),
