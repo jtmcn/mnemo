@@ -37,24 +37,16 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 - ✓ Section-based filtering on search results across all search modes — v1.2
 - ✓ `get_book_chunks` tool for contiguous deep reading — v1.2
 
+- ✓ Fix EPUB text parsing artifacts (joined words across HTML tags) — v1.3
+- ✓ Clean author name parsing (strip semicolons, trailing delimiters) — v1.3
+- ✓ Detect and label front-matter/TOC sections instead of "Unknown section" — v1.3
+- ✓ Section filter matches against full hierarchy path (not just leaf name) — v1.3
+- ✓ New `get_book_structure` MCP tool for browsing section hierarchy — v1.3
+- ✓ Context window results visually delineate match vs surrounding chunks — v1.3
+
 ### Active
 
-- [ ] Fix EPUB text parsing artifacts (joined words across HTML tags)
-- [ ] Clean author name parsing (strip semicolons, trailing delimiters)
-- [ ] Detect and label front-matter/TOC sections instead of "Unknown section"
-- [ ] Section filter matches against full hierarchy path (not just leaf name)
-- [ ] New `get_book_structure` MCP tool for browsing section hierarchy
-- [ ] Context window results visually delineate match vs surrounding chunks
-
-## Current Milestone: v1.3 Quality & Polish
-
-**Goal:** Fix parsing artifacts and search UX issues discovered during real-world MCP evaluation.
-
-**Target features:**
-- Broader EPUB parse cleanup (whitespace, authors, section attribution)
-- Section filter hierarchy traversal
-- TOC/structure browsing via new MCP tool
-- Context window clarity in search results
+(None — planning next milestone)
 
 ### Out of Scope
 
@@ -82,11 +74,11 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 
 ## Context
 
-**Shipped v1.2** with 5,135 LOC Python source + 6,583 LOC tests.
+**Shipped v1.3** with 5,360 LOC Python source, 367 tests passing.
 **Tech stack:** Python 3.11+, uv, ChromaDB (cosine), SQLite/FTS5, Databricks GTE-large-en, FastMCP 2.0, Typer, Rich.
-**MCP tools:** 7 total — search_books, list_available_books, get_book_info, get_book_chunks, update_book_metadata, remove_book, add_book.
-**Known items:** Code chunking heuristics need tuning with real data; MNEMO_BOOKS_DIR path restriction not yet implemented; semantic chunking deferred (mixed benchmarks).
-**Tech debt:** typer not in explicit dependencies (works via chromadb transitive dep).
+**MCP tools:** 8 total — search_books, list_available_books, get_book_info, get_book_chunks, get_book_structure, update_book_metadata, remove_book, add_book.
+**Known items:** Code chunking heuristics need tuning with real data; MNEMO_BOOKS_DIR path restriction not yet implemented; semantic chunking deferred (mixed benchmarks); FRONT_MATTER_STEMS heuristic may need publisher-specific additions.
+**Tech debt:** typer not in explicit dependencies (works via chromadb transitive dep); `_format_enriched_results` omits closing `---` after final result (cosmetic).
 
 ## Constraints
 
@@ -122,6 +114,11 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 | Context window clamped 0-3 | Prevent response explosion from large windows | ✓ Good — practical limit for MCP responses |
 | Semantic chunking deferred | Mixed benchmarks, current chunking works well | ✓ Good — avoided complexity without clear benefit |
 | Section boundary walking | Context expansion stops at section boundaries | ✓ Good — prevents cross-section contamination |
+| get_text(separator=' ') for inline elements | Preserve word boundaries without modifying code/table blocks | ✓ Good — surgical fix for PARSE-01 |
+| Join-based section filter | ' > '.join hierarchy for substring match | ✓ Good — strict superset of leaf-only matching |
+| get_book_structure from SQLite only | No EPUB re-parsing, reflects indexed data | ✓ Good — consistent with search results |
+| FRONT_MATTER_STEMS heuristic | Exact + prefix/suffix filename matching | ✓ Good — covers major publishers, extensible |
+| MATCH/Context labels with --- separators | Visual chunk delineation in enriched results | ✓ Good — immediately readable in Claude Desktop |
 
 ---
-*Last updated: 2026-03-12 after v1.3 milestone start*
+*Last updated: 2026-03-16 after v1.3 milestone completion*
