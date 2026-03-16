@@ -1,5 +1,35 @@
 # Project Milestones: Mnemo
 
+## v1.3 Quality & Polish (Shipped: 2026-03-16)
+
+**Delivered:** Parser quality fixes and search UX polish — clean EPUB text extraction, hierarchy-aware section filtering, structure browsing tool, and enriched result formatting.
+
+**Phases completed:** 10-13 (5 plans total)
+
+**Key accomplishments:**
+
+- Fixed EPUB text extraction to preserve word boundaries across inline HTML elements (PARSE-01)
+- Author names correctly split on semicolons and cleaned of trailing delimiters (PARSE-02)
+- Front-matter/TOC spine items get descriptive section labels instead of "Unknown section" (PARSE-03)
+- Section filter matches against full hierarchy path — "Chapter 5" finds all subsections (SRCH-01)
+- New `get_book_structure` MCP tool returns indented section hierarchy from SQLite (TOOL-01)
+- Context window search results visually delineate matched vs. surrounding chunks (TOOL-02)
+
+**Stats:**
+
+- 42 files modified (5,577 insertions, 1,262 deletions)
+- 5,360 lines Python source
+- 4 phases, 5 plans, 29 commits
+- 4 days from milestone start to ship (2026-03-12 → 2026-03-15)
+- 6/6 requirements satisfied, audit passed
+- 367 tests passing
+
+**Git range:** `docs(phase-11): research phase domain` → `docs(v1.3): final milestone audit`
+
+**What's next:** Planning next milestone
+
+---
+
 ## v1.2 RAG Improvements (Shipped: 2026-03-11)
 
 **Delivered:** Advanced RAG techniques — cosine similarity scoring, context-aware search expansion, section filtering, configurable chunking, and deep reading via chunk ranges.
