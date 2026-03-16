@@ -117,18 +117,18 @@ class SearchService:
                 logger.warning(f"Invalid content_type '{content_type}', ignoring filter")
 
         # Over-fetch when section filter active to compensate for post-filter reduction
-        fetch_k = top_k * 3 if section else top_k
+        fetch_k = top_k * 5 if section else top_k
 
         # Initialize backends on first use
         self._ensure_initialized()
 
         # Execute search based on mode
         if mode == "keyword":
-            results = self._keyword_search(query, fetch_k, book_id, content_type_enum)
+            results = self._keyword_search(query, fetch_k, book_id, content_type_enum, section)
         elif mode == "semantic":
-            results = self._semantic_search(query, fetch_k, book_id, content_type)
+            results = self._semantic_search(query, fetch_k, book_id, content_type, section)
         else:  # hybrid
-            results = self._hybrid_search(query, fetch_k, book_id, content_type, content_type_enum)
+            results = self._hybrid_search(query, fetch_k, book_id, content_type, content_type_enum, section)
 
         # Apply section post-filter
         if section:
@@ -300,6 +300,7 @@ class SearchService:
         top_k: int,
         book_id: str | None,
         content_type: ContentType | None,
+        section: str | None = None,
     ) -> list[SearchResult]:
         """Execute keyword-only search via FTS5."""
         assert self._chunk_repo is not None
@@ -309,6 +310,7 @@ class SearchService:
             book_id=book_id,
             content_type=content_type,
             limit=top_k,
+            section=section,
         )
 
         results = []
@@ -325,6 +327,7 @@ class SearchService:
                     section_path=chunk.section_path,
                     score=score,
                     source="keyword",
+                    sequence=chunk.sequence,
                 )
             )
 
@@ -336,6 +339,7 @@ class SearchService:
         top_k: int,
         book_id: str | None,
         content_type: str | None,
+        section: str | None = None,
     ) -> list[SearchResult]:
         """Execute semantic-only search via ChromaDB."""
         assert self._vector_store is not None
@@ -355,6 +359,7 @@ class SearchService:
             n_results=top_k,
             book_id=book_id,
             content_type=content_type,
+            section=section,
         )
 
         results = []
@@ -379,6 +384,7 @@ class SearchService:
                     section_path=chunk.section_path,
                     score=score,
                     source="semantic",
+                    sequence=chunk.sequence,
                 )
             )
 
@@ -391,6 +397,7 @@ class SearchService:
         book_id: str | None,
         content_type: str | None,
         content_type_enum: ContentType | None,
+        section: str | None = None,
     ) -> list[SearchResult]:
         """Execute hybrid search combining keyword + semantic with RRF."""
         assert self._chunk_repo is not None
@@ -405,6 +412,7 @@ class SearchService:
             book_id=book_id,
             content_type=content_type_enum,
             limit=fetch_k,
+            section=section,
         )
         keyword_ids = [c.id for c in keyword_chunks]
 
@@ -417,6 +425,7 @@ class SearchService:
                 n_results=fetch_k,
                 book_id=book_id,
                 content_type=content_type,
+                section=section,
             )
             # Filter out low-quality semantic results (cosine distance > 1.0
             # means similarity < 0, i.e. essentially unrelated content)
@@ -475,6 +484,7 @@ class SearchService:
                     section_path=chunk.section_path,
                     score=rrf_scores[chunk_id],
                     source=source,
+                    sequence=chunk.sequence,
                 )
             )
 

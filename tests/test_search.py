@@ -1028,14 +1028,14 @@ class TestSectionFilter:
         assert len(results) == 1
         assert results[0].chunk_id == "c1"
 
-    def test_section_filter_overfetch_3x(self, service, mock_chunk_repo):
-        """When section filter active, over-fetch 3x from backend."""
+    def test_section_filter_overfetch_5x(self, service, mock_chunk_repo):
+        """When section filter active, over-fetch 5x from backend."""
         mock_chunk_repo.search_fts.return_value = []
 
         service.search("test", mode="keyword", top_k=5, section="Generators")
 
         call_args = mock_chunk_repo.search_fts.call_args
-        assert call_args.kwargs["limit"] == 15  # 5 * 3
+        assert call_args.kwargs["limit"] == 25  # 5 * 5
 
     def test_section_filter_trims_to_top_k(self, service, mock_chunk_repo):
         """After filtering, results are trimmed to original top_k."""

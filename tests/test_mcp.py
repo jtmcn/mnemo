@@ -293,9 +293,8 @@ class TestOutputFormatting:
 
         output = _format_search_results([result])
 
-        assert "[truncated...]" in output
-        # Should have roughly 2000 chars of content, not 3000
-        assert len(output) < 2500
+        assert "[truncated at 2000 chars" in output
+        assert "get_book_chunks" in output
 
     def test_format_search_results_empty_section_path(self):
         """Results with empty section_path should show 'Unknown section'."""

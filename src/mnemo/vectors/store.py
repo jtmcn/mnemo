@@ -107,6 +107,7 @@ class VectorStore:
         n_results: int = 10,
         book_id: str | None = None,
         content_type: str | None = None,
+        section: str | None = None,
     ) -> list[QueryResult]:
         """Query by embedding vector with optional filters.
 
@@ -125,7 +126,7 @@ class VectorStore:
         normalized = self._normalize([query_embedding])
 
         # Build where clause for filtering
-        where = self._build_where(book_id, content_type)
+        where = self._build_where(book_id, content_type, section)
 
         results = self.collection.query(
             query_embeddings=normalized,
@@ -191,6 +192,7 @@ class VectorStore:
         self,
         book_id: str | None,
         content_type: str | None,
+        section: str | None = None,
     ) -> dict | None:
         """Build ChromaDB where clause for filtering."""
         conditions = []
@@ -199,6 +201,8 @@ class VectorStore:
             conditions.append({"book_id": book_id})
         if content_type:
             conditions.append({"content_type": content_type})
+        if section:
+            conditions.append({"section_path": {"$contains": section}})
 
         if not conditions:
             return None
