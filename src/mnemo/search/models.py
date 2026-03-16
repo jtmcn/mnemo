@@ -37,6 +37,7 @@ class SearchResult:
     section_path: list[str]
     score: float
     source: Literal["semantic", "keyword", "both"]
+    sequence: int = 0
 
 
 @dataclass

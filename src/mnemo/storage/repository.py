@@ -313,6 +313,7 @@ class ChunkRepository:
         book_id: str | None = None,
         content_type: ContentType | None = None,
         limit: int = 20,
+        section: str | None = None,
     ) -> list[Chunk]:
         """Full-text search with optional filters.
 
@@ -351,6 +352,10 @@ class ChunkRepository:
         if content_type is not None:
             sql += " AND c.content_type = ?"
             params.append(content_type.value)
+
+        if section is not None:
+            sql += " AND c.section_path LIKE ?"
+            params.append(f"%{section}%")
 
         sql += " ORDER BY rank LIMIT ?"
         params.append(limit)
