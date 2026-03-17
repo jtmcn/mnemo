@@ -13,6 +13,7 @@ htmlcov/
 # Environment
 .env
 .venv/
+.direnv/
 
 # IDE
 .idea/
