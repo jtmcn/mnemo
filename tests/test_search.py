@@ -865,24 +865,6 @@ class TestSearchServiceIntegration:
         assert results == []
 
 
-@pytest.mark.skipif(
-    not os.environ.get("DATABRICKS_HOST"),
-    reason="Requires Databricks credentials"
-)
-class TestSearchServiceSemanticIntegration:
-    """Integration tests requiring embeddings API."""
-
-    def test_semantic_search_finds_match(self, populated_integration_service):
-        """Semantic search finds conceptually related chunks."""
-        # First need to add embeddings to vector store
-        # This would require running embed_book first
-        # Skip for now - tested manually
-        pytest.skip("Requires pre-embedded book data")
-
-    def test_hybrid_search_merges_results(self, populated_integration_service):
-        """Hybrid search merges keyword and semantic results."""
-        pytest.skip("Requires pre-embedded book data")
-
 
 # ============================================================================
 # RRF Integration Tests
