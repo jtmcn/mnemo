@@ -11,7 +11,7 @@ The @mcp.tool decorated versions are the actual MCP tools.
 import asyncio
 import logging
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from fastmcp import Context
 from fastmcp.dependencies import CurrentContext
@@ -20,6 +20,9 @@ from mcp.types import ToolAnnotations
 from mnemo.mcp.server import mcp
 from mnemo.search import SearchService
 from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_db
+
+if TYPE_CHECKING:
+    from mnemo.models import Book
 
 logger = logging.getLogger(__name__)
 
@@ -459,7 +462,10 @@ def _format_search_results(results: list, max_chars: int = 2000) -> str:
         if len(content) > max_chars:
             content = (
                 content[:max_chars]
-                + f'\n\n[truncated at {max_chars} chars — use get_book_chunks(book_id="{result.book_id}", start_sequence={result.sequence}, end_sequence={result.sequence}) to read full text]'
+                + f"\n\n[truncated at {max_chars} chars"
+                + f' — use get_book_chunks(book_id="{result.book_id}",'
+                + f" start_sequence={result.sequence},"
+                + f" end_sequence={result.sequence}) to read full text]"
             )
 
         if result.content_type == "code":
@@ -508,7 +514,10 @@ def _format_enriched_results(expanded_results: list[dict], max_chars: int = 2000
             if len(content) > max_chars:
                 content = (
                     content[:max_chars]
-                    + f'\n\n[truncated at {max_chars} chars — use get_book_chunks(book_id="{result.book_id}", start_sequence={chunk.sequence}, end_sequence={chunk.sequence}) to read full text]'
+                    + f"\n\n[truncated at {max_chars} chars"
+                    + f' — use get_book_chunks(book_id="{result.book_id}",'
+                    + f" start_sequence={chunk.sequence},"
+                    + f" end_sequence={chunk.sequence}) to read full text]"
                 )
 
             if chunk.content_type.value == "code":
@@ -685,7 +694,7 @@ async def add_book(
     force: bool = False,
     chunk_min_tokens: int | None = None,
     chunk_max_tokens: int | None = None,
-    ctx: Context = CurrentContext(),
+    ctx: Context = CurrentContext(),  # noqa: B008
 ) -> str:
     """Add an EPUB book to your library.
 

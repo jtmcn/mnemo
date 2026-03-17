@@ -70,10 +70,10 @@ def migrate_to_cosine(
     # Create temp collection with cosine metric
     temp_name = f"{collection_name}_cosine_migration"
     # Clean up any leftover temp collection from a previous failed migration
-    try:
+    import contextlib
+
+    with contextlib.suppress(Exception):
         client.delete_collection(temp_name)
-    except Exception:
-        pass
 
     temp_collection = client.create_collection(
         name=temp_name,

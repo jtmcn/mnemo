@@ -54,10 +54,9 @@ def normalize_isbn(raw_isbn: str) -> str | None:
         # ISBN-10: 9 digits + check digit (digit or X)
         if re.match(r"^\d{9}[\dX]$", isbn):
             return isbn
-    elif len(isbn) == 13:
+    elif len(isbn) == 13 and re.match(r"^\d{13}$", isbn):
         # ISBN-13: 13 digits only
-        if re.match(r"^\d{13}$", isbn):
-            return isbn
+        return isbn
 
     logger.warning("Invalid ISBN format: %s", raw_isbn)
     return None

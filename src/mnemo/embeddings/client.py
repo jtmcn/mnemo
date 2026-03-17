@@ -15,9 +15,7 @@ def is_retryable(exc: BaseException) -> bool:
     """Check if exception is retryable (rate limit or transient)."""
     if isinstance(exc, httpx.HTTPStatusError):
         return exc.response.status_code in (429, 500, 502, 503, 504)
-    if isinstance(exc, (httpx.TimeoutException, httpx.ConnectError)):
-        return True
-    return False
+    return isinstance(exc, (httpx.TimeoutException, httpx.ConnectError))
 
 
 class DatabricksEmbedder:

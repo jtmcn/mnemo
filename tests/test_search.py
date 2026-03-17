@@ -708,7 +708,10 @@ def populated_integration_service(tmp_path):
         Chunk(
             id=str(uuid.uuid4()),
             book_id="a1b2c3",
-            content="def fibonacci():\n    a, b = 0, 1\n    while True:\n        yield a\n        a, b = b, a + b",
+            content=(
+                "def fibonacci():\n    a, b = 0, 1\n"
+                "    while True:\n        yield a\n        a, b = b, a + b"
+            ),
             content_type=ContentType.CODE,
             token_count=20,
             section_path=["Chapter 4", "Iterators and Generators"],
@@ -1135,7 +1138,7 @@ class TestContextWindow:
         )
 
     def test_context_window_zero_unchanged(self, service, mock_chunk_repo):
-        """search with context_window=0 returns identical to current behavior (list of SearchResult)."""
+        """context_window=0 returns list of SearchResult."""
         mock_chunk = MagicMock(
             id="c1",
             book_id="abc123",
@@ -1253,7 +1256,8 @@ class TestContextWindow:
 
         results = service.search("test", mode="keyword", context_window=2)
 
-        # Should merge into one block: seq 1-7 (window=2 around 3 gives 1-5, around 5 gives 3-7, merged = 1-7)
+        # Should merge into one block: seq 1-7
+        # (window=2 around 3 gives 1-5, around 5 gives 3-7, merged = 1-7)
         assert len(results) == 1
         result = results[0]
         assert "c3" in result["matched_chunk_ids"]
@@ -1367,7 +1371,7 @@ class TestDiversifyResults:
         ]
         diversified = SearchService._diversify_results(results, top_k=5)
         book_ids = [r.book_id for r in diversified]
-        # First round: bookA (0.9), bookB (0.85); second round: bookA (0.8), bookB (0.6); third: bookA (0.7)
+        # Round 1: bookA(0.9), bookB(0.85); Round 2: bookA(0.8), bookB(0.6); Round 3: bookA(0.7)
         assert book_ids == ["bookA", "bookB", "bookA", "bookB", "bookA"]
 
     def test_diversify_results_single_book_passthrough(self):

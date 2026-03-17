@@ -425,12 +425,8 @@ def _is_code_block(element: Tag) -> bool:
         if classes & CODE_CLASSES:
             return True
 
-        # Check for diagram classes (not code)
-        if classes & DIAGRAM_CLASSES:
-            return False
-
-        # Assume pre tags are code unless they're diagrams
-        return True
+            # Check for diagram classes (not code); assume pre tags are code otherwise
+        return not (classes & DIAGRAM_CLASSES)
 
     # Check for standalone <code> blocks (not inline)
     if tag_name == "code":
@@ -466,10 +462,7 @@ def _is_diagram(element: Tag) -> bool:
 
     # Heuristic: check for ASCII art patterns
     text = element.get_text()
-    if _looks_like_ascii_art(text):
-        return True
-
-    return False
+    return bool(_looks_like_ascii_art(text))
 
 
 def _looks_like_ascii_art(text: str) -> bool:
@@ -494,7 +487,6 @@ def _looks_like_ascii_art(text: str) -> bool:
     box_count = sum(1 for c in text if c in box_chars)
 
     # Check ratio (ASCII art typically has high ratio)
-    alpha_count = sum(1 for c in text if c.isalpha())
     total_printable = sum(1 for c in text if c.isprintable() and not c.isspace())
 
     if total_printable == 0:
@@ -533,12 +525,10 @@ def _is_math(element: Tag) -> bool:
 
     # Check for LaTeX delimiters in text
     text = element.get_text()
-    if LATEX_BLOCK_PATTERN.search(text) or (
-        LATEX_INLINE_PATTERN.search(text) and tag_name in ("span", "div", "p")
-    ):
-        return True
-
-    return False
+    return bool(
+        LATEX_BLOCK_PATTERN.search(text)
+        or (LATEX_INLINE_PATTERN.search(text) and tag_name in ("span", "div", "p"))
+    )
 
 
 def _extract_code_block(

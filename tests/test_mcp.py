@@ -1132,7 +1132,7 @@ class TestAddBookIntegration:
 
 
 class TestLifecycle:
-    """End-to-end lifecycle: add -> search -> update -> verify update in info -> remove -> verify removal."""
+    """End-to-end lifecycle: add -> search -> update -> info -> remove."""
 
     @pytest.fixture
     def temp_db(self, tmp_path):
@@ -1204,7 +1204,8 @@ class TestLifecycle:
 
             from mnemo.storage.database import get_connection as db_get_conn
 
-            conn_factory = lambda: db_get_conn(temp_db["path"])
+            def conn_factory():
+                return db_get_conn(temp_db["path"])
 
             with (
                 patch("mnemo.mcp.tools.get_connection", side_effect=conn_factory),
@@ -1756,9 +1757,11 @@ class TestGetBookStructure:
         mock_chunk_repo = MagicMock()
         mock_chunk_repo.get_section_structure.return_value = []
 
-        with patch.object(tools, "_get_book_repo", return_value=mock_book_repo):
-            with patch.object(tools, "_get_chunk_repo", return_value=mock_chunk_repo):
-                result = _get_book_structure_impl("abc123")
+        with (
+            patch.object(tools, "_get_book_repo", return_value=mock_book_repo),
+            patch.object(tools, "_get_chunk_repo", return_value=mock_chunk_repo),
+        ):
+            result = _get_book_structure_impl("abc123")
 
         assert "Test Book" in result
         assert "No sections found." in result
@@ -1779,9 +1782,11 @@ class TestGetBookStructure:
             ["Part I", "Chapter 2"],
         ]
 
-        with patch.object(tools, "_get_book_repo", return_value=mock_book_repo):
-            with patch.object(tools, "_get_chunk_repo", return_value=mock_chunk_repo):
-                result = _get_book_structure_impl("abc123")
+        with (
+            patch.object(tools, "_get_book_repo", return_value=mock_book_repo),
+            patch.object(tools, "_get_chunk_repo", return_value=mock_chunk_repo),
+        ):
+            result = _get_book_structure_impl("abc123")
 
         assert "## Test Book" in result
         assert "- Part I" in result
@@ -1800,8 +1805,10 @@ class TestGetBookStructure:
         mock_chunk_repo = MagicMock()
         mock_chunk_repo.get_section_structure.return_value = [["Chapter 1"]]
 
-        with patch.object(tools, "_get_book_repo", return_value=mock_book_repo):
-            with patch.object(tools, "_get_chunk_repo", return_value=mock_chunk_repo):
-                result = _get_book_structure_impl("abc123")
+        with (
+            patch.object(tools, "_get_book_repo", return_value=mock_book_repo),
+            patch.object(tools, "_get_chunk_repo", return_value=mock_chunk_repo),
+        ):
+            result = _get_book_structure_impl("abc123")
 
         assert result.startswith("## Learning Python")

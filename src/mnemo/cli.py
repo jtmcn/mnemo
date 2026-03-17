@@ -80,7 +80,7 @@ def add(
                 console.print(f"[red]File not found: {path}[/red]")
             raise typer.Exit(1)
 
-        if not path.suffix.lower() == ".epub":
+        if path.suffix.lower() != ".epub":
             if json_output:
                 print(json.dumps({"error": f"Not an EPUB file: {path}"}))
             else:
@@ -156,19 +156,19 @@ def add(
                 print(json.dumps({"error": str(e)}))
             else:
                 console.print(f"[red]Error: {e}[/red]")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
         except ValueError as e:
             if json_output:
                 print(json.dumps({"error": str(e)}))
             else:
                 console.print(f"[red]Error: {e}[/red]")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
         except Exception as e:
             if json_output:
                 print(json.dumps({"error": f"Failed to add {path}: {e}"}))
             else:
                 console.print(f"[red]Failed to add {path}: {e}[/red]")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
 
     if json_output:
         print(json.dumps(results))
@@ -351,13 +351,13 @@ def migrate_cosine(
             print(json.dumps({"error": str(e)}))
         else:
             console.print(f"[red]Migration failed: {e}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
     except Exception as e:
         if json_output:
             print(json.dumps({"error": str(e)}))
         else:
             console.print(f"[red]Error: {e}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command()
