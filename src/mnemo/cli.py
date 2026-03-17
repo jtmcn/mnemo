@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 from rich.console import Console
@@ -258,7 +258,7 @@ def search(
         typer.Option("--limit", "-n", help="Max results"),
     ] = 5,
     book: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--book", "-b", help="Filter by book ID"),
     ] = None,
     json_output: Annotated[
@@ -307,7 +307,7 @@ def migrate_cosine(
         typer.Option("--json", help="Output as JSON"),
     ] = False,
     chroma_path: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option("--chroma-path", help="ChromaDB storage path override"),
     ] = None,
 ) -> None:
@@ -363,8 +363,8 @@ def serve() -> None:
 
     Runs the MCP server over STDIO. This command blocks until interrupted.
     """
-    from mnemo.mcp.server import mcp
     import mnemo.mcp.tools  # noqa: F401 - ensure tools are registered
+    from mnemo.mcp.server import mcp
 
     mcp.run()
 

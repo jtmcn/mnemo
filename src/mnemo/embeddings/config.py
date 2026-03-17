@@ -1,7 +1,7 @@
 """Configuration for Databricks embedding client."""
 
-from dataclasses import dataclass
 import os
+from dataclasses import dataclass
 
 
 @dataclass

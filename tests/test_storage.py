@@ -13,11 +13,11 @@ from __future__ import annotations
 
 import tempfile
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
-from unittest.mock import MagicMock, patch
 
 from mnemo.models import Book, Chunk, ContentType
 from mnemo.storage.database import get_connection, init_db
@@ -63,7 +63,7 @@ def sample_book() -> Book:
         file_hash="a" * 64,
         default_language="python",
         structure_source="toc",
-        added_at=datetime.now(timezone.utc),
+        added_at=datetime.now(UTC),
     )
 
 
@@ -209,7 +209,7 @@ class TestBookRepository:
             authors=["Another Author"],
             file_hash="b" * 64,
             structure_source="inferred",
-            added_at=datetime.now(timezone.utc),
+            added_at=datetime.now(UTC),
         )
         book_repo.add(book2)
 

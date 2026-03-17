@@ -9,12 +9,8 @@ Tests cover:
 
 from __future__ import annotations
 
-import os
-import tempfile
 import uuid
-from datetime import datetime, timezone
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -23,8 +19,6 @@ from mnemo.search import SearchFilter, SearchResult, reciprocal_rank_fusion
 from mnemo.search.service import SearchService
 from mnemo.storage.database import get_connection, init_db
 from mnemo.storage.repository import BookRepository, ChunkRepository
-from mnemo.vectors import VectorConfig, VectorStore
-
 
 # ============================================================================
 # RRF Fusion Tests

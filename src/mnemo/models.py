@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Literal
 
@@ -57,7 +57,7 @@ class Book(BaseModel):
     file_hash: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
     default_language: str | None = None
     structure_source: Literal["toc", "inferred"] = "toc"
-    added_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    added_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     epub_path: str | None = None
 
     @staticmethod

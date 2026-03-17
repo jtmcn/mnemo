@@ -6,9 +6,8 @@ Handles vector persistence with cosine distance metric and L2 normalization
 
 from __future__ import annotations
 
-from typing import TypedDict
-
 import unicodedata
+from typing import TypedDict
 
 import chromadb
 import numpy as np

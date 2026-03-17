@@ -8,8 +8,7 @@ Tests the FastMCP server setup and tool implementations:
 - Integration with storage (using temp paths)
 """
 
-import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -364,7 +363,7 @@ class TestIntegrationWithTempStorage:
             file_hash="a" * 64,
             default_language="python",
             structure_source="toc",
-            added_at=datetime(2026, 1, 20, tzinfo=timezone.utc),
+            added_at=datetime(2026, 1, 20, tzinfo=UTC),
         )
         book_repo.add(book)
 
@@ -408,9 +407,8 @@ class TestIntegrationWithTempStorage:
 
     def test_list_available_books_empty_library(self, tmp_path):
         """list_available_books with empty db should return help message."""
-        from mnemo.storage.database import get_connection, init_db
-
         from mnemo.mcp import tools
+        from mnemo.storage.database import get_connection, init_db
 
         db_path = tmp_path / "empty.db"
         init_db(db_path)
@@ -589,7 +587,7 @@ class TestUpdateBookMetadataIntegration:
             file_hash="a" * 64,
             default_language="python",
             structure_source="toc",
-            added_at=datetime(2026, 1, 20, tzinfo=timezone.utc),
+            added_at=datetime(2026, 1, 20, tzinfo=UTC),
         )
         book_repo.add(book)
 
@@ -776,7 +774,7 @@ class TestRemoveBookIntegration:
             file_hash="a" * 64,
             default_language="python",
             structure_source="toc",
-            added_at=datetime(2026, 1, 20, tzinfo=timezone.utc),
+            added_at=datetime(2026, 1, 20, tzinfo=UTC),
         )
         book_repo.add(book)
 
@@ -953,7 +951,7 @@ class TestAddBookIntegration:
             file_hash="a" * 64,
             default_language=None,
             structure_source="toc",
-            added_at=datetime(2026, 1, 20, tzinfo=timezone.utc),
+            added_at=datetime(2026, 1, 20, tzinfo=UTC),
         )
         defaults.update(overrides)
         return Book(**defaults)
@@ -1169,7 +1167,7 @@ class TestLifecycle:
             file_hash="a" * 64,
             default_language="python",
             structure_source="toc",
-            added_at=datetime(2026, 2, 16, tzinfo=timezone.utc),
+            added_at=datetime(2026, 2, 16, tzinfo=UTC),
         )
 
         # Mock pre-parsed metadata (extract_metadata result)
@@ -1307,7 +1305,7 @@ class TestAddBookAsync:
         mock_pre.file_hash = "a" * 64
 
         async def fake_wait_for_timeout(*a, **kw):
-            raise asyncio.TimeoutError
+            raise TimeoutError
 
         with (
             patch("mnemo.epub.metadata.extract_metadata", return_value=mock_pre),
@@ -1374,7 +1372,7 @@ class TestAddBookAsync:
         mock_conn = MagicMock()
 
         async def fake_wait_for_timeout(*a, **kw):
-            raise asyncio.TimeoutError
+            raise TimeoutError
 
         with (
             patch("mnemo.epub.metadata.extract_metadata", return_value=mock_pre),
@@ -1416,7 +1414,7 @@ class TestGetBookChunks:
             file_hash="a" * 64,
             default_language="python",
             structure_source="toc",
-            added_at=datetime(2026, 1, 20, tzinfo=timezone.utc),
+            added_at=datetime(2026, 1, 20, tzinfo=UTC),
         )
         book_repo.add(book)
 
@@ -1495,7 +1493,6 @@ class TestAddBookChunkParams:
     def test_add_book_with_valid_chunk_params(self, tmp_path):
         """_add_book_impl with valid chunk params should pass ChunkerConfig to ingest."""
         from mnemo.mcp.tools import _add_book_impl
-        from mnemo.chunking.chunker import ChunkerConfig
 
         epub_file = tmp_path / "test.epub"
         epub_file.write_bytes(b"fake epub")
@@ -1713,7 +1710,7 @@ class TestGetBookStructure:
             file_hash="a" * 64,
             default_language=None,
             structure_source="toc",
-            added_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            added_at=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
     def test_invalid_book_id_too_short(self):

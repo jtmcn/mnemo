@@ -6,12 +6,12 @@ components to provide a simple API for adding and removing books.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
 
 from mnemo.chunking import Chunker, ChunkerConfig
 from mnemo.epub import EPUBParser
-from mnemo.models import Book, Chunk
+from mnemo.models import Book
 from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_db
 
 
@@ -45,8 +45,8 @@ def embed_book(
         ValueError: Book not found or embedding credentials not configured
     """
     # Lazy imports to avoid hard dependency on embedding modules
-    from mnemo.embeddings import DatabricksEmbedder, EmbeddingConfig
-    from mnemo.vectors import VectorStore, VectorConfig
+    from mnemo.embeddings import DatabricksEmbedder
+    from mnemo.vectors import VectorConfig, VectorStore
 
     # Load chunks from SQLite
     init_db(db_path)
@@ -156,7 +156,7 @@ def ingest_book(
         book_repo.delete(existing.id)
         # Also delete vectors if they exist
         try:
-            from mnemo.vectors import VectorStore, VectorConfig
+            from mnemo.vectors import VectorConfig, VectorStore
 
             vector_config = VectorConfig(persist_path=chroma_path)
             store = VectorStore(vector_config)
@@ -210,7 +210,7 @@ def remove_book(
 
     # Delete vectors (if any)
     try:
-        from mnemo.vectors import VectorStore, VectorConfig
+        from mnemo.vectors import VectorConfig, VectorStore
 
         vector_config = VectorConfig(persist_path=chroma_path)
         store = VectorStore(vector_config)
