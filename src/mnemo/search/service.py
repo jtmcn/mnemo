@@ -9,6 +9,7 @@ Provides a unified search interface that:
 from __future__ import annotations
 
 import logging
+import unicodedata
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -21,6 +22,16 @@ if TYPE_CHECKING:
     from mnemo.vectors.store import VectorStore
 
 logger = logging.getLogger(__name__)
+
+
+def normalize_unicode(s: str) -> str:
+    """Normalize Unicode to ASCII-like form for accent-insensitive matching.
+
+    Decomposes characters (e.g., ï -> i + combining diaeresis) then strips
+    combining marks, so "naïve" becomes "naive".
+    """
+    nfkd = unicodedata.normalize("NFKD", s)
+    return "".join(c for c in nfkd if not unicodedata.combining(c)).lower()
 
 
 class SearchService:
@@ -130,12 +141,12 @@ class SearchService:
         else:  # hybrid
             results = self._hybrid_search(query, fetch_k, book_id, content_type, content_type_enum, section)
 
-        # Apply section post-filter
+        # Apply section post-filter (with Unicode normalization for accented names)
         if section:
-            section_lower = section.lower()
+            section_norm = normalize_unicode(section)
             results = [
                 r for r in results
-                if r.section_path and section_lower in " > ".join(r.section_path).lower()
+                if r.section_path and section_norm in normalize_unicode(" > ".join(r.section_path))
             ]
 
         # Cross-book diversity re-ranking (only when not filtering to a single book)
@@ -441,12 +452,23 @@ class SearchService:
         # Compute RRF scores
         rrf_scores = reciprocal_rank_fusion([keyword_ids, semantic_ids])
 
-        # Sort by score descending and take top_k
-        sorted_ids = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)[:top_k]
-
-        # Determine which source(s) each result came from
+        # Filter keyword-only results that ranked poorly (beyond top_k in keyword list).
+        # These are long-tail matches on common words that add noise.
         keyword_set = set(keyword_ids)
         semantic_set = set(semantic_ids)
+        keyword_top = set(keyword_ids[:top_k])
+        for chunk_id in list(rrf_scores.keys()):
+            if chunk_id in keyword_set and chunk_id not in semantic_set:
+                if chunk_id not in keyword_top:
+                    del rrf_scores[chunk_id]
+
+        # Normalize RRF scores to 0-1 range for readable display
+        max_rrf = max(rrf_scores.values()) if rrf_scores else 0.0
+        if max_rrf > 0:
+            rrf_scores = {k: v / max_rrf for k, v in rrf_scores.items()}
+
+        # Sort by score descending and take top_k
+        sorted_ids = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)[:top_k]
 
         # Build chunk lookup from keyword results (already loaded)
         chunk_map = {c.id: c for c in keyword_chunks}

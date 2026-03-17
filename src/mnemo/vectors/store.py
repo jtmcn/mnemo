@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import TypedDict
 
+import unicodedata
+
 import chromadb
 import numpy as np
 
@@ -202,7 +204,12 @@ class VectorStore:
         if content_type:
             conditions.append({"content_type": content_type})
         if section:
-            conditions.append({"section_path": {"$contains": section}})
+            # Normalize Unicode for accent-insensitive matching
+            nfkd = unicodedata.normalize("NFKD", section)
+            section_normalized = "".join(
+                c for c in nfkd if not unicodedata.combining(c)
+            )
+            conditions.append({"section_path": {"$contains": section_normalized}})
 
         if not conditions:
             return None
