@@ -117,9 +117,7 @@ class EPUBParser:
             return toc_mapping, "toc"
 
         # Fall back to heading inference
-        logger.warning(
-            "No TOC found in EPUB. Structure will be inferred from HTML headings."
-        )
+        logger.warning("No TOC found in EPUB. Structure will be inferred from HTML headings.")
         toc_mapping = self._infer_from_headings(epub_book)
         return toc_mapping, "inferred"
 

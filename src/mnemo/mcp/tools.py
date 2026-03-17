@@ -284,8 +284,7 @@ def _add_book_impl(
                 sim = similar[0]
                 sim_authors = ", ".join(sim.authors) if sim.authors else "Unknown"
                 soft_warning = (
-                    f'\nNote: Similar book exists - "{sim.title}" '
-                    f"by {sim_authors} (ID: `{sim.id}`)"
+                    f'\nNote: Similar book exists - "{sim.title}" by {sim_authors} (ID: `{sim.id}`)'
                 )
 
         # Ingest with embedding
@@ -294,7 +293,10 @@ def _add_book_impl(
 
         try:
             book, chunk_count = pipeline_ingest(
-                path, embed=True, force=force, chunker_config=chunker_config,
+                path,
+                embed=True,
+                force=force,
+                chunker_config=chunker_config,
             )
         except Exception as e:
             # Clean up partial data: if book was stored before embedding failed,
@@ -317,9 +319,7 @@ def _add_book_impl(
 
         # Return success message
         authors_str = ", ".join(book.authors) if book.authors else "Unknown"
-        result = (
-            f"Added: {book.title} by {authors_str} (ID: `{book.id}`) - {chunk_count} chunks"
-        )
+        result = f"Added: {book.title} by {authors_str} (ID: `{book.id}`) - {chunk_count} chunks"
         if soft_warning:
             result += soft_warning
         return result
@@ -364,9 +364,7 @@ def _update_book_metadata_impl(
 
     try:
         book_repo = _get_book_repo()
-        updated = book_repo.update(
-            book_id=book_id, title=title, authors=authors, isbn=isbn
-        )
+        updated = book_repo.update(book_id=book_id, title=title, authors=authors, isbn=isbn)
 
         if updated is None:
             return f"Error: Book not found: {book_id}"
@@ -389,10 +387,7 @@ def _get_book_chunks_impl(
     end_sequence: int,
 ) -> str:
     """Get book chunks implementation - see get_book_chunks for docs."""
-    logger.info(
-        f"get_book_chunks: book_id={book_id}, "
-        f"start={start_sequence}, end={end_sequence}"
-    )
+    logger.info(f"get_book_chunks: book_id={book_id}, start={start_sequence}, end={end_sequence}")
 
     if not book_id or len(book_id) != 6:
         return "Error: book_id must be a 6-character identifier"
@@ -417,9 +412,7 @@ def _get_book_chunks_impl(
         lines = []
         for chunk in chunks:
             section = " > ".join(chunk.section_path) if chunk.section_path else "Unknown"
-            lines.append(
-                f"**[Seq {chunk.sequence}] {chunk.content_type.value} | {section}**"
-            )
+            lines.append(f"**[Seq {chunk.sequence}] {chunk.content_type.value} | {section}**")
             lines.append("")
             lines.append(chunk.content)
             lines.append("")
@@ -464,7 +457,10 @@ def _format_search_results(results: list, max_chars: int = 2000) -> str:
         # Format content based on type
         content = result.content
         if len(content) > max_chars:
-            content = content[:max_chars] + f"\n\n[truncated at {max_chars} chars — use get_book_chunks(book_id=\"{result.book_id}\", start_sequence={result.sequence}, end_sequence={result.sequence}) to read full text]"
+            content = (
+                content[:max_chars]
+                + f'\n\n[truncated at {max_chars} chars — use get_book_chunks(book_id="{result.book_id}", start_sequence={result.sequence}, end_sequence={result.sequence}) to read full text]'
+            )
 
         if result.content_type == "code":
             lines.append(f"```\n{content}\n```")
@@ -488,9 +484,7 @@ def _format_enriched_results(expanded_results: list[dict], max_chars: int = 2000
         result = exp["result"]
         matched_ids = exp["matched_chunk_ids"]
 
-        section = (
-            " > ".join(result.section_path) if result.section_path else "Unknown section"
-        )
+        section = " > ".join(result.section_path) if result.section_path else "Unknown section"
 
         lines.append("---")
         lines.append(f"**Source:** {result.book_title} > {section}")
@@ -512,7 +506,10 @@ def _format_enriched_results(expanded_results: list[dict], max_chars: int = 2000
 
             content = chunk.content
             if len(content) > max_chars:
-                content = content[:max_chars] + f"\n\n[truncated at {max_chars} chars — use get_book_chunks(book_id=\"{result.book_id}\", start_sequence={chunk.sequence}, end_sequence={chunk.sequence}) to read full text]"
+                content = (
+                    content[:max_chars]
+                    + f'\n\n[truncated at {max_chars} chars — use get_book_chunks(book_id="{result.book_id}", start_sequence={chunk.sequence}, end_sequence={chunk.sequence}) to read full text]'
+                )
 
             if chunk.content_type.value == "code":
                 lines.append(f"```\n{content}\n```")
@@ -572,7 +569,14 @@ def search_books(
         or an error message starting with "Error:"
     """
     return _search_books_impl(
-        query, book_id, content_type, top_k, mode, section, context_window, max_chars,
+        query,
+        book_id,
+        content_type,
+        top_k,
+        mode,
+        section,
+        context_window,
+        max_chars,
     )
 
 
@@ -718,8 +722,12 @@ async def add_book(
     try:
         result = await asyncio.wait_for(
             asyncio.to_thread(
-                _add_book_impl, file_path, force, pre_parsed,
-                chunk_min_tokens, chunk_max_tokens,
+                _add_book_impl,
+                file_path,
+                force,
+                pre_parsed,
+                chunk_min_tokens,
+                chunk_max_tokens,
             ),
             timeout=300,  # 5 minutes
         )

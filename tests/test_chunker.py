@@ -4,7 +4,6 @@ Tests token counting, text splitting, and the smart chunker with
 special focus on code block preservation.
 """
 
-
 from mnemo.chunking.chunker import Chunker, ChunkerConfig
 from mnemo.chunking.tokenizer import count_tokens, split_by_tokens
 from mnemo.epub.content import ContentBlock
@@ -590,6 +589,7 @@ class TestChunkerIntegration:
 
         assert all(chunk.book_id == "abc123" for chunk in chunks)
 
+
 class TestChunkerConfigValidation:
     """Tests for ChunkerConfig.validate_params validation."""
 
@@ -632,7 +632,6 @@ class TestChunkerConfigValidation:
         """Only max_tokens provided with valid value should return None."""
         result = ChunkerConfig.validate_params(None, 1000)
         assert result is None
-
 
     def test_text_splitting_creates_linked_chunks(self):
         """Split text should produce linked chunks with correct sequences."""

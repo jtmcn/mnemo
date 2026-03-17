@@ -211,9 +211,7 @@ class TestFrontMatterLabels:
         cover_blocks = [b for b in blocks if "cover.xhtml" in b.source_file]
         assert len(cover_blocks) > 0, "Expected blocks from cover.xhtml"
         for block in cover_blocks:
-            assert block.section_path == ["Cover"], (
-                f"Expected ['Cover'], got {block.section_path}"
-            )
+            assert block.section_path == ["Cover"], f"Expected ['Cover'], got {block.section_path}"
 
     def test_front_matter_toc_label(self, tmp_path: Path) -> None:
         epub_path = create_epub_with_front_matter(

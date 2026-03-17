@@ -94,6 +94,7 @@ def add(
 
         # Compute file hash to check for duplicate
         import hashlib
+
         file_hash = hashlib.sha256(path.read_bytes()).hexdigest()
         existing = book_repo.get_by_hash(file_hash)
         conn.close()
@@ -102,9 +103,7 @@ def add(
         if existing and not force:
             # Prompt user in TTY mode, error in non-TTY
             if console.is_terminal and not json_output:
-                confirm = typer.confirm(
-                    f"Book already indexed (id: {existing.id}). Re-index?"
-                )
+                confirm = typer.confirm(f"Book already indexed (id: {existing.id}). Re-index?")
                 if confirm:
                     should_force = True
                 else:
@@ -112,10 +111,14 @@ def add(
                     continue
             else:
                 if json_output:
-                    print(json.dumps({
-                        "error": "Book exists. Use --force to re-index.",
-                        "existing_id": existing.id,
-                    }))
+                    print(
+                        json.dumps(
+                            {
+                                "error": "Book exists. Use --force to re-index.",
+                                "existing_id": existing.id,
+                            }
+                        )
+                    )
                 else:
                     console.print(
                         f"[red]Book exists (id: {existing.id}). Use --force to re-index.[/red]"
@@ -373,7 +376,13 @@ def serve() -> None:
 def app_callback(
     version: Annotated[
         bool,
-        typer.Option("--version", "-V", help="Show version and exit", callback=version_callback, is_eager=True),
+        typer.Option(
+            "--version",
+            "-V",
+            help="Show version and exit",
+            callback=version_callback,
+            is_eager=True,
+        ),
     ] = False,
 ) -> None:
     """Personal technical book library with semantic search via MCP."""

@@ -205,9 +205,7 @@ class VectorStore:
         if section:
             # Normalize Unicode for accent-insensitive matching
             nfkd = unicodedata.normalize("NFKD", section)
-            section_normalized = "".join(
-                c for c in nfkd if not unicodedata.combining(c)
-            )
+            section_normalized = "".join(c for c in nfkd if not unicodedata.combining(c))
             conditions.append({"section_path": {"$contains": section_normalized}})
 
         if not conditions:
@@ -225,9 +223,7 @@ class VectorStore:
         distances = results.get("distances", [[]])[0]
         metadatas = results.get("metadatas", [[]])[0]
         documents = (
-            results.get("documents", [[]])[0]
-            if results.get("documents")
-            else [None] * len(ids)
+            results.get("documents", [[]])[0] if results.get("documents") else [None] * len(ids)
         )
 
         for i, id_ in enumerate(ids):

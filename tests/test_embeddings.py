@@ -59,7 +59,10 @@ class TestDatabricksEmbedder:
 
     def test_url_construction(self, embedder):
         """URL is constructed correctly."""
-        assert embedder.url == "https://test.databricks.com/serving-endpoints/databricks-gte-large-en/invocations"
+        assert (
+            embedder.url
+            == "https://test.databricks.com/serving-endpoints/databricks-gte-large-en/invocations"
+        )
 
     def test_url_strips_trailing_slash(self):
         """URL construction handles trailing slash."""

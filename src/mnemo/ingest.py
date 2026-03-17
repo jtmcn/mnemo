@@ -147,9 +147,7 @@ def ingest_book(
     existing = book_repo.get_by_hash(book.file_hash)
     if existing and not force:
         conn.close()
-        raise ValueError(
-            f"Book already indexed (id: {existing.id}). Use force=True to re-index."
-        )
+        raise ValueError(f"Book already indexed (id: {existing.id}). Use force=True to re-index.")
 
     # 5. If force and exists, delete old version (including vectors)
     if existing and force:

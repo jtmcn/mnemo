@@ -40,7 +40,9 @@ class DatabricksEmbedder:
                 "DATABRICKS_HOST and DATABRICKS_TOKEN must be set. "
                 "Get token from Databricks -> User Settings -> Developer -> Access tokens"
             )
-        self.url = f"{self.config.host.rstrip('/')}/serving-endpoints/{self.config.model}/invocations"
+        self.url = (
+            f"{self.config.host.rstrip('/')}/serving-endpoints/{self.config.model}/invocations"
+        )
 
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """Embed a batch of texts.

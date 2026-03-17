@@ -88,9 +88,7 @@ def migrate_to_cosine(
     if temp_count != old_count:
         # Clean up temp on failure
         client.delete_collection(temp_name)
-        raise RuntimeError(
-            f"Migration count mismatch: expected {old_count}, got {temp_count}"
-        )
+        raise RuntimeError(f"Migration count mismatch: expected {old_count}, got {temp_count}")
 
     logger.info("Verified %d vectors copied to temp collection", temp_count)
 

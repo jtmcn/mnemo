@@ -79,13 +79,15 @@ def create_test_epub(
 
         chapter = epub.EpubHtml(title=ch_title, file_name=ch_filename, lang=language)
         # Use set_content which properly encodes the content
-        chapter.set_content(f"""<html xmlns="http://www.w3.org/1999/xhtml">
+        chapter.set_content(
+            f"""<html xmlns="http://www.w3.org/1999/xhtml">
 <head><title>{ch_title}</title></head>
 <body>
 <h1>{ch_title}</h1>
 {ch_content}
 </body>
-</html>""".encode())
+</html>""".encode()
+        )
 
         book.add_item(chapter)
         epub_chapters.append(chapter)
