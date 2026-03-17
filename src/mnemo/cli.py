@@ -296,7 +296,7 @@ def search(
     for r in results:
         section = " > ".join(r.section_path) if r.section_path else "No section"
         console.print(f"[bold]{r.book_title}[/bold] > {section}")
-        console.print(r.content)
+        console.print(r.content, highlight=False, markup=False)
         console.print()
 
 

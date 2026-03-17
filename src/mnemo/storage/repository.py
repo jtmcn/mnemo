@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import unicodedata
 from difflib import SequenceMatcher
 
 from mnemo.models import Book, Chunk, ContentType
@@ -354,8 +355,13 @@ class ChunkRepository:
             params.append(content_type.value)
 
         if section is not None:
+            # Normalize Unicode for accent-insensitive matching
+            nfkd = unicodedata.normalize("NFKD", section)
+            section_normalized = "".join(
+                c for c in nfkd if not unicodedata.combining(c)
+            )
             sql += " AND c.section_path LIKE ?"
-            params.append(f"%{section}%")
+            params.append(f"%{section_normalized}%")
 
         sql += " ORDER BY rank LIMIT ?"
         params.append(limit)
@@ -422,11 +428,26 @@ class ChunkRepository:
         ).fetchall()
         return [json.loads(row["section_path"]) for row in rows]
 
+    # Common English stopwords that add noise to keyword search
+    STOPWORDS = frozenset({
+        "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+        "have", "has", "had", "do", "does", "did", "will", "would", "could",
+        "should", "may", "might", "shall", "can", "need", "must",
+        "in", "on", "at", "to", "for", "of", "with", "by", "from", "as",
+        "into", "about", "between", "through", "during", "before", "after",
+        "above", "below", "up", "down", "out", "off", "over", "under",
+        "how", "what", "which", "who", "whom", "when", "where", "why",
+        "that", "this", "these", "those", "it", "its",
+        "and", "but", "or", "nor", "not", "no", "so", "if", "then",
+        "i", "me", "my", "we", "our", "you", "your", "he", "she", "they",
+        "his", "her", "them", "their",
+    })
+
     def _sanitize_fts_query(self, query: str) -> str:
         """Sanitize a query for FTS5.
 
         Wraps search terms in quotes to safely handle special characters.
-        This provides simple, reliable search behavior.
+        Filters stopwords to reduce noise in keyword search results.
 
         Args:
             query: Raw user query
@@ -439,15 +460,17 @@ class ChunkRepository:
         if not query:
             return ""
 
-        # Simple approach: wrap each word in quotes to escape all special chars
-        # This handles: C++, foo(bar), test@example.com, etc.
-        # Split on whitespace, escape internal quotes, wrap each term
         words = query.split()
         if not words:
             return ""
 
+        # Filter stopwords, but fall back to all words if everything is a stopword
+        meaningful = [w for w in words if w.lower() not in self.STOPWORDS]
+        if not meaningful:
+            meaningful = words
+
         # Escape any quotes in words by doubling them (FTS5 escape sequence)
-        escaped_words = [w.replace('"', '""') for w in words]
+        escaped_words = [w.replace('"', '""') for w in meaningful]
         return " OR ".join(f'"{w}"' for w in escaped_words if w)
 
     def _row_to_chunk(self, row: sqlite3.Row) -> Chunk:

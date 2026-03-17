@@ -1502,3 +1502,260 @@ class TestHybridSemanticQualityGate:
         # c2 should not appear in results (filtered by quality gate)
         result_ids = [r.chunk_id for r in results]
         assert "c2" not in result_ids
+
+
+# ============================================================================
+# Unicode Normalization Tests
+# ============================================================================
+
+
+class TestUnicodeNormalization:
+    """Tests for Unicode normalization in section filtering."""
+
+    def test_normalize_unicode_strips_accents(self):
+        from mnemo.search.service import normalize_unicode
+
+        assert normalize_unicode("naïve") == "naive"
+        assert normalize_unicode("café") == "cafe"
+        assert normalize_unicode("résumé") == "resume"
+
+    def test_normalize_unicode_lowercases(self):
+        from mnemo.search.service import normalize_unicode
+
+        assert normalize_unicode("Hello World") == "hello world"
+
+    def test_normalize_unicode_plain_text_unchanged(self):
+        from mnemo.search.service import normalize_unicode
+
+        assert normalize_unicode("simple text") == "simple text"
+
+    def test_section_filter_with_accented_section_name(self):
+        """Section filter matches when section_path contains accented characters."""
+        svc = SearchService()
+        svc._chunk_repo = MagicMock()
+        svc._book_repo = MagicMock()
+        svc._vector_store = MagicMock()
+        svc._embedder = MagicMock()
+        svc._book_cache["abc123"] = "Test Book"
+
+        mock_chunk = MagicMock(
+            id="c1",
+            book_id="abc123",
+            content="Content about naïve approaches",
+            content_type=ContentType.TEXT,
+            section_path=["Chapter 3", "Exploring naïve RAG"],
+        )
+        svc._chunk_repo.search_fts.return_value = [mock_chunk]
+
+        # Search with the exact accented name
+        results = svc.search("test", mode="keyword", section="Exploring naïve RAG")
+        assert len(results) == 1
+
+        # Search with ASCII approximation (no accent)
+        results = svc.search("test", mode="keyword", section="Exploring naive RAG")
+        assert len(results) == 1
+
+    def test_section_filter_accent_in_query_matches_plain_section(self):
+        """Accented filter matches plain-text section paths too."""
+        svc = SearchService()
+        svc._chunk_repo = MagicMock()
+        svc._book_repo = MagicMock()
+        svc._vector_store = MagicMock()
+        svc._embedder = MagicMock()
+        svc._book_cache["abc123"] = "Test Book"
+
+        mock_chunk = MagicMock(
+            id="c1",
+            book_id="abc123",
+            content="Content",
+            content_type=ContentType.TEXT,
+            section_path=["Chapter 3", "Exploring naive RAG"],
+        )
+        svc._chunk_repo.search_fts.return_value = [mock_chunk]
+
+        # Accented filter should still match plain section
+        results = svc.search("test", mode="keyword", section="naïve")
+        assert len(results) == 1
+
+
+# ============================================================================
+# Stopword Filtering Tests
+# ============================================================================
+
+
+class TestStopwordFiltering:
+    """Tests for stopword removal in FTS query sanitization."""
+
+    @pytest.fixture
+    def chunk_repo(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        conn = get_connection(db_path)
+        return ChunkRepository(conn)
+
+    def test_stopwords_removed_from_query(self, chunk_repo):
+        """Common stopwords are filtered out of FTS queries."""
+        result = chunk_repo._sanitize_fts_query("how does self-attention work in transformers")
+        # "how", "does", "in" are stopwords; "self-attention", "work", "transformers" remain
+        assert '"how"' not in result
+        assert '"does"' not in result
+        assert '"in"' not in result
+        assert '"self-attention"' in result
+        assert '"work"' in result
+        assert '"transformers"' in result
+
+    def test_all_stopwords_fallback(self, chunk_repo):
+        """If all words are stopwords, use the original query."""
+        result = chunk_repo._sanitize_fts_query("the")
+        assert result == '"the"'
+
+    def test_all_stopwords_multiword_fallback(self, chunk_repo):
+        """Multi-word all-stopword query falls back to original words."""
+        result = chunk_repo._sanitize_fts_query("how does it")
+        assert '"how"' in result
+        assert '"does"' in result
+        assert '"it"' in result
+
+    def test_meaningful_words_preserved(self, chunk_repo):
+        """Non-stopword terms are preserved in the query."""
+        result = chunk_repo._sanitize_fts_query("python generators async")
+        assert '"python"' in result
+        assert '"generators"' in result
+        assert '"async"' in result
+
+
+# ============================================================================
+# Hybrid Score Normalization Tests
+# ============================================================================
+
+
+class TestHybridScoreNormalization:
+    """Tests for RRF score normalization to 0-1 range."""
+
+    @pytest.fixture
+    def service(self):
+        svc = SearchService()
+        svc._chunk_repo = MagicMock()
+        svc._book_repo = MagicMock()
+        svc._vector_store = MagicMock()
+        svc._embedder = MagicMock()
+        svc._embedder.embed_one.return_value = [0.1] * 1024
+        svc._book_cache["abc123"] = "Test Book"
+        return svc
+
+    def test_hybrid_scores_normalized_to_0_1(self, service):
+        """Hybrid search scores are normalized so top result is 1.0."""
+        # Setup keyword and semantic results
+        chunks = [
+            MagicMock(
+                id=f"c{i}",
+                book_id="abc123",
+                content=f"Content {i}",
+                content_type=ContentType.TEXT,
+                section_path=["Ch1"],
+            )
+            for i in range(3)
+        ]
+        service._chunk_repo.search_fts.return_value = chunks
+
+        service._vector_store.query.return_value = [
+            {"id": "c0", "distance": 0.1},
+            {"id": "c1", "distance": 0.3},
+            {"id": "c2", "distance": 0.5},
+        ]
+        service._chunk_repo.get.side_effect = lambda cid: next(
+            (c for c in chunks if c.id == cid), None
+        )
+
+        results = service.search("test query", mode="hybrid", top_k=3)
+
+        assert len(results) >= 1
+        # Top result should have score 1.0
+        assert abs(results[0].score - 1.0) < 1e-6
+        # All scores should be in [0, 1]
+        for r in results:
+            assert 0.0 <= r.score <= 1.0
+
+    def test_hybrid_scores_preserve_ranking(self, service):
+        """Score normalization preserves the original ranking order."""
+        chunks = [
+            MagicMock(
+                id=f"c{i}",
+                book_id="abc123",
+                content=f"Content {i}",
+                content_type=ContentType.TEXT,
+                section_path=["Ch1"],
+            )
+            for i in range(3)
+        ]
+        service._chunk_repo.search_fts.return_value = chunks
+
+        service._vector_store.query.return_value = [
+            {"id": "c0", "distance": 0.1},
+            {"id": "c1", "distance": 0.3},
+            {"id": "c2", "distance": 0.5},
+        ]
+        service._chunk_repo.get.side_effect = lambda cid: next(
+            (c for c in chunks if c.id == cid), None
+        )
+
+        results = service.search("test query", mode="hybrid", top_k=3)
+
+        # Scores should be in descending order
+        scores = [r.score for r in results]
+        assert scores == sorted(scores, reverse=True)
+
+
+# ============================================================================
+# Keyword-Only Noise Filtering Tests
+# ============================================================================
+
+
+class TestKeywordNoiseFiltering:
+    """Tests for filtering low-quality keyword-only results in hybrid search."""
+
+    @pytest.fixture
+    def service(self):
+        svc = SearchService()
+        svc._chunk_repo = MagicMock()
+        svc._book_repo = MagicMock()
+        svc._vector_store = MagicMock()
+        svc._embedder = MagicMock()
+        svc._embedder.embed_one.return_value = [0.1] * 1024
+        svc._book_cache["abc123"] = "Test Book"
+        svc._book_cache["def456"] = "Other Book"
+        return svc
+
+    def test_keyword_only_low_rank_filtered(self, service):
+        """Keyword-only results beyond top_k rank are filtered from hybrid results."""
+        # Create many keyword results - the ones beyond top_k that are keyword-only
+        # should be filtered
+        keyword_chunks = [
+            MagicMock(
+                id=f"kw{i}",
+                book_id="abc123",
+                content=f"Keyword content {i}",
+                content_type=ContentType.TEXT,
+                section_path=["Ch1"],
+            )
+            for i in range(20)
+        ]
+        service._chunk_repo.search_fts.return_value = keyword_chunks
+
+        # Semantic results only include first 3
+        service._vector_store.query.return_value = [
+            {"id": "kw0", "distance": 0.1},
+            {"id": "kw1", "distance": 0.3},
+            {"id": "kw2", "distance": 0.5},
+        ]
+        service._chunk_repo.get.side_effect = lambda cid: next(
+            (c for c in keyword_chunks if c.id == cid), None
+        )
+
+        results = service.search("test query", mode="hybrid", top_k=5)
+
+        # Results beyond keyword rank 5 that are keyword-only should be filtered
+        result_ids = {r.chunk_id for r in results}
+        # kw10, kw15 etc. should not appear (they're keyword-only and low-ranked)
+        assert "kw10" not in result_ids
+        assert "kw15" not in result_ids
