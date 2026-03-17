@@ -1812,3 +1812,165 @@ class TestGetBookStructure:
             result = _get_book_structure_impl("abc123")
 
         assert result.startswith("## Learning Python")
+
+
+class TestSmallCodeChunkAutoExpansion:
+    """Tests for auto-expansion of small atomic chunks in search results."""
+
+    def test_small_code_chunk_auto_expanded(self):
+        """Small code chunks should be auto-expanded with neighboring context."""
+        from mnemo.mcp.tools import _format_mixed_results
+
+        # A small code result (< 200 chars)
+        code_result = SearchResult(
+            chunk_id="code-1",
+            book_id="abc123",
+            book_title="Test Book",
+            content="head_view(attention, tokens)",
+            content_type="code",
+            section_path=["Chapter 1"],
+            score=0.9,
+            source="both",
+            sequence=5,
+        )
+
+        # Simulate expanded context with neighboring text chunk
+        neighbor_chunk = MagicMock(
+            id="text-1",
+            content="The attention visualization shows how tokens relate to each other.",
+            content_type=ContentType.TEXT,
+            section_path=["Chapter 1"],
+            sequence=4,
+        )
+        matched_chunk = MagicMock(
+            id="code-1",
+            content="head_view(attention, tokens)",
+            content_type=ContentType.CODE,
+            section_path=["Chapter 1"],
+            sequence=5,
+        )
+
+        expanded_map = {
+            0: {
+                "matched_chunk_id": "code-1",
+                "book_id": "abc123",
+                "start_seq": 4,
+                "end_seq": 5,
+                "chunks": [neighbor_chunk, matched_chunk],
+                "matched_chunk_ids": {"code-1"},
+                "result": code_result,
+            }
+        }
+
+        output = _format_mixed_results([code_result], expanded_map)
+
+        # Should contain context marker for the neighbor
+        assert "Context" in output
+        assert "MATCH" in output
+        assert "attention visualization" in output
+        assert "head_view" in output
+
+    def test_large_code_chunk_not_expanded(self):
+        """Code chunks > 200 chars should not be auto-expanded."""
+        from mnemo.mcp.tools import _search_books_impl
+
+        large_code = "x" * 300
+        code_result = SearchResult(
+            chunk_id="code-1",
+            book_id="abc123",
+            book_title="Test Book",
+            content=large_code,
+            content_type="code",
+            section_path=["Chapter 1"],
+            score=0.9,
+            source="both",
+            sequence=5,
+        )
+
+        mock_service = MagicMock()
+        mock_service.search.return_value = [code_result]
+
+        with patch("mnemo.mcp.tools._get_search_service", return_value=mock_service):
+            result = _search_books_impl("test query")
+
+        # Should NOT call _expand_result_context
+        mock_service._expand_result_context.assert_not_called()
+        # Should use standard formatting (no Context markers)
+        assert "Context" not in result
+
+    def test_text_chunks_not_expanded(self):
+        """Text chunks should never be auto-expanded regardless of size."""
+        from mnemo.mcp.tools import _search_books_impl
+
+        text_result = SearchResult(
+            chunk_id="text-1",
+            book_id="abc123",
+            book_title="Test Book",
+            content="Short text",
+            content_type="text",
+            section_path=["Chapter 1"],
+            score=0.9,
+            source="keyword",
+            sequence=1,
+        )
+
+        mock_service = MagicMock()
+        mock_service.search.return_value = [text_result]
+
+        with patch("mnemo.mcp.tools._get_search_service", return_value=mock_service):
+            _search_books_impl("test query")
+
+        mock_service._expand_result_context.assert_not_called()
+
+    def test_mixed_results_some_expanded(self):
+        """When results mix large and small code, only small ones are expanded."""
+        from mnemo.mcp.tools import _format_mixed_results
+
+        small_code = SearchResult(
+            chunk_id="code-small",
+            book_id="abc123",
+            book_title="Test Book",
+            content="fn()",
+            content_type="code",
+            section_path=["Ch1"],
+            score=0.9,
+            source="both",
+            sequence=5,
+        )
+        large_text = SearchResult(
+            chunk_id="text-large",
+            book_id="abc123",
+            book_title="Test Book",
+            content="A long explanation about the function and its parameters.",
+            content_type="text",
+            section_path=["Ch1"],
+            score=0.8,
+            source="keyword",
+            sequence=6,
+        )
+
+        matched_chunk = MagicMock(
+            id="code-small",
+            content="fn()",
+            content_type=ContentType.CODE,
+            section_path=["Ch1"],
+            sequence=5,
+        )
+
+        # Only index 0 (small code) is expanded
+        expanded_map = {
+            0: {
+                "matched_chunk_id": "code-small",
+                "book_id": "abc123",
+                "start_seq": 5,
+                "end_seq": 5,
+                "chunks": [matched_chunk],
+                "matched_chunk_ids": {"code-small"},
+                "result": small_code,
+            }
+        }
+
+        output = _format_mixed_results([small_code, large_text], expanded_map)
+
+        assert "MATCH" in output  # Expanded small code chunk
+        assert "long explanation" in output  # Normal text result
