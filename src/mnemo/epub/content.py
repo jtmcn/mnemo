@@ -126,7 +126,7 @@ def _infer_front_matter_label(href: str) -> list[str] | None:
 
 
 def extract_content(
-    epub_book: "EpubBook",
+    epub_book: EpubBook,
     toc_mapping: dict[str, list[str]],
     default_language: str | None = None,
 ) -> list[ContentBlock]:

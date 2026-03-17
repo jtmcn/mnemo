@@ -85,7 +85,7 @@ def create_test_epub(
 <h1>{ch_title}</h1>
 {ch_content}
 </body>
-</html>""".encode("utf-8"))
+</html>""".encode())
 
         book.add_item(chapter)
         epub_chapters.append(chapter)
@@ -261,7 +261,7 @@ def create_epub_with_front_matter(
 <body>
 {content_body}
 </body>
-</html>""".encode("utf-8")
+</html>""".encode()
         )
         book.add_item(fm_item)
         front_matter_epub_items.append(fm_item)

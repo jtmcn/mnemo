@@ -723,7 +723,7 @@ async def add_book(
             ),
             timeout=300,  # 5 minutes
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         # Best effort cleanup using pre_parsed.file_hash (no re-parsing needed)
         try:
             init_db()

@@ -1,14 +1,11 @@
 """Integration tests for embedding pipeline."""
 
-import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mnemo.ingest import ingest_book, embed_book, remove_book
-from mnemo.models import ContentType
-
+from mnemo.ingest import embed_book, ingest_book, remove_book
 
 # Path to test fixture
 SAMPLE_EPUB = Path(__file__).parent / "fixtures" / "sample.epub"
@@ -46,7 +43,7 @@ class TestEmbedBook:
 
     def test_embed_book_stores_vectors(self, db_with_book):
         """embed_book creates vectors in ChromaDB."""
-        from mnemo.vectors import VectorStore, VectorConfig
+        from mnemo.vectors import VectorConfig, VectorStore
 
         # Mock the embedder at the package level (where embed_book imports from)
         with patch("mnemo.embeddings.DatabricksEmbedder") as mock_embedder_class:
@@ -101,7 +98,7 @@ class TestEmbedBook:
 
     def test_embed_book_reembeds_cleanly(self, db_with_book):
         """Re-embedding deletes old vectors first."""
-        from mnemo.vectors import VectorStore, VectorConfig
+        from mnemo.vectors import VectorConfig, VectorStore
 
         with patch("mnemo.embeddings.DatabricksEmbedder") as mock_embedder_class:
             mock_embedder_class.return_value = create_mock_embedder()
@@ -130,7 +127,7 @@ class TestIngestWithEmbed:
 
     def test_ingest_with_embed(self, tmp_path):
         """ingest_book with embed=True generates vectors."""
-        from mnemo.vectors import VectorStore, VectorConfig
+        from mnemo.vectors import VectorConfig, VectorStore
 
         db_path = tmp_path / "test.db"
         chroma_path = tmp_path / "chroma"
@@ -153,7 +150,7 @@ class TestIngestWithEmbed:
 
     def test_ingest_without_embed(self, tmp_path):
         """ingest_book with embed=False doesn't create vectors."""
-        from mnemo.vectors import VectorStore, VectorConfig
+        from mnemo.vectors import VectorConfig, VectorStore
 
         db_path = tmp_path / "test.db"
         chroma_path = tmp_path / "chroma"
@@ -177,7 +174,7 @@ class TestRemoveBookWithVectors:
 
     def test_remove_deletes_vectors(self, tmp_path):
         """remove_book deletes vectors from ChromaDB."""
-        from mnemo.vectors import VectorStore, VectorConfig
+        from mnemo.vectors import VectorConfig, VectorStore
 
         db_path = tmp_path / "test.db"
         chroma_path = tmp_path / "chroma"
@@ -210,7 +207,7 @@ class TestMetadataInVectors:
 
     def test_vectors_have_correct_metadata(self, tmp_path):
         """Vectors include book_id, content_type, section_path."""
-        from mnemo.vectors import VectorStore, VectorConfig
+        from mnemo.vectors import VectorConfig, VectorStore
 
         db_path = tmp_path / "test.db"
         chroma_path = tmp_path / "chroma"

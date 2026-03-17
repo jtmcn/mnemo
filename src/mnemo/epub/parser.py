@@ -91,7 +91,7 @@ class EPUBParser:
         return book, blocks
 
     def _parse_toc(
-        self, epub_book: "EpubBook"
+        self, epub_book: EpubBook
     ) -> tuple[dict[str, list[str]], Literal["toc", "inferred"]]:
         """Parse TOC from EPUB and build section path mapping.
 
@@ -123,7 +123,7 @@ class EPUBParser:
         toc_mapping = self._infer_from_headings(epub_book)
         return toc_mapping, "inferred"
 
-    def _parse_epub3_nav(self, epub_book: "EpubBook") -> dict[str, list[str]]:
+    def _parse_epub3_nav(self, epub_book: EpubBook) -> dict[str, list[str]]:
         """Parse EPUB3 navigation document.
 
         Looks for the nav element with epub:type="toc" and builds
@@ -209,7 +209,7 @@ class EPUBParser:
             if nested_ol:
                 self._parse_nav_ol(nested_ol, item_path, mapping)
 
-    def _parse_epub2_ncx(self, epub_book: "EpubBook") -> dict[str, list[str]]:
+    def _parse_epub2_ncx(self, epub_book: EpubBook) -> dict[str, list[str]]:
         """Parse EPUB2 NCX table of contents.
 
         Looks for the NCX file and parses navPoint elements to build
@@ -283,7 +283,7 @@ class EPUBParser:
             # Process nested navPoints
             self._parse_ncx_navpoint(navpoint, item_path, mapping)
 
-    def _infer_from_headings(self, epub_book: "EpubBook") -> dict[str, list[str]]:
+    def _infer_from_headings(self, epub_book: EpubBook) -> dict[str, list[str]]:
         """Infer section structure from HTML headings.
 
         Parses h1-h6 tags in document items to build a best-effort

@@ -1,8 +1,9 @@
 """Tests for embedding client."""
 
+from unittest.mock import MagicMock, patch
+
 import httpx
 import pytest
-from unittest.mock import patch, MagicMock
 
 from mnemo.embeddings import DatabricksEmbedder, EmbeddingConfig
 

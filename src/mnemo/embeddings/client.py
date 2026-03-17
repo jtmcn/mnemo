@@ -3,9 +3,9 @@
 import httpx
 from tenacity import (
     retry,
+    retry_if_exception,
     stop_after_attempt,
     wait_exponential_jitter,
-    retry_if_exception,
 )
 
 from mnemo.embeddings.config import EmbeddingConfig

@@ -12,7 +12,6 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import ebooklib
 from ebooklib import epub
 
 if TYPE_CHECKING:
@@ -64,7 +63,7 @@ def normalize_isbn(raw_isbn: str) -> str | None:
     return None
 
 
-def extract_metadata(epub_path: Path | str) -> "Book":
+def extract_metadata(epub_path: Path | str) -> Book:
     """Extract Dublin Core metadata from an EPUB file.
 
     Parses EPUB metadata and creates a Book model with:

@@ -6,7 +6,7 @@ import chromadb
 import numpy as np
 import pytest
 
-from mnemo.vectors import QueryResult, VectorConfig, VectorStore
+from mnemo.vectors import VectorConfig, VectorStore
 
 
 @pytest.fixture
