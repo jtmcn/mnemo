@@ -27,6 +27,7 @@ class ContentType(str, Enum):
     - MATH: Mathematical formulas and expressions
     - TABLE: Tabular data converted to searchable text
     """
+
     TEXT = "text"
     CODE = "code"
     DIAGRAM = "diagram"
@@ -50,6 +51,7 @@ class Book(BaseModel):
         structure_source: How chapter structure was determined
         added_at: When the book was indexed
     """
+
     id: str = Field(min_length=6, max_length=6, pattern=r"^[0-9a-f]{6}$")
     title: str = Field(min_length=1)
     authors: list[str] = Field(default_factory=list)
@@ -149,6 +151,7 @@ class Chunk(BaseModel):
         prev_chunk_id: ID of preceding chunk (for context)
         next_chunk_id: ID of following chunk (for context)
     """
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     book_id: str = Field(min_length=6, max_length=6)
     content: str

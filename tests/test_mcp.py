@@ -633,9 +633,7 @@ class TestUpdateBookMetadataIntegration:
         tools._db_connection = temp_db["conn"]
 
         try:
-            result = tools._update_book_metadata_impl(
-                "abc123", authors=["New Author"]
-            )
+            result = tools._update_book_metadata_impl("abc123", authors=["New Author"])
 
             assert "New Author" in result
         finally:
@@ -1107,9 +1105,7 @@ class TestAddBookIntegration:
 
         # Simulate ingest_book storing a partial book record before failing
         # during embedding. The side_effect adds the book to the DB then raises.
-        partial_book = self._make_mock_book(
-            id="bbb001", file_hash="f" * 64, title="Partial Book"
-        )
+        partial_book = self._make_mock_book(id="bbb001", file_hash="f" * 64, title="Partial Book")
 
         def ingest_side_effect(*args, **kwargs):
             book_repo = BookRepository(temp_db["conn"])
@@ -1211,9 +1207,7 @@ class TestLifecycle:
             conn_factory = lambda: db_get_conn(temp_db["path"])
 
             with (
-                patch(
-                    "mnemo.mcp.tools.get_connection", side_effect=conn_factory
-                ),
+                patch("mnemo.mcp.tools.get_connection", side_effect=conn_factory),
                 patch("mnemo.mcp.tools.init_db"),
                 patch("mnemo.ingest.ingest_book", side_effect=mock_ingest),
             ):
@@ -1233,9 +1227,7 @@ class TestLifecycle:
             )
             tools._search_service = temp_search
 
-            search_result = tools._search_books_impl(
-                "Python decorators", mode="keyword"
-            )
+            search_result = tools._search_books_impl("Python decorators", mode="keyword")
             assert "decorators" in search_result.lower()
             assert "aaa001" in search_result
 
@@ -1256,9 +1248,7 @@ class TestLifecycle:
                 book_repo = BookRepository(temp_db["conn"])
                 book_repo.delete(book_id)
 
-            with patch(
-                "mnemo.ingest.remove_book", side_effect=mock_remove
-            ):
+            with patch("mnemo.ingest.remove_book", side_effect=mock_remove):
                 remove_result = tools._remove_book_impl("aaa001")
 
             assert "Removed" in remove_result
@@ -1519,14 +1509,18 @@ class TestAddBookChunkParams:
             mock_ingest.return_value = (mock_book, 42)
 
             result = _add_book_impl(
-                str(epub_file), force=False,
-                chunk_min_tokens=200, chunk_max_tokens=1000,
+                str(epub_file),
+                force=False,
+                chunk_min_tokens=200,
+                chunk_max_tokens=1000,
             )
 
         assert "Error" not in result
         # Verify ChunkerConfig was passed to ingest
         call_kwargs = mock_ingest.call_args
-        chunker_config = call_kwargs.kwargs.get("chunker_config") or call_kwargs[1].get("chunker_config")
+        chunker_config = call_kwargs.kwargs.get("chunker_config") or call_kwargs[1].get(
+            "chunker_config"
+        )
         assert chunker_config is not None
         assert chunker_config.min_tokens == 200
         assert chunker_config.max_tokens == 1000
@@ -1540,8 +1534,10 @@ class TestAddBookChunkParams:
 
         # min >= max is invalid
         result = _add_book_impl(
-            str(epub_file), force=False,
-            chunk_min_tokens=800, chunk_max_tokens=400,
+            str(epub_file),
+            force=False,
+            chunk_min_tokens=800,
+            chunk_max_tokens=400,
         )
 
         assert "Error" in result
@@ -1578,7 +1574,9 @@ class TestAddBookChunkParams:
             _add_book_impl(str(epub_file), force=False)
 
         call_kwargs = mock_ingest.call_args
-        chunker_config = call_kwargs.kwargs.get("chunker_config") or call_kwargs[1].get("chunker_config")
+        chunker_config = call_kwargs.kwargs.get("chunker_config") or call_kwargs[1].get(
+            "chunker_config"
+        )
         assert chunker_config is None
 
 

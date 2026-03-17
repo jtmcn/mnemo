@@ -139,13 +139,16 @@ class SearchService:
         elif mode == "semantic":
             results = self._semantic_search(query, fetch_k, book_id, content_type, section)
         else:  # hybrid
-            results = self._hybrid_search(query, fetch_k, book_id, content_type, content_type_enum, section)
+            results = self._hybrid_search(
+                query, fetch_k, book_id, content_type, content_type_enum, section
+            )
 
         # Apply section post-filter (with Unicode normalization for accented names)
         if section:
             section_norm = normalize_unicode(section)
             results = [
-                r for r in results
+                r
+                for r in results
                 if r.section_path and section_norm in normalize_unicode(" > ".join(r.section_path))
             ]
 
@@ -158,9 +161,7 @@ class SearchService:
 
         # Context window expansion
         if context_window >= 1:
-            expanded = [
-                self._expand_result_context(r, context_window) for r in results
-            ]
+            expanded = [self._expand_result_context(r, context_window) for r in results]
             return self._deduplicate_expanded_results(expanded)
 
         return results
@@ -286,7 +287,9 @@ class SearchService:
                     # Extend range
                     prev["end_seq"] = max(prev["end_seq"], current["end_seq"])
                     # Union matched IDs
-                    prev["matched_chunk_ids"] = prev["matched_chunk_ids"] | current["matched_chunk_ids"]
+                    prev["matched_chunk_ids"] = (
+                        prev["matched_chunk_ids"] | current["matched_chunk_ids"]
+                    )
                     # Merge chunks (deduplicate by id)
                     existing_ids = {c.id for c in prev["chunks"]}
                     for c in current["chunks"]:
@@ -513,9 +516,7 @@ class SearchService:
         return results
 
     @staticmethod
-    def _diversify_results(
-        results: list[SearchResult], top_k: int
-    ) -> list[SearchResult]:
+    def _diversify_results(results: list[SearchResult], top_k: int) -> list[SearchResult]:
         """Re-rank results using round-robin interleaving by book_id.
 
         Groups results by book, then picks one per book per round.

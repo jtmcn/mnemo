@@ -181,9 +181,7 @@ def extract_content(
             continue
 
         # Extract blocks from body
-        item_blocks = _extract_blocks_from_element(
-            body, section_path, href, default_language
-        )
+        item_blocks = _extract_blocks_from_element(body, section_path, href, default_language)
         blocks.extend(item_blocks)
 
     return blocks

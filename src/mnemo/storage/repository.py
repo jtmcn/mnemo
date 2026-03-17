@@ -73,9 +73,7 @@ class BookRepository:
         Returns:
             Book instance if found, None otherwise
         """
-        row = self.conn.execute(
-            "SELECT * FROM books WHERE id = ?", (book_id,)
-        ).fetchone()
+        row = self.conn.execute("SELECT * FROM books WHERE id = ?", (book_id,)).fetchone()
         if row is None:
             return None
         return self._row_to_book(row)
@@ -89,9 +87,7 @@ class BookRepository:
         Returns:
             Existing Book if duplicate found, None otherwise
         """
-        row = self.conn.execute(
-            "SELECT * FROM books WHERE file_hash = ?", (file_hash,)
-        ).fetchone()
+        row = self.conn.execute("SELECT * FROM books WHERE file_hash = ?", (file_hash,)).fetchone()
         if row is None:
             return None
         return self._row_to_book(row)
@@ -102,9 +98,7 @@ class BookRepository:
         Returns:
             List of all Book instances, ordered by added_at desc
         """
-        rows = self.conn.execute(
-            "SELECT * FROM books ORDER BY added_at DESC"
-        ).fetchall()
+        rows = self.conn.execute("SELECT * FROM books ORDER BY added_at DESC").fetchall()
         return [self._row_to_book(row) for row in rows]
 
     def delete(self, book_id: str) -> bool:
@@ -186,9 +180,7 @@ class BookRepository:
             values.append(isbn if isbn else None)
 
         if not fields:
-            raise ValueError(
-                "At least one field (title, authors, isbn) must be provided"
-            )
+            raise ValueError("At least one field (title, authors, isbn) must be provided")
 
         values.append(book_id)
         sql = f"UPDATE books SET {', '.join(fields)} WHERE id = ?"
@@ -286,9 +278,7 @@ class ChunkRepository:
         Returns:
             Chunk instance if found, None otherwise
         """
-        row = self.conn.execute(
-            "SELECT * FROM chunks WHERE id = ?", (chunk_id,)
-        ).fetchone()
+        row = self.conn.execute("SELECT * FROM chunks WHERE id = ?", (chunk_id,)).fetchone()
         if row is None:
             return None
         return self._row_to_chunk(row)
@@ -357,9 +347,7 @@ class ChunkRepository:
         if section is not None:
             # Normalize Unicode for accent-insensitive matching
             nfkd = unicodedata.normalize("NFKD", section)
-            section_normalized = "".join(
-                c for c in nfkd if not unicodedata.combining(c)
-            )
+            section_normalized = "".join(c for c in nfkd if not unicodedata.combining(c))
             sql += " AND c.section_path LIKE ?"
             params.append(f"%{section_normalized}%")
 
@@ -429,19 +417,98 @@ class ChunkRepository:
         return [json.loads(row["section_path"]) for row in rows]
 
     # Common English stopwords that add noise to keyword search
-    STOPWORDS = frozenset({
-        "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
-        "have", "has", "had", "do", "does", "did", "will", "would", "could",
-        "should", "may", "might", "shall", "can", "need", "must",
-        "in", "on", "at", "to", "for", "of", "with", "by", "from", "as",
-        "into", "about", "between", "through", "during", "before", "after",
-        "above", "below", "up", "down", "out", "off", "over", "under",
-        "how", "what", "which", "who", "whom", "when", "where", "why",
-        "that", "this", "these", "those", "it", "its",
-        "and", "but", "or", "nor", "not", "no", "so", "if", "then",
-        "i", "me", "my", "we", "our", "you", "your", "he", "she", "they",
-        "his", "her", "them", "their",
-    })
+    STOPWORDS = frozenset(
+        {
+            "a",
+            "an",
+            "the",
+            "is",
+            "are",
+            "was",
+            "were",
+            "be",
+            "been",
+            "being",
+            "have",
+            "has",
+            "had",
+            "do",
+            "does",
+            "did",
+            "will",
+            "would",
+            "could",
+            "should",
+            "may",
+            "might",
+            "shall",
+            "can",
+            "need",
+            "must",
+            "in",
+            "on",
+            "at",
+            "to",
+            "for",
+            "of",
+            "with",
+            "by",
+            "from",
+            "as",
+            "into",
+            "about",
+            "between",
+            "through",
+            "during",
+            "before",
+            "after",
+            "above",
+            "below",
+            "up",
+            "down",
+            "out",
+            "off",
+            "over",
+            "under",
+            "how",
+            "what",
+            "which",
+            "who",
+            "whom",
+            "when",
+            "where",
+            "why",
+            "that",
+            "this",
+            "these",
+            "those",
+            "it",
+            "its",
+            "and",
+            "but",
+            "or",
+            "nor",
+            "not",
+            "no",
+            "so",
+            "if",
+            "then",
+            "i",
+            "me",
+            "my",
+            "we",
+            "our",
+            "you",
+            "your",
+            "he",
+            "she",
+            "they",
+            "his",
+            "her",
+            "them",
+            "their",
+        }
+    )
 
     def _sanitize_fts_query(self, query: str) -> str:
         """Sanitize a query for FTS5.

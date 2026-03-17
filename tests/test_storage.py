@@ -103,9 +103,7 @@ class TestDatabaseInitialization:
         init_db(db_path)
         conn = get_connection(db_path)
 
-        tables = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()
+        tables = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         table_names = [t["name"] for t in tables]
 
         assert "books" in table_names
@@ -119,9 +117,7 @@ class TestDatabaseInitialization:
         init_db(db_path)
         conn = get_connection(db_path)
 
-        triggers = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='trigger'"
-        ).fetchall()
+        triggers = conn.execute("SELECT name FROM sqlite_master WHERE type='trigger'").fetchall()
         trigger_names = [t["name"] for t in triggers]
 
         assert "chunks_ai" in trigger_names
@@ -135,9 +131,7 @@ class TestDatabaseInitialization:
         init_db(db_path)
         conn = get_connection(db_path)
 
-        indexes = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='index'"
-        ).fetchall()
+        indexes = conn.execute("SELECT name FROM sqlite_master WHERE type='index'").fetchall()
         index_names = [i["name"] for i in indexes]
 
         assert "idx_chunks_book_id" in index_names
@@ -152,9 +146,7 @@ class TestDatabaseInitialization:
         init_db(db_path)  # Should not raise
 
         conn = get_connection(db_path)
-        tables = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()
+        tables = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         assert len([t for t in tables if t["name"] == "books"]) == 1
         conn.close()
 
@@ -269,9 +261,7 @@ class TestBookRepository:
         assert book1.id in similar_ids
         assert book2.id in similar_ids
 
-    def test_duplicate_file_hash_rejected(
-        self, book_repo: BookRepository, sample_book: Book
-    ):
+    def test_duplicate_file_hash_rejected(self, book_repo: BookRepository, sample_book: Book):
         """Adding book with duplicate file_hash should raise IntegrityError."""
         import sqlite3
 
@@ -292,9 +282,7 @@ class TestBookRepository:
 class TestBookRepositoryUpdate:
     """Tests for BookRepository.update() method."""
 
-    def test_update_title(
-        self, book_repo: BookRepository, sample_book: Book
-    ):
+    def test_update_title(self, book_repo: BookRepository, sample_book: Book):
         """update() with title should change title and leave authors unchanged."""
         book_repo.add(sample_book)
 
@@ -304,9 +292,7 @@ class TestBookRepositoryUpdate:
         assert updated.title == "New Title"
         assert updated.authors == sample_book.authors
 
-    def test_update_authors(
-        self, book_repo: BookRepository, sample_book: Book
-    ):
+    def test_update_authors(self, book_repo: BookRepository, sample_book: Book):
         """update() with authors should change authors and leave title unchanged."""
         book_repo.add(sample_book)
 
@@ -316,9 +302,7 @@ class TestBookRepositoryUpdate:
         assert updated.authors == ["New Author"]
         assert updated.title == sample_book.title
 
-    def test_update_isbn(
-        self, book_repo: BookRepository, sample_book: Book
-    ):
+    def test_update_isbn(self, book_repo: BookRepository, sample_book: Book):
         """update() with isbn should change isbn."""
         book_repo.add(sample_book)
 
@@ -327,39 +311,29 @@ class TestBookRepositoryUpdate:
         assert updated is not None
         assert updated.isbn == "978-0000000000"
 
-    def test_update_multiple_fields(
-        self, book_repo: BookRepository, sample_book: Book
-    ):
+    def test_update_multiple_fields(self, book_repo: BookRepository, sample_book: Book):
         """update() with title + authors should change both."""
         book_repo.add(sample_book)
 
-        updated = book_repo.update(
-            sample_book.id, title="Updated Title", authors=["Alice", "Bob"]
-        )
+        updated = book_repo.update(sample_book.id, title="Updated Title", authors=["Alice", "Bob"])
 
         assert updated is not None
         assert updated.title == "Updated Title"
         assert updated.authors == ["Alice", "Bob"]
 
-    def test_update_no_fields_raises(
-        self, book_repo: BookRepository, sample_book: Book
-    ):
+    def test_update_no_fields_raises(self, book_repo: BookRepository, sample_book: Book):
         """update() with no fields should raise ValueError."""
         book_repo.add(sample_book)
 
         with pytest.raises(ValueError, match="At least one field"):
             book_repo.update(sample_book.id)
 
-    def test_update_nonexistent_returns_none(
-        self, book_repo: BookRepository
-    ):
+    def test_update_nonexistent_returns_none(self, book_repo: BookRepository):
         """update() for nonexistent book_id should return None."""
         result = book_repo.update("notfnd", title="New Title")
         assert result is None
 
-    def test_update_persists(
-        self, book_repo: BookRepository, sample_book: Book
-    ):
+    def test_update_persists(self, book_repo: BookRepository, sample_book: Book):
         """update() changes should persist (verified by separate get)."""
         book_repo.add(sample_book)
 
@@ -780,6 +754,7 @@ class TestEpubPath:
         """Existing database without epub_path column should get it after init_db."""
         # Create old-style DB without epub_path
         import sqlite3
+
         db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(db_path)
         conn.execute("""
@@ -847,12 +822,15 @@ class TestEpubPath:
             epub_path="/path/to/test.epub",
         )
 
-        with patch("mnemo.mcp.tools._get_book_repo") as mock_repo, \
-             patch("mnemo.mcp.tools.ChunkRepository") as mock_chunk_cls:
+        with (
+            patch("mnemo.mcp.tools._get_book_repo") as mock_repo,
+            patch("mnemo.mcp.tools.ChunkRepository") as mock_chunk_cls,
+        ):
             mock_repo.return_value.get.return_value = book
             mock_chunk_cls.return_value.count_by_book.return_value = 10
             # Need to set _db_connection to avoid issues
             import mnemo.mcp.tools as tools_mod
+
             old_conn = tools_mod._db_connection
             tools_mod._db_connection = MagicMock()
             try:

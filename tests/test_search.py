@@ -43,19 +43,19 @@ class TestReciprocalRankFusion:
         scores = reciprocal_rank_fusion([["a", "b", "c"]])
 
         # Score formula: 1/(k+rank) where k=60
-        assert abs(scores["a"] - 1/61) < 1e-9  # rank 1
-        assert abs(scores["b"] - 1/62) < 1e-9  # rank 2
-        assert abs(scores["c"] - 1/63) < 1e-9  # rank 3
+        assert abs(scores["a"] - 1 / 61) < 1e-9  # rank 1
+        assert abs(scores["b"] - 1 / 62) < 1e-9  # rank 2
+        assert abs(scores["c"] - 1 / 63) < 1e-9  # rank 3
 
     def test_disjoint_lists(self):
         """Items in disjoint lists get independent scores."""
         scores = reciprocal_rank_fusion([["a", "b"], ["c", "d"]])
 
         # All items ranked 1 or 2 in their list
-        assert abs(scores["a"] - 1/61) < 1e-9
-        assert abs(scores["b"] - 1/62) < 1e-9
-        assert abs(scores["c"] - 1/61) < 1e-9
-        assert abs(scores["d"] - 1/62) < 1e-9
+        assert abs(scores["a"] - 1 / 61) < 1e-9
+        assert abs(scores["b"] - 1 / 62) < 1e-9
+        assert abs(scores["c"] - 1 / 61) < 1e-9
+        assert abs(scores["d"] - 1 / 62) < 1e-9
 
     def test_overlapping_items_score_higher(self):
         """Items in both lists score higher than items in one list."""
@@ -73,7 +73,7 @@ class TestReciprocalRankFusion:
         scores = reciprocal_rank_fusion([["x", "y"], ["y", "z"]])
 
         # y is rank 2 in list 1, rank 1 in list 2
-        expected_y = 1/62 + 1/61
+        expected_y = 1 / 62 + 1 / 61
         assert abs(scores["y"] - expected_y) < 1e-9
 
     def test_custom_k_parameter(self):
@@ -81,15 +81,15 @@ class TestReciprocalRankFusion:
         k = 30
         scores = reciprocal_rank_fusion([["a", "b"]], k=k)
 
-        assert abs(scores["a"] - 1/31) < 1e-9  # k + rank
-        assert abs(scores["b"] - 1/32) < 1e-9
+        assert abs(scores["a"] - 1 / 31) < 1e-9  # k + rank
+        assert abs(scores["b"] - 1 / 32) < 1e-9
 
     def test_k_zero_allowed(self):
         """k=0 is allowed (just uses rank as denominator)."""
         scores = reciprocal_rank_fusion([["a", "b"]], k=0)
 
-        assert abs(scores["a"] - 1/1) < 1e-9  # 0 + 1
-        assert abs(scores["b"] - 1/2) < 1e-9  # 0 + 2
+        assert abs(scores["a"] - 1 / 1) < 1e-9  # 0 + 1
+        assert abs(scores["b"] - 1 / 2) < 1e-9  # 0 + 2
 
     def test_negative_k_raises(self):
         """Negative k raises ValueError."""
@@ -101,16 +101,18 @@ class TestReciprocalRankFusion:
         scores = reciprocal_rank_fusion([["a"], ["a"], ["a"]])
 
         # "a" is rank 1 in all three lists
-        expected = 3 * (1/61)
+        expected = 3 * (1 / 61)
         assert abs(scores["a"] - expected) < 1e-9
 
     def test_preserves_chunk_ids(self):
         """All chunk IDs from all lists appear in output."""
-        scores = reciprocal_rank_fusion([
-            ["id-1", "id-2"],
-            ["id-3", "id-4"],
-            ["id-1", "id-5"],
-        ])
+        scores = reciprocal_rank_fusion(
+            [
+                ["id-1", "id-2"],
+                ["id-3", "id-4"],
+                ["id-1", "id-5"],
+            ]
+        )
 
         assert set(scores.keys()) == {"id-1", "id-2", "id-3", "id-4", "id-5"}
 
@@ -295,9 +297,7 @@ class TestSearchServiceMocked:
         return embedder
 
     @pytest.fixture
-    def service_with_mocks(
-        self, mock_chunk_repo, mock_book_repo, mock_vector_store, mock_embedder
-    ):
+    def service_with_mocks(self, mock_chunk_repo, mock_book_repo, mock_vector_store, mock_embedder):
         """Create service with injected mocks."""
         service = SearchService()
         service._chunk_repo = mock_chunk_repo
@@ -306,9 +306,7 @@ class TestSearchServiceMocked:
         service._embedder = mock_embedder
         return service
 
-    def test_keyword_mode_calls_fts(
-        self, service_with_mocks, mock_chunk_repo
-    ):
+    def test_keyword_mode_calls_fts(self, service_with_mocks, mock_chunk_repo):
         """Keyword mode calls FTS search."""
         service_with_mocks.search("test query", mode="keyword")
 
@@ -316,9 +314,7 @@ class TestSearchServiceMocked:
         call_args = mock_chunk_repo.search_fts.call_args
         assert call_args.kwargs["query"] == "test query"
 
-    def test_keyword_mode_passes_filters(
-        self, service_with_mocks, mock_chunk_repo
-    ):
+    def test_keyword_mode_passes_filters(self, service_with_mocks, mock_chunk_repo):
         """Keyword mode passes book_id and content_type filters."""
         service_with_mocks.search(
             "test",
@@ -331,25 +327,19 @@ class TestSearchServiceMocked:
         assert call_args.kwargs["book_id"] == "abc123"
         assert call_args.kwargs["content_type"] == ContentType.CODE
 
-    def test_semantic_mode_calls_embedder(
-        self, service_with_mocks, mock_embedder
-    ):
+    def test_semantic_mode_calls_embedder(self, service_with_mocks, mock_embedder):
         """Semantic mode generates query embedding."""
         service_with_mocks.search("test query", mode="semantic")
 
         mock_embedder.embed_one.assert_called_once_with("test query")
 
-    def test_semantic_mode_calls_vector_store(
-        self, service_with_mocks, mock_vector_store
-    ):
+    def test_semantic_mode_calls_vector_store(self, service_with_mocks, mock_vector_store):
         """Semantic mode queries vector store."""
         service_with_mocks.search("test query", mode="semantic")
 
         mock_vector_store.query.assert_called_once()
 
-    def test_semantic_mode_passes_filters(
-        self, service_with_mocks, mock_vector_store
-    ):
+    def test_semantic_mode_passes_filters(self, service_with_mocks, mock_vector_store):
         """Semantic mode passes filters to vector store."""
         service_with_mocks.search(
             "test",
@@ -412,9 +402,7 @@ class TestSearchServiceMocked:
         vector_call = mock_vector_store.query.call_args
         assert vector_call.kwargs["n_results"] == 20
 
-    def test_top_k_passed_to_fts(
-        self, service_with_mocks, mock_chunk_repo
-    ):
+    def test_top_k_passed_to_fts(self, service_with_mocks, mock_chunk_repo):
         """top_k is passed to FTS limit parameter."""
         # FTS returns whatever limit is set (5 in this case)
         mock_chunks = []
@@ -438,9 +426,7 @@ class TestSearchServiceMocked:
         call_args = mock_chunk_repo.search_fts.call_args
         assert call_args.kwargs["limit"] == 5
 
-    def test_book_title_populated(
-        self, service_with_mocks, mock_chunk_repo, mock_book_repo
-    ):
+    def test_book_title_populated(self, service_with_mocks, mock_chunk_repo, mock_book_repo):
         """Search results include book title."""
         # Create mock chunk
         mock_chunk = MagicMock(
@@ -461,9 +447,7 @@ class TestSearchServiceMocked:
         assert len(results) == 1
         assert results[0].book_title == "Python Cookbook"
 
-    def test_book_title_cached(
-        self, service_with_mocks, mock_chunk_repo, mock_book_repo
-    ):
+    def test_book_title_cached(self, service_with_mocks, mock_chunk_repo, mock_book_repo):
         """Book title lookup is cached."""
         # Create multiple chunks from same book
         mock_chunks = [
@@ -487,9 +471,7 @@ class TestSearchServiceMocked:
         # Book lookup should only be called once (cached)
         mock_book_repo.get.assert_called_once_with("abc123")
 
-    def test_unknown_book_title_fallback(
-        self, service_with_mocks, mock_chunk_repo, mock_book_repo
-    ):
+    def test_unknown_book_title_fallback(self, service_with_mocks, mock_chunk_repo, mock_book_repo):
         """Unknown book_id gets 'Unknown book' title."""
         mock_chunk = MagicMock(
             id="chunk-1",
@@ -529,9 +511,7 @@ class TestSearchServiceMocked:
         assert len(results) == 1
         assert results[0].source == "keyword"
 
-    def test_invalid_content_type_ignored(
-        self, service_with_mocks, mock_chunk_repo
-    ):
+    def test_invalid_content_type_ignored(self, service_with_mocks, mock_chunk_repo):
         """Invalid content_type filter is ignored with warning."""
         service_with_mocks.search(
             "test",
@@ -582,9 +562,7 @@ class TestSemanticSearchCosineScores:
         svc._embedder = mock_embedder
         return svc
 
-    def test_semantic_score_is_cosine_similarity(
-        self, service, mock_vector_store, mock_chunk_repo
-    ):
+    def test_semantic_score_is_cosine_similarity(self, service, mock_vector_store, mock_chunk_repo):
         """Semantic search score = max(0, 1 - distance) for cosine distance."""
         # ChromaDB cosine distance of 0.3 -> similarity of 0.7
         mock_vector_store.query.return_value = [
@@ -605,9 +583,7 @@ class TestSemanticSearchCosineScores:
         assert len(results) == 1
         assert abs(results[0].score - 0.7) < 1e-6
 
-    def test_semantic_score_clamped_to_zero(
-        self, service, mock_vector_store, mock_chunk_repo
-    ):
+    def test_semantic_score_clamped_to_zero(self, service, mock_vector_store, mock_chunk_repo):
         """Cosine similarity is clamped to 0.0 minimum."""
         # Distance > 1.0 can happen with non-normalized vectors
         mock_vector_store.query.return_value = [
@@ -627,9 +603,7 @@ class TestSemanticSearchCosineScores:
 
         assert results[0].score == 0.0
 
-    def test_semantic_score_clamped_to_one(
-        self, service, mock_vector_store, mock_chunk_repo
-    ):
+    def test_semantic_score_clamped_to_one(self, service, mock_vector_store, mock_chunk_repo):
         """Cosine similarity is clamped to 1.0 maximum."""
         # Distance of exactly 0 -> similarity of 1.0
         mock_vector_store.query.return_value = [
@@ -649,9 +623,7 @@ class TestSemanticSearchCosineScores:
 
         assert results[0].score == 1.0
 
-    def test_keyword_search_still_uses_rrf_scores(
-        self, service, mock_chunk_repo
-    ):
+    def test_keyword_search_still_uses_rrf_scores(self, service, mock_chunk_repo):
         """Keyword search results still use RRF-style ranking scores."""
         mock_chunks = [
             MagicMock(
@@ -859,7 +831,6 @@ class TestSearchServiceIntegration:
         assert results == []
 
 
-
 # ============================================================================
 # RRF Integration Tests
 # ============================================================================
@@ -1032,12 +1003,8 @@ class TestSectionFilter:
         Also tests cross-level matching: filtering by 'Chapter 5 > Section'
         matches the same chunk via the join separator.
         """
-        deep_chunk = self._make_chunk(
-            "deep", ["Part II", "Chapter 5", "Section 5.1"]
-        )
-        unrelated_chunk = self._make_chunk(
-            "unrelated", ["Part I", "Chapter 1", "Introduction"]
-        )
+        deep_chunk = self._make_chunk("deep", ["Part II", "Chapter 5", "Section 5.1"])
+        unrelated_chunk = self._make_chunk("unrelated", ["Part I", "Chapter 1", "Introduction"])
         mock_chunk_repo.search_fts.return_value = [deep_chunk, unrelated_chunk]
 
         # Filtering by parent section name matches subsection chunks
@@ -1188,10 +1155,7 @@ class TestContextWindow:
         """context_window=1 returns each result expanded with neighboring chunks."""
         # Setup: chunks seq 0-4, all same section
         section = ["Part 1", "Section A"]
-        chunks = [
-            self._make_chunk(f"c{i}", "abc123", i, section)
-            for i in range(5)
-        ]
+        chunks = [self._make_chunk(f"c{i}", "abc123", i, section) for i in range(5)]
 
         # Search returns chunk at seq=2
         search_chunk = MagicMock(
@@ -1255,10 +1219,7 @@ class TestContextWindow:
     def test_context_window_dedup_overlapping(self, service, mock_chunk_repo):
         """Two results with overlapping windows are merged into one block."""
         section = ["Part 1", "Section A"]
-        chunks = [
-            self._make_chunk(f"c{i}", "abc123", i, section)
-            for i in range(8)
-        ]
+        chunks = [self._make_chunk(f"c{i}", "abc123", i, section) for i in range(8)]
 
         # Search returns chunks at seq=3 and seq=5, window=2
         search_chunks = [
@@ -1303,10 +1264,7 @@ class TestContextWindow:
     def test_context_window_preserves_match_markers(self, service, mock_chunk_repo):
         """After dedup, matched_chunk_ids contains the original match IDs."""
         section = ["Part 1", "Section A"]
-        chunks = [
-            self._make_chunk(f"c{i}", "abc123", i, section)
-            for i in range(6)
-        ]
+        chunks = [self._make_chunk(f"c{i}", "abc123", i, section) for i in range(6)]
 
         search_chunks = [
             MagicMock(
@@ -1485,8 +1443,8 @@ class TestHybridSemanticQualityGate:
 
         # Setup vector results: one good, one bad
         service._vector_store.query.return_value = [
-            {"id": "c1", "distance": 0.5},   # good: similarity 0.5
-            {"id": "c2", "distance": 1.5},   # bad: similarity -0.5
+            {"id": "c1", "distance": 0.5},  # good: similarity 0.5
+            {"id": "c2", "distance": 1.5},  # bad: similarity -0.5
         ]
 
         service._chunk_repo.get.return_value = mock_chunk
