@@ -327,10 +327,14 @@ class SearchService:
             section=section,
         )
 
+        # Compute RRF-style scores and normalize to 0-1 range
+        raw_scores = [1.0 / (60 + rank) for rank in range(1, len(chunks) + 1)]
+        max_score = raw_scores[0] if raw_scores else 0.0
+
         results = []
-        for rank, chunk in enumerate(chunks, start=1):
+        for i, chunk in enumerate(chunks):
             book_title = self._get_book_title(chunk.book_id)
-            score = 1.0 / (60 + rank)  # RRF-style score for consistency
+            score = raw_scores[i] / max_score if max_score > 0 else 0.0
             results.append(
                 SearchResult(
                     chunk_id=chunk.id,

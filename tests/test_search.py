@@ -623,8 +623,8 @@ class TestSemanticSearchCosineScores:
 
         assert results[0].score == 1.0
 
-    def test_keyword_search_still_uses_rrf_scores(self, service, mock_chunk_repo):
-        """Keyword search results still use RRF-style ranking scores."""
+    def test_keyword_search_scores_normalized(self, service, mock_chunk_repo):
+        """Keyword search results are normalized to 0-1 range."""
         mock_chunks = [
             MagicMock(
                 id=f"chunk-{i}",
@@ -640,10 +640,13 @@ class TestSemanticSearchCosineScores:
 
         results = service.search("test", mode="keyword")
 
-        # Should be RRF-style: 1/(60+rank)
-        assert abs(results[0].score - 1.0 / 61) < 1e-9
-        assert abs(results[1].score - 1.0 / 62) < 1e-9
-        assert abs(results[2].score - 1.0 / 63) < 1e-9
+        # Top result should always score 1.0 after normalization
+        assert results[0].score == 1.0
+        # Subsequent results should be proportionally lower
+        assert abs(results[1].score - (1.0 / 62) / (1.0 / 61)) < 1e-9  # 61/62
+        assert abs(results[2].score - (1.0 / 63) / (1.0 / 61)) < 1e-9  # 61/63
+        # All scores should be in 0-1 range
+        assert all(0.0 <= r.score <= 1.0 for r in results)
 
 
 # ============================================================================
