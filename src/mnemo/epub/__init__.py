@@ -18,9 +18,9 @@ from bs4 import XMLParsedAsHTMLWarning
 
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
-from mnemo.epub.content import ContentBlock, extract_content
-from mnemo.epub.metadata import extract_metadata
-from mnemo.epub.parser import EPUBParser
+from mnemo.epub.content import ContentBlock, extract_content  # noqa: E402
+from mnemo.epub.metadata import extract_metadata  # noqa: E402
+from mnemo.epub.parser import EPUBParser  # noqa: E402
 
 __all__ = [
     "EPUBParser",

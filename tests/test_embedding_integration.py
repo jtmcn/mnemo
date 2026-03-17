@@ -88,13 +88,15 @@ class TestEmbedBook:
         db_path = tmp_path / "test.db"
         init_db(db_path)  # Initialize empty database
 
-        with patch("mnemo.embeddings.DatabricksEmbedder"):
-            with pytest.raises(ValueError, match="No chunks found"):
-                embed_book(
-                    "nonexistent",
-                    db_path=db_path,
-                    chroma_path=tmp_path / "chroma",
-                )
+        with (
+            patch("mnemo.embeddings.DatabricksEmbedder"),
+            pytest.raises(ValueError, match="No chunks found"),
+        ):
+            embed_book(
+                "nonexistent",
+                db_path=db_path,
+                chroma_path=tmp_path / "chroma",
+            )
 
     def test_embed_book_reembeds_cleanly(self, db_with_book):
         """Re-embedding deletes old vectors first."""

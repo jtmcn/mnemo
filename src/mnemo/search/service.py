@@ -461,9 +461,12 @@ class SearchService:
         semantic_set = set(semantic_ids)
         keyword_top = set(keyword_ids[:top_k])
         for chunk_id in list(rrf_scores.keys()):
-            if chunk_id in keyword_set and chunk_id not in semantic_set:
-                if chunk_id not in keyword_top:
-                    del rrf_scores[chunk_id]
+            if (
+                chunk_id in keyword_set
+                and chunk_id not in semantic_set
+                and chunk_id not in keyword_top
+            ):
+                del rrf_scores[chunk_id]
 
         # Normalize RRF scores to 0-1 range for readable display
         max_rrf = max(rrf_scores.values()) if rrf_scores else 0.0
