@@ -8,3 +8,9 @@ hooks = [
   { id = "trailing-whitespace" },
   { id = "end-of-file-fixer" },
 ]
+
+[[repos]]
+repo = "local"
+hooks = [
+  { id = "make-all", name = "make all", entry = "make all", language = "system", pass_filenames = false, always_run = true },
+]
