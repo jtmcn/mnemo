@@ -348,8 +348,8 @@ class ChunkRepository:
             # Normalize Unicode for accent-insensitive matching
             nfkd = unicodedata.normalize("NFKD", section)
             section_normalized = "".join(c for c in nfkd if not unicodedata.combining(c))
-            sql += " AND c.section_path LIKE ?"
-            params.append(f"%{section_normalized}%")
+            sql += " AND LOWER(c.section_path) LIKE ?"
+            params.append(f"%{section_normalized.lower()}%")
 
         sql += " ORDER BY rank LIMIT ?"
         params.append(limit)

@@ -636,6 +636,30 @@ _KNOWN_LANGUAGES = {
 }
 
 
+MATHML_ELEMENTS = frozenset(
+    {
+        "mi",
+        "mo",
+        "mn",
+        "mrow",
+        "msup",
+        "msub",
+        "mfrac",
+        "mover",
+        "munder",
+        "msqrt",
+        "mroot",
+        "mtext",
+        "mspace",
+        "mtable",
+        "mtr",
+        "mtd",
+        "mpadded",
+        "mstyle",
+    }
+)
+
+
 def _extract_math(element: Tag) -> str:
     """Extract math content from element.
 
@@ -649,12 +673,22 @@ def _extract_math(element: Tag) -> str:
     """
     tag_name = element.name.lower() if element.name else ""
 
-    # For MathML, return the raw markup
+    # MathML root element — return raw markup
     if tag_name == "math":
         return str(element)
 
-    # For other elements, return text content
-    return element.get_text()
+    # Wrapper containing a <math> element — extract it
+    math_root = element.find("math")
+    if math_root:
+        return str(math_root)
+
+    # Bare MathML presentation elements without <math> wrapper —
+    # return raw markup to preserve structure
+    if element.find(list(MATHML_ELEMENTS)):
+        return str(element)
+
+    # LaTeX or plain-text math — concatenate without extra spaces
+    return element.get_text(separator="")
 
 
 def _table_to_text(table: Tag) -> str:
