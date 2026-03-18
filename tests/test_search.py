@@ -16,7 +16,7 @@ import pytest
 
 from mnemo.models import Book, Chunk, ContentType
 from mnemo.search import SearchFilter, SearchResult, reciprocal_rank_fusion
-from mnemo.search.service import SearchService
+from mnemo.search.service import BACKMATTER_PENALTY, SearchService, _section_matches
 from mnemo.storage.database import get_connection, init_db
 from mnemo.storage.repository import BookRepository, ChunkRepository
 
@@ -1718,3 +1718,84 @@ class TestKeywordNoiseFiltering:
         # kw10, kw15 etc. should not appear (they're keyword-only and low-ranked)
         assert "kw10" not in result_ids
         assert "kw15" not in result_ids
+
+
+# ============================================================================
+# Section Matching Tests
+# ============================================================================
+
+
+class TestSectionMatches:
+    """Tests for _section_matches helper."""
+
+    def test_chapter_with_dotted_suffix(self):
+        """'Chapter 6' matches 'Chapter 6.Enriching Knowledge Graphs'."""
+        assert _section_matches("chapter 6", "chapter 6.enriching knowledge graphs")
+
+    def test_chapter_does_not_match_longer_number(self):
+        """'Chapter 6' must NOT match 'Chapter 60'."""
+        assert not _section_matches("chapter 6", "chapter 60")
+
+    def test_section_with_colon_suffix(self):
+        """'Section 12' matches 'Section 12: Advanced Topics'."""
+        assert _section_matches("section 12", "section 12: advanced topics")
+
+    def test_plain_substring_still_works(self):
+        """Plain substring match still works for non-digit-ending queries."""
+        assert _section_matches("generators", "chapter 5 > generators")
+
+    def test_exact_match(self):
+        """Exact match works."""
+        assert _section_matches("chapter 6", "chapter 6")
+
+
+# ============================================================================
+# Backmatter Penalty Tests
+# ============================================================================
+
+
+class TestBackmatterPenalty:
+    """Tests for _apply_backmatter_penalty."""
+
+    def _make_result(self, section_path: list[str], score: float = 1.0) -> SearchResult:
+        return SearchResult(
+            chunk_id="test",
+            book_id="abc123",
+            book_title="Test",
+            content="content",
+            content_type="text",
+            section_path=section_path,
+            score=score,
+            source="keyword",
+            sequence=0,
+        )
+
+    def test_index_section_penalized(self):
+        """Result with section_path ['Index', 'S'] gets penalized."""
+        r = self._make_result(["Index", "S"], score=1.0)
+        results = SearchService._apply_backmatter_penalty([r])
+        assert results[0].score == pytest.approx(BACKMATTER_PENALTY)
+
+    def test_building_an_index_not_penalized(self):
+        """'Building an Index' is a chapter title, not backmatter."""
+        r = self._make_result(["Chapter 5", "Building an Index"], score=1.0)
+        results = SearchService._apply_backmatter_penalty([r])
+        assert results[0].score == pytest.approx(1.0)
+
+    def test_appendix_penalized(self):
+        """Result with section_path ['Appendix A'] is penalized."""
+        r = self._make_result(["Appendix A"], score=1.0)
+        results = SearchService._apply_backmatter_penalty([r])
+        assert results[0].score == pytest.approx(BACKMATTER_PENALTY)
+
+    def test_bibliography_penalized(self):
+        """Result with section_path ['Bibliography'] is penalized."""
+        r = self._make_result(["Bibliography"], score=1.0)
+        results = SearchService._apply_backmatter_penalty([r])
+        assert results[0].score == pytest.approx(BACKMATTER_PENALTY)
+
+    def test_normal_chapter_not_penalized(self):
+        """Normal chapter content is not penalized."""
+        r = self._make_result(["Chapter 3", "Graphs"], score=1.0)
+        results = SearchService._apply_backmatter_penalty([r])
+        assert results[0].score == pytest.approx(1.0)

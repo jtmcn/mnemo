@@ -5,9 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from bs4 import BeautifulSoup, Tag
 
 from mnemo.epub import EPUBParser
-from mnemo.epub.content import ContentBlock
+from mnemo.epub.content import ContentBlock, _extract_math
 from mnemo.epub.metadata import extract_metadata, normalize_isbn
 from mnemo.models import Book, ContentType
 from tests.fixtures.epub_factory import (
@@ -330,3 +331,44 @@ class TestEPUBParser:
         from mnemo.epub import EPUBParser
 
         assert EPUBParser is not None
+
+
+# ============================================================================
+# Math Extraction Tests
+# ============================================================================
+
+
+def _make_tag(html: str) -> Tag:
+    """Parse HTML fragment and return the first tag."""
+    soup = BeautifulSoup(html, "html.parser")
+    return next(soup.children)
+
+
+class TestExtractMath:
+    """Tests for _extract_math function."""
+
+    def test_wrapper_with_math_element(self) -> None:
+        """Div wrapping a <math> element returns the <math> markup."""
+        tag = _make_tag('<div class="math"><math><mrow><mi>x</mi></mrow></math></div>')
+        result = _extract_math(tag)
+        assert result == "<math><mrow><mi>x</mi></mrow></math>"
+
+    def test_bare_mathml_elements_return_raw_markup(self) -> None:
+        """Span with bare MathML elements returns raw markup, not spaced text."""
+        tag = _make_tag('<span class="math"><mi>d</mi><mi>o</mi><mi>t</mi></span>')
+        result = _extract_math(tag)
+        # Should preserve markup, not produce "d o t"
+        assert "<mi>" in result
+        assert "d o t" not in result
+
+    def test_latex_math_no_extra_spaces(self) -> None:
+        """Plain LaTeX text is concatenated without extra spaces."""
+        tag = _make_tag('<span class="math">$x^2$</span>')
+        result = _extract_math(tag)
+        assert result == "$x^2$"
+
+    def test_math_root_element(self) -> None:
+        """A <math> element itself returns raw markup."""
+        tag = _make_tag("<math><mi>y</mi></math>")
+        result = _extract_math(tag)
+        assert result == "<math><mi>y</mi></math>"

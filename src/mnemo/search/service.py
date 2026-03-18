@@ -9,6 +9,7 @@ Provides a unified search interface that:
 from __future__ import annotations
 
 import logging
+import re
 import unicodedata
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -22,6 +23,34 @@ if TYPE_CHECKING:
     from mnemo.vectors.store import VectorStore
 
 logger = logging.getLogger(__name__)
+
+BACKMATTER_SECTIONS = frozenset(
+    {
+        "index",
+        "bibliography",
+        "glossary",
+        "colophon",
+        "about the authors",
+        "about the author",
+        "references",
+        "further reading",
+    }
+)
+BACKMATTER_PENALTY = 0.3
+
+
+def _section_matches(query_norm: str, target_norm: str) -> bool:
+    """Check if a section query matches a target section path string.
+
+    When the query ends with a digit, uses regex with a word boundary to
+    prevent "Chapter 6" from matching "Chapter 60". Otherwise falls back
+    to plain substring match.
+    """
+    if not query_norm:
+        return False
+    if query_norm[-1].isdigit():
+        return bool(re.search(re.escape(query_norm) + r"(?=[\W.]|$)", target_norm))
+    return query_norm in target_norm
 
 
 def normalize_unicode(s: str) -> str:
@@ -143,13 +172,17 @@ class SearchService:
                 query, fetch_k, book_id, content_type, content_type_enum, section
             )
 
+        # Apply backmatter penalty before filtering/trimming
+        results = self._apply_backmatter_penalty(results)
+
         # Apply section post-filter (with Unicode normalization for accented names)
         if section:
             section_norm = normalize_unicode(section)
             results = [
                 r
                 for r in results
-                if r.section_path and section_norm in normalize_unicode(" > ".join(r.section_path))
+                if r.section_path
+                and _section_matches(section_norm, normalize_unicode(" > ".join(r.section_path)))
             ]
 
         # Cross-book diversity re-ranking (only when not filtering to a single book)
@@ -568,6 +601,24 @@ class SearchService:
                 diversified.append(groups[bid].pop(0))
 
         return diversified
+
+    @staticmethod
+    def _apply_backmatter_penalty(results: list[SearchResult]) -> list[SearchResult]:
+        """Demote back-matter pages (index, bibliography, etc.) in search results.
+
+        Multiplies scores by BACKMATTER_PENALTY for results whose section_path
+        contains a known back-matter section, then re-sorts by score.
+        """
+        for r in results:
+            if not r.section_path:
+                continue
+            for element in r.section_path:
+                el_lower = element.lower()
+                if el_lower in BACKMATTER_SECTIONS or el_lower.startswith("appendix"):
+                    r.score *= BACKMATTER_PENALTY
+                    break
+        results.sort(key=lambda r: r.score, reverse=True)
+        return results
 
     def _ensure_initialized(self) -> None:
         """Lazy initialization of database connections and vector store."""
