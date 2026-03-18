@@ -46,6 +46,7 @@ def add(
         typer.Argument(
             help="EPUB file(s) to add",
             exists=False,  # We validate manually for better error messages
+            readable=False,  # Avoid os.access() which fails on macOS TCC-protected dirs
         ),
     ],
     verbose: Annotated[
