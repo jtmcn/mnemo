@@ -160,6 +160,151 @@ class TestMigrateCosine:
         assert "migrate-cosine" in result.stdout
 
 
+class TestReindex:
+    """Tests for the reindex command."""
+
+    def test_reindex_help(self) -> None:
+        """Reindex command help shows description."""
+        result = runner.invoke(app, ["reindex", "--help"])
+        assert result.exit_code == 0
+        assert "re-index" in result.stdout.lower() or "reindex" in result.stdout.lower()
+
+    def test_main_help_includes_reindex(self) -> None:
+        """Main help shows reindex command."""
+        result = runner.invoke(app, ["--help"])
+        assert result.exit_code == 0
+        assert "reindex" in result.stdout
+
+    @patch("mnemo.ingest.reindex_all_books")
+    @patch("mnemo.storage.BookRepository.list_all")
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    def test_reindex_no_books(self, mock_init, mock_conn, mock_list, mock_reindex) -> None:
+        """Reindex with no books reports empty library."""
+        mock_list.return_value = []
+        result = runner.invoke(app, ["reindex"])
+        assert result.exit_code == 0
+        assert "no books" in result.stdout.lower()
+        mock_reindex.assert_not_called()
+
+    @patch("mnemo.ingest.reindex_all_books")
+    @patch("mnemo.storage.BookRepository.list_all")
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    def test_reindex_no_books_json(self, mock_init, mock_conn, mock_list, mock_reindex) -> None:
+        """Reindex --json with no books returns empty results."""
+        mock_list.return_value = []
+        result = runner.invoke(app, ["reindex", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["results"] == []
+        assert data["success"] == 0
+
+    @patch("mnemo.ingest.reindex_all_books")
+    @patch("mnemo.storage.BookRepository.list_all")
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    def test_reindex_success(self, mock_init, mock_conn, mock_list, mock_reindex) -> None:
+        """Reindex reports success count."""
+        mock_book = MagicMock()
+        mock_list.return_value = [mock_book]
+        mock_reindex.return_value = [
+            {
+                "book_id": "abc123",
+                "title": "Test Book",
+                "status": "success",
+                "chunks": 50,
+                "error": None,
+            },
+        ]
+        result = runner.invoke(app, ["reindex"])
+        assert result.exit_code == 0
+        assert "1 succeeded" in result.stdout
+
+    @patch("mnemo.ingest.reindex_all_books")
+    @patch("mnemo.storage.BookRepository.list_all")
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    def test_reindex_json_output(self, mock_init, mock_conn, mock_list, mock_reindex) -> None:
+        """Reindex --json returns structured results."""
+        mock_book = MagicMock()
+        mock_list.return_value = [mock_book]
+        mock_reindex.return_value = [
+            {
+                "book_id": "abc123",
+                "title": "Test",
+                "status": "success",
+                "chunks": 50,
+                "error": None,
+            },
+            {
+                "book_id": "def456",
+                "title": "Missing",
+                "status": "skipped",
+                "chunks": 0,
+                "error": "EPUB file not found",
+            },
+        ]
+        result = runner.invoke(app, ["reindex", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["success"] == 1
+        assert data["skipped"] == 1
+        assert data["failed"] == 0
+        assert len(data["results"]) == 2
+
+    @patch("mnemo.ingest.reindex_all_books")
+    @patch("mnemo.storage.BookRepository.list_all")
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    def test_reindex_verbose(self, mock_init, mock_conn, mock_list, mock_reindex) -> None:
+        """Reindex --verbose shows per-book details."""
+        mock_book = MagicMock()
+        mock_list.return_value = [mock_book]
+        mock_reindex.return_value = [
+            {
+                "book_id": "abc123",
+                "title": "Good Book",
+                "status": "success",
+                "chunks": 50,
+                "error": None,
+            },
+            {
+                "book_id": "def456",
+                "title": "Gone Book",
+                "status": "skipped",
+                "chunks": 0,
+                "error": "EPUB file not found",
+            },
+        ]
+        result = runner.invoke(app, ["reindex", "--verbose"])
+        assert result.exit_code == 0
+        assert "Good Book" in result.stdout
+        assert "Gone Book" in result.stdout
+
+    @patch("mnemo.ingest.reindex_all_books")
+    @patch("mnemo.storage.BookRepository.list_all")
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    def test_reindex_failure_exits_nonzero(
+        self, mock_init, mock_conn, mock_list, mock_reindex
+    ) -> None:
+        """Reindex exits with code 1 when any book fails."""
+        mock_book = MagicMock()
+        mock_list.return_value = [mock_book]
+        mock_reindex.return_value = [
+            {
+                "book_id": "abc123",
+                "title": "Bad Book",
+                "status": "failed",
+                "chunks": 0,
+                "error": "parse error",
+            },
+        ]
+        result = runner.invoke(app, ["reindex"])
+        assert result.exit_code == 1
+
+
 class TestSearch:
     """Tests for the search command."""
 

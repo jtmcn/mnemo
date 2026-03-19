@@ -304,6 +304,87 @@ def search(
         console.print()
 
 
+@app.command()
+def reindex(
+    verbose: Annotated[
+        bool,
+        typer.Option("--verbose", "-v", help="Show per-book details"),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output as JSON"),
+    ] = False,
+) -> None:
+    """Re-index all books in the library.
+
+    Re-parses EPUBs, re-chunks content, and regenerates embeddings for every
+    book. Useful after upgrading mnemo's chunking or embedding pipeline.
+    Books whose EPUB files are missing are skipped.
+    """
+    from mnemo.ingest import reindex_all_books
+    from mnemo.storage import BookRepository, get_connection, init_db
+
+    # Check if there are any books first
+    init_db()
+    conn = get_connection()
+    book_repo = BookRepository(conn)
+    books = book_repo.list_all()
+    conn.close()
+
+    if not books:
+        if json_output:
+            print(json.dumps({"results": [], "success": 0, "skipped": 0, "failed": 0}))
+        else:
+            console.print("No books to reindex")
+        return
+
+    if not json_output:
+        console.print(f"Reindexing {len(books)} book(s)...")
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+        disable=json_output,
+    ) as progress:
+        progress.add_task(description="Reindexing all books...", total=None)
+        results = reindex_all_books(embed=True)
+
+    success = sum(1 for r in results if r["status"] == "success")
+    skipped = sum(1 for r in results if r["status"] == "skipped")
+    failed = sum(1 for r in results if r["status"] == "failed")
+
+    if json_output:
+        print(
+            json.dumps(
+                {"results": results, "success": success, "skipped": skipped, "failed": failed}
+            )
+        )
+        return
+
+    if verbose:
+        for r in results:
+            if r["status"] == "success":
+                console.print(
+                    f"  [green]OK[/green] {r['title']} ({r['book_id']}) - {r['chunks']} chunks"
+                )
+            elif r["status"] == "skipped":
+                console.print(
+                    f"  [yellow]SKIP[/yellow] {r['title']} ({r['book_id']}) - {r['error']}"
+                )
+            else:
+                console.print(f"  [red]FAIL[/red] {r['title']} ({r['book_id']}) - {r['error']}")
+
+    console.print(
+        f"[green]{success} succeeded[/green], "
+        f"[yellow]{skipped} skipped[/yellow], "
+        f"[red]{failed} failed[/red]"
+    )
+
+    if failed > 0:
+        raise typer.Exit(1)
+
+
 @app.command(name="migrate-cosine")
 def migrate_cosine(
     json_output: Annotated[

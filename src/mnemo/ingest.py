@@ -180,6 +180,81 @@ def ingest_book(
     return book, len(chunks)
 
 
+def reindex_all_books(
+    db_path: Path | None = None,
+    chroma_path: Path | None = None,
+    chunker_config: ChunkerConfig | None = None,
+    embed: bool = True,
+) -> list[dict]:
+    """Re-ingest all books in the library.
+
+    Iterates over all indexed books, validates their EPUB paths still exist,
+    and re-ingests each with force=True. Useful when the chunking or embedding
+    pipeline has been updated.
+
+    Args:
+        db_path: Database path (default: ~/.mnemo/mnemo.db)
+        chroma_path: ChromaDB path (default: ~/.mnemo/chroma)
+        chunker_config: Chunking configuration override
+        embed: If True, regenerate embeddings (default: True)
+
+    Returns:
+        List of result dicts with keys: book_id, title, status, chunks, error
+    """
+    init_db(db_path)
+    conn = get_connection(db_path)
+    book_repo = BookRepository(conn)
+    books = book_repo.list_all()
+    conn.close()
+
+    results: list[dict] = []
+
+    for book in books:
+        epub_path = book.epub_path
+        if not epub_path or not Path(epub_path).exists():
+            results.append(
+                {
+                    "book_id": book.id,
+                    "title": book.title,
+                    "status": "skipped",
+                    "chunks": 0,
+                    "error": "EPUB file not found" if epub_path else "No EPUB path stored",
+                }
+            )
+            continue
+
+        try:
+            _, chunk_count = ingest_book(
+                Path(epub_path),
+                db_path=db_path,
+                chroma_path=chroma_path,
+                chunker_config=chunker_config,
+                force=True,
+                embed=embed,
+            )
+            results.append(
+                {
+                    "book_id": book.id,
+                    "title": book.title,
+                    "status": "success",
+                    "chunks": chunk_count,
+                    "error": None,
+                }
+            )
+        except Exception as e:
+            results.append(
+                {
+                    "book_id": book.id,
+                    "title": book.title,
+                    "status": "failed",
+                    "chunks": 0,
+                    "error": str(e),
+                }
+            )
+
+    return results
+
+
 def remove_book(
     book_id: str,
     db_path: Path | None = None,
