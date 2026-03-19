@@ -492,6 +492,11 @@ class SearchService:
         # Compute RRF scores
         rrf_scores = reciprocal_rank_fusion([keyword_ids, semantic_ids])
 
+        # Build semantic similarity map for absolute relevance signal
+        semantic_sim_map = {
+            vr["id"]: max(0.0, min(1.0, 1.0 - vr["distance"])) for vr in vector_results
+        }
+
         # Filter keyword-only results that ranked poorly (beyond top_k in keyword list).
         # These are long-tail matches on common words that add noise.
         keyword_set = set(keyword_ids)
@@ -505,10 +510,22 @@ class SearchService:
             ):
                 del rrf_scores[chunk_id]
 
-        # Normalize RRF scores to 0-1 range for readable display
+        # Blend normalized RRF rank with raw semantic similarity so scores
+        # reflect absolute relevance (not just relative ranking).
         max_rrf = max(rrf_scores.values()) if rrf_scores else 0.0
-        if max_rrf > 0:
-            rrf_scores = {k: v / max_rrf for k, v in rrf_scores.items()}
+        for chunk_id in rrf_scores:
+            norm_rrf = rrf_scores[chunk_id] / max_rrf if max_rrf > 0 else 0.0
+            raw_sim = semantic_sim_map.get(chunk_id, 0.0)
+            if raw_sim > 0:
+                rrf_scores[chunk_id] = 0.5 * norm_rrf + 0.5 * raw_sim
+            else:
+                # Keyword-only hit: discount since we can't verify semantic relevance
+                rrf_scores[chunk_id] = 0.4 * norm_rrf
+
+        # Minimum score threshold: if best blended score is very low, the query
+        # is likely gibberish and all results are noise.
+        if rrf_scores and max(rrf_scores.values()) < 0.25:
+            return []
 
         # Sort by score descending and take top_k
         sorted_ids = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)[:top_k]

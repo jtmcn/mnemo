@@ -443,6 +443,41 @@ def _get_book_chunks_impl(
         return f"Error: {e}"
 
 
+def _truncate_at_boundary(content: str, max_chars: int) -> str:
+    """Truncate content at sentence or word boundary instead of mid-word.
+
+    Searches backwards from max_chars for sentence-ending punctuation
+    ('. ', '! ', '? ', '.\\n'). If found within 60% of max_chars, cuts there.
+    Otherwise falls back to last whitespace within 60% of max_chars.
+    Ultimate fallback: hard cut at max_chars.
+
+    Args:
+        content: Full text content
+        max_chars: Maximum character limit
+
+    Returns:
+        Truncated content (without trailing indicator — caller adds that)
+    """
+    if len(content) <= max_chars:
+        return content
+
+    min_pos = int(max_chars * 0.6)
+
+    # Try sentence boundary
+    for end_marker in [". ", "! ", "? ", ".\n"]:
+        pos = content.rfind(end_marker, min_pos, max_chars)
+        if pos != -1:
+            return content[: pos + len(end_marker)].rstrip()
+
+    # Try word boundary
+    pos = content.rfind(" ", min_pos, max_chars)
+    if pos != -1:
+        return content[:pos]
+
+    # Hard cut
+    return content[:max_chars]
+
+
 def _format_search_results(results: list, max_chars: int = 2000) -> str:
     """Format search results as markdown with attribution.
 
@@ -477,8 +512,8 @@ def _format_search_results(results: list, max_chars: int = 2000) -> str:
         content = result.content
         if len(content) > max_chars:
             content = (
-                content[:max_chars]
-                + f"\n\n[truncated at {max_chars} chars"
+                _truncate_at_boundary(content, max_chars)
+                + f"\n\n[truncated at ~{max_chars} chars"
                 + f' — use get_book_chunks(book_id="{result.book_id}",'
                 + f" start_sequence={result.sequence},"
                 + f" end_sequence={result.sequence}) to read full text]"
@@ -529,8 +564,8 @@ def _format_enriched_results(expanded_results: list[dict], max_chars: int = 2000
             content = chunk.content
             if len(content) > max_chars:
                 content = (
-                    content[:max_chars]
-                    + f"\n\n[truncated at {max_chars} chars"
+                    _truncate_at_boundary(content, max_chars)
+                    + f"\n\n[truncated at ~{max_chars} chars"
                     + f' — use get_book_chunks(book_id="{result.book_id}",'
                     + f" start_sequence={chunk.sequence},"
                     + f" end_sequence={chunk.sequence}) to read full text]"
