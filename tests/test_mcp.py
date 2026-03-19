@@ -293,7 +293,7 @@ class TestOutputFormatting:
 
         output = _format_search_results([result])
 
-        assert "[truncated at 2000 chars" in output
+        assert "[truncated at ~2000 chars" in output
         assert "get_book_chunks" in output
 
     def test_format_search_results_empty_section_path(self):
@@ -1813,6 +1813,70 @@ class TestGetBookStructure:
             result = _get_book_structure_impl("abc123")
 
         assert result.startswith("## Learning Python")
+
+
+class TestTruncateAtBoundary:
+    """Tests for _truncate_at_boundary helper."""
+
+    def test_short_content_unchanged(self):
+        """Content shorter than max_chars is returned unchanged."""
+        from mnemo.mcp.tools import _truncate_at_boundary
+
+        text = "Short text."
+        assert _truncate_at_boundary(text, 100) == text
+
+    def test_truncates_at_sentence_boundary(self):
+        """Truncation prefers sentence-ending punctuation."""
+        from mnemo.mcp.tools import _truncate_at_boundary
+
+        text = "First sentence. Second sentence. Third sentence that is very long and goes on."
+        result = _truncate_at_boundary(text, 40)
+        assert result.endswith("Second sentence.")
+
+    def test_truncates_at_word_boundary(self):
+        """When no sentence boundary found, truncates at word boundary."""
+        from mnemo.mcp.tools import _truncate_at_boundary
+
+        # No sentence-ending punctuation within 60%-100% range
+        text = "word " * 100  # 500 chars, no period
+        result = _truncate_at_boundary(text, 50)
+        assert not result.endswith(" ")
+        assert len(result) <= 50
+
+    def test_hard_cut_fallback(self):
+        """When no whitespace found, falls back to hard cut."""
+        from mnemo.mcp.tools import _truncate_at_boundary
+
+        text = "x" * 200  # No spaces or punctuation
+        result = _truncate_at_boundary(text, 100)
+        assert len(result) == 100
+
+    def test_exclamation_boundary(self):
+        """Truncation works with ! sentence endings."""
+        from mnemo.mcp.tools import _truncate_at_boundary
+
+        text = "Wow! That was amazing! And then something else happened in this long text."
+        result = _truncate_at_boundary(text, 30)
+        assert result.endswith("That was amazing!")
+
+    def test_question_boundary(self):
+        """Truncation works with ? sentence endings."""
+        from mnemo.mcp.tools import _truncate_at_boundary
+
+        # "? " at position 42, 60% of 60 = 36, so 42 is within [36, 60]
+        text = (
+            "Here is some padding text to push it along? "
+            "The rest of the content goes on for quite a while here"
+        )
+        result = _truncate_at_boundary(text, 60)
+        assert result.endswith("along?")
+
+    def test_exact_max_chars_no_truncation(self):
+        """Content exactly at max_chars is not truncated."""
+        from mnemo.mcp.tools import _truncate_at_boundary
+
+        text = "x" * 100
+        assert _truncate_at_boundary(text, 100) == text
 
 
 class TestSmallCodeChunkAutoExpansion:

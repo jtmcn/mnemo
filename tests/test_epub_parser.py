@@ -230,7 +230,8 @@ class TestFrontMatterLabels:
                 f"Expected ['Table of Contents'], got {block.section_path}"
             )
 
-    def test_unknown_href_no_label(self, tmp_path: Path) -> None:
+    def test_unknown_href_gets_filename_label(self, tmp_path: Path) -> None:
+        """Unknown filenames get a title-cased filename stem as fallback section label."""
         epub_path = create_epub_with_front_matter(
             front_matter_items=[
                 {"filename": "random_file.xhtml", "content": "<p>Unknown content</p>"}
@@ -244,8 +245,8 @@ class TestFrontMatterLabels:
         unknown_blocks = [b for b in blocks if "random_file.xhtml" in b.source_file]
         assert len(unknown_blocks) > 0, "Expected blocks from random_file.xhtml"
         for block in unknown_blocks:
-            assert block.section_path == [], (
-                f"Expected [], got {block.section_path} (no false positive for unknown filename)"
+            assert block.section_path == ["Random File"], (
+                f"Expected ['Random File'], got {block.section_path}"
             )
 
     def test_front_matter_prefix_match(self, tmp_path: Path) -> None:

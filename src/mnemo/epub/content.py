@@ -168,6 +168,13 @@ def extract_content(
             if inferred:
                 section_path = inferred
 
+        # Last-resort fallback: use filename stem as section label
+        if not section_path:
+            stem = Path(href).stem
+            label = stem.replace("-", " ").replace("_", " ").title()
+            if label:
+                section_path = [label]
+
         # Parse HTML content
         content = item.get_content()
         if isinstance(content, bytes):

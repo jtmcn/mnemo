@@ -109,11 +109,13 @@ class EPUBParser:
         # Try EPUB3 nav document first
         toc_mapping = self._parse_epub3_nav(epub_book)
         if toc_mapping:
+            self._fill_toc_gaps(epub_book, toc_mapping)
             return toc_mapping, "toc"
 
         # Try EPUB2 NCX
         toc_mapping = self._parse_epub2_ncx(epub_book)
         if toc_mapping:
+            self._fill_toc_gaps(epub_book, toc_mapping)
             return toc_mapping, "toc"
 
         # Fall back to heading inference
@@ -280,6 +282,42 @@ class EPUBParser:
 
             # Process nested navPoints
             self._parse_ncx_navpoint(navpoint, item_path, mapping)
+
+    def _fill_toc_gaps(self, epub_book: EpubBook, toc_mapping: dict[str, list[str]]) -> None:
+        """Fill TOC gaps by extracting headings from unmapped spine items.
+
+        When a TOC exists but doesn't cover all spine items, the uncovered
+        items would get section_path=[] → "Unknown section". This method
+        parses those items and uses the first h1-h6 heading as a section path.
+
+        Args:
+            epub_book: Parsed EPUB book object
+            toc_mapping: Existing TOC mapping (modified in place)
+        """
+        import ebooklib
+
+        for item in epub_book.get_items():
+            if item.get_type() != ebooklib.ITEM_DOCUMENT:
+                continue
+
+            href = item.get_name()
+            if href in toc_mapping:
+                continue
+
+            content = item.get_content()
+            if isinstance(content, bytes):
+                content = content.decode("utf-8", errors="replace")
+
+            soup = BeautifulSoup(content, "lxml")
+
+            # Extract first heading as section label
+            for level in range(1, 7):
+                heading = soup.find(f"h{level}")
+                if heading:
+                    heading_text = heading.get_text(strip=True)
+                    if heading_text:
+                        toc_mapping[href] = [heading_text]
+                    break
 
     def _infer_from_headings(self, epub_book: EpubBook) -> dict[str, list[str]]:
         """Infer section structure from HTML headings.
