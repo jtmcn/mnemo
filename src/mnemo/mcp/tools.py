@@ -864,6 +864,80 @@ async def add_book(
     return result
 
 
+def _reindex_all_books_impl() -> str:
+    """Reindex implementation - see reindex_all_books for docs."""
+    logger.info("reindex_all_books called")
+
+    try:
+        from mnemo.ingest import reindex_all_books
+
+        results = reindex_all_books(embed=True)
+
+        if not results:
+            return "No books in library to reindex."
+
+        # Invalidate search cache
+        global _search_service
+        if _search_service is not None:
+            _search_service.invalidate_cache()
+
+        success = sum(1 for r in results if r["status"] == "success")
+        skipped = sum(1 for r in results if r["status"] == "skipped")
+        failed = sum(1 for r in results if r["status"] == "failed")
+
+        lines = [f"Reindex complete: {success} succeeded, {skipped} skipped, {failed} failed\n"]
+
+        for r in results:
+            if r["status"] == "success":
+                lines.append(f"- **{r['title']}** (`{r['book_id']}`): {r['chunks']} chunks")
+            elif r["status"] == "skipped":
+                lines.append(f"- **{r['title']}** (`{r['book_id']}`): skipped — {r['error']}")
+            else:
+                lines.append(f"- **{r['title']}** (`{r['book_id']}`): FAILED — {r['error']}")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        logger.exception("reindex_all_books failed")
+        return f"Error: {e}"
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        destructiveHint=True,
+        idempotentHint=True,
+        openWorldHint=False,
+    )
+)
+async def reindex_all_books(
+    ctx: Context = CurrentContext(),  # noqa: B008
+) -> str:
+    """Re-index all books in the library.
+
+    Re-parses every EPUB, re-chunks content, and regenerates embeddings.
+    Use this after upgrading mnemo to pick up improved chunking or embedding
+    changes. Books whose EPUB files are missing on disk are skipped.
+    This is a long-running operation (may take several minutes).
+
+    Returns:
+        Summary of results per book (success/skipped/failed counts and details),
+        or an error message starting with "Error:"
+    """
+    await ctx.info("Reindexing all books...")
+
+    try:
+        result = await asyncio.wait_for(
+            asyncio.to_thread(_reindex_all_books_impl),
+            timeout=900,  # 15 minutes
+        )
+    except TimeoutError:
+        return (
+            "Error: Reindex timed out after 15 minutes. "
+            "Some books may have been partially reindexed."
+        )
+    return result
+
+
 def _get_book_structure_impl(book_id: str) -> str:
     """Get book structure implementation - see get_book_structure for docs."""
     logger.info(f"get_book_structure: book_id={book_id}")

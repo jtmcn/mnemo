@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from mnemo.ingest import ingest_book, remove_book
+from mnemo.ingest import ingest_book, reindex_all_books, remove_book
 from mnemo.models import ContentType
 from mnemo.storage import ChunkRepository, get_connection, init_db
 
@@ -114,6 +114,63 @@ class TestIngestion:
         # At least some chunks should have section paths
         chunks_with_paths = [c for c in chunks if c.section_path]
         assert len(chunks_with_paths) > 0
+
+
+class TestReindexAllBooks:
+    """Tests for reindex_all_books."""
+
+    def test_reindex_empty_library(self, temp_db: Path):
+        """Reindex with no books returns empty list."""
+        init_db(temp_db)
+        results = reindex_all_books(db_path=temp_db, embed=False)
+        assert results == []
+
+    def test_reindex_single_book(self, sample_epub: Path, temp_db: Path):
+        """Reindex re-ingests an existing book."""
+        book, original_count = ingest_book(sample_epub, temp_db)
+        results = reindex_all_books(db_path=temp_db, embed=False)
+
+        assert len(results) == 1
+        assert results[0]["status"] == "success"
+        assert results[0]["book_id"] == book.id
+        assert results[0]["chunks"] == original_count
+        assert results[0]["error"] is None
+
+    def test_reindex_skips_missing_epub(self, sample_epub: Path, temp_db: Path):
+        """Reindex skips books whose EPUB no longer exists on disk."""
+        import shutil
+
+        # Ingest from a copy so we can delete it
+        copy_dir = temp_db.parent / "epubs"
+        copy_dir.mkdir()
+        copy_path = copy_dir / "sample.epub"
+        shutil.copy(sample_epub, copy_path)
+
+        ingest_book(copy_path, temp_db)
+
+        # Delete the EPUB
+        copy_path.unlink()
+
+        results = reindex_all_books(db_path=temp_db, embed=False)
+        assert len(results) == 1
+        assert results[0]["status"] == "skipped"
+        assert "not found" in results[0]["error"].lower()
+
+    def test_reindex_preserves_chunk_integrity(self, sample_epub: Path, temp_db: Path):
+        """Reindex produces valid chunks with proper linking."""
+        ingest_book(sample_epub, temp_db)
+        results = reindex_all_books(db_path=temp_db, embed=False)
+
+        book_id = results[0]["book_id"]
+        conn = get_connection(temp_db)
+        chunk_repo = ChunkRepository(conn)
+        chunks = chunk_repo.get_by_book(book_id)
+        conn.close()
+
+        assert len(chunks) > 0
+        # Sequences are monotonically increasing
+        for i in range(len(chunks) - 1):
+            assert chunks[i].sequence < chunks[i + 1].sequence
 
 
 class TestFTS:

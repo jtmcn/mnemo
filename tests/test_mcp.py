@@ -27,7 +27,7 @@ class TestServerSetup:
         assert mcp.name.startswith("mnemo")
 
     def test_tools_registered(self):
-        """Verify all eight tools are registered with the server."""
+        """Verify all nine tools are registered with the server."""
         from mnemo.mcp.server import mcp
 
         # FastMCP stores tools in _tool_manager
@@ -40,6 +40,7 @@ class TestServerSetup:
         assert "add_book" in tool_names
         assert "get_book_structure" in tool_names
         assert "get_book_chunks" in tool_names
+        assert "reindex_all_books" in tool_names
 
 
 class TestToolAnnotations:
@@ -1974,3 +1975,143 @@ class TestSmallCodeChunkAutoExpansion:
 
         assert "MATCH" in output  # Expanded small code chunk
         assert "long explanation" in output  # Normal text result
+
+
+class TestReindexAllBooks:
+    """Tests for _reindex_all_books_impl MCP tool."""
+
+    def test_reindex_no_books(self):
+        """Reindex with empty library returns appropriate message."""
+        from mnemo.mcp.tools import _reindex_all_books_impl
+
+        with patch("mnemo.ingest.reindex_all_books", return_value=[]):
+            result = _reindex_all_books_impl()
+
+        assert "no books" in result.lower()
+
+    def test_reindex_success(self):
+        """Reindex with successful books returns markdown summary."""
+        from mnemo.mcp.tools import _reindex_all_books_impl
+
+        mock_results = [
+            {
+                "book_id": "abc123",
+                "title": "Test Book",
+                "status": "success",
+                "chunks": 42,
+                "error": None,
+            },
+        ]
+
+        with patch("mnemo.ingest.reindex_all_books", return_value=mock_results):
+            result = _reindex_all_books_impl()
+
+        assert "1 succeeded" in result
+        assert "0 skipped" in result
+        assert "0 failed" in result
+        assert "Test Book" in result
+        assert "42 chunks" in result
+
+    def test_reindex_mixed_results(self):
+        """Reindex with mixed statuses reports all correctly."""
+        from mnemo.mcp.tools import _reindex_all_books_impl
+
+        mock_results = [
+            {
+                "book_id": "abc123",
+                "title": "Good Book",
+                "status": "success",
+                "chunks": 50,
+                "error": None,
+            },
+            {
+                "book_id": "def456",
+                "title": "Gone Book",
+                "status": "skipped",
+                "chunks": 0,
+                "error": "EPUB file not found",
+            },
+            {
+                "book_id": "ghi789",
+                "title": "Bad Book",
+                "status": "failed",
+                "chunks": 0,
+                "error": "parse error",
+            },
+        ]
+
+        with patch("mnemo.ingest.reindex_all_books", return_value=mock_results):
+            result = _reindex_all_books_impl()
+
+        assert "1 succeeded" in result
+        assert "1 skipped" in result
+        assert "1 failed" in result
+        assert "Good Book" in result
+        assert "Gone Book" in result
+        assert "Bad Book" in result
+
+    def test_reindex_invalidates_search_cache(self):
+        """Reindex clears the search service cache."""
+        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _reindex_all_books_impl
+
+        mock_results = [
+            {
+                "book_id": "abc123",
+                "title": "Test",
+                "status": "success",
+                "chunks": 10,
+                "error": None,
+            },
+        ]
+        mock_service = MagicMock()
+        original_service = tools._search_service
+        tools._search_service = mock_service
+
+        try:
+            with patch("mnemo.ingest.reindex_all_books", return_value=mock_results):
+                _reindex_all_books_impl()
+
+            mock_service.invalidate_cache.assert_called()
+        finally:
+            tools._search_service = original_service
+
+    @pytest.mark.asyncio
+    async def test_reindex_async_wrapper_delegates(self):
+        """Async reindex_all_books delegates to _reindex_all_books_impl."""
+        from mnemo.mcp.tools import reindex_all_books
+
+        ctx = AsyncMock()
+        reindex_fn = reindex_all_books.fn
+
+        async def fake_wait_for(*a, **kw):
+            return "Reindex complete: 1 succeeded, 0 skipped, 0 failed"
+
+        with (
+            patch(
+                "mnemo.mcp.tools._reindex_all_books_impl",
+                return_value="Reindex complete: 1 succeeded, 0 skipped, 0 failed",
+            ),
+            patch("mnemo.mcp.tools.asyncio.to_thread", lambda *a, **kw: "stub"),
+            patch("mnemo.mcp.tools.asyncio.wait_for", new=fake_wait_for),
+        ):
+            result = await reindex_fn(ctx=ctx)
+
+        assert "Reindex complete" in result
+
+    @pytest.mark.asyncio
+    async def test_reindex_async_timeout(self):
+        """Async reindex_all_books returns error on timeout."""
+        from mnemo.mcp.tools import reindex_all_books
+
+        ctx = AsyncMock()
+        reindex_fn = reindex_all_books.fn
+
+        async def fake_timeout(*a, **kw):
+            raise TimeoutError()
+
+        with patch("mnemo.mcp.tools.asyncio.wait_for", new=fake_timeout):
+            result = await reindex_fn(ctx=ctx)
+
+        assert "Error" in result
+        assert "timed out" in result.lower()
