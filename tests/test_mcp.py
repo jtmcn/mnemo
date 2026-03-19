@@ -2110,7 +2110,10 @@ class TestReindexAllBooks:
         async def fake_timeout(*a, **kw):
             raise TimeoutError()
 
-        with patch("mnemo.mcp.tools.asyncio.wait_for", new=fake_timeout):
+        with (
+            patch("mnemo.mcp.tools.asyncio.to_thread", lambda *a, **kw: "stub"),
+            patch("mnemo.mcp.tools.asyncio.wait_for", new=fake_timeout),
+        ):
             result = await reindex_fn(ctx=ctx)
 
         assert "Error" in result
