@@ -16,7 +16,7 @@ import pytest
 
 from mnemo.models import Book, Chunk, ContentType
 from mnemo.search import SearchFilter, SearchResult, reciprocal_rank_fusion
-from mnemo.search.service import BACKMATTER_PENALTY, SearchService, _section_matches
+from mnemo.search.service import BOILERPLATE_PENALTY, SearchService, _section_matches
 from mnemo.storage.database import get_connection, init_db
 from mnemo.storage.repository import BookRepository, ChunkRepository
 
@@ -1868,7 +1868,7 @@ class TestSectionMatches:
 
 
 class TestBackmatterPenalty:
-    """Tests for _apply_backmatter_penalty."""
+    """Tests for _apply_boilerplate_penalty."""
 
     def _make_result(self, section_path: list[str], score: float = 1.0) -> SearchResult:
         return SearchResult(
@@ -1886,29 +1886,152 @@ class TestBackmatterPenalty:
     def test_index_section_penalized(self):
         """Result with section_path ['Index', 'S'] gets penalized."""
         r = self._make_result(["Index", "S"], score=1.0)
-        results = SearchService._apply_backmatter_penalty([r])
-        assert results[0].score == pytest.approx(BACKMATTER_PENALTY)
+        results = SearchService._apply_boilerplate_penalty([r])
+        assert results[0].score == pytest.approx(BOILERPLATE_PENALTY)
 
     def test_building_an_index_not_penalized(self):
         """'Building an Index' is a chapter title, not backmatter."""
         r = self._make_result(["Chapter 5", "Building an Index"], score=1.0)
-        results = SearchService._apply_backmatter_penalty([r])
+        results = SearchService._apply_boilerplate_penalty([r])
         assert results[0].score == pytest.approx(1.0)
 
     def test_appendix_penalized(self):
         """Result with section_path ['Appendix A'] is penalized."""
         r = self._make_result(["Appendix A"], score=1.0)
-        results = SearchService._apply_backmatter_penalty([r])
-        assert results[0].score == pytest.approx(BACKMATTER_PENALTY)
+        results = SearchService._apply_boilerplate_penalty([r])
+        assert results[0].score == pytest.approx(BOILERPLATE_PENALTY)
 
     def test_bibliography_penalized(self):
         """Result with section_path ['Bibliography'] is penalized."""
         r = self._make_result(["Bibliography"], score=1.0)
-        results = SearchService._apply_backmatter_penalty([r])
-        assert results[0].score == pytest.approx(BACKMATTER_PENALTY)
+        results = SearchService._apply_boilerplate_penalty([r])
+        assert results[0].score == pytest.approx(BOILERPLATE_PENALTY)
 
     def test_normal_chapter_not_penalized(self):
         """Normal chapter content is not penalized."""
         r = self._make_result(["Chapter 3", "Graphs"], score=1.0)
-        results = SearchService._apply_backmatter_penalty([r])
+        results = SearchService._apply_boilerplate_penalty([r])
         assert results[0].score == pytest.approx(1.0)
+
+    def test_copyright_frontmatter_penalized(self):
+        """Copyright page gets penalized as frontmatter."""
+        r = self._make_result(["Copyright"], score=1.0)
+        results = SearchService._apply_boilerplate_penalty([r])
+        assert results[0].score == pytest.approx(BOILERPLATE_PENALTY)
+
+    def test_title_page_frontmatter_penalized(self):
+        """Title Page gets penalized as frontmatter."""
+        r = self._make_result(["Title Page"], score=1.0)
+        results = SearchService._apply_boilerplate_penalty([r])
+        assert results[0].score == pytest.approx(BOILERPLATE_PENALTY)
+
+    def test_dedication_frontmatter_penalized(self):
+        """Dedication gets penalized as frontmatter."""
+        r = self._make_result(["Dedication"], score=1.0)
+        results = SearchService._apply_boilerplate_penalty([r])
+        assert results[0].score == pytest.approx(BOILERPLATE_PENALTY)
+
+    def test_cover_frontmatter_penalized(self):
+        """Cover gets penalized as frontmatter."""
+        r = self._make_result(["Cover"], score=1.0)
+        results = SearchService._apply_boilerplate_penalty([r])
+        assert results[0].score == pytest.approx(BOILERPLATE_PENALTY)
+
+    def test_preface_not_penalized(self):
+        """Preface is not penalized — it contains real content."""
+        r = self._make_result(["Preface"], score=1.0)
+        results = SearchService._apply_boilerplate_penalty([r])
+        assert results[0].score == pytest.approx(1.0)
+
+
+# ============================================================================
+# Section Suggestion Tests
+# ============================================================================
+
+
+class TestSuggestSections:
+    """Tests for SearchService.suggest_sections."""
+
+    def test_substring_match(self, tmp_path):
+        """Suggests sections containing the query as a substring."""
+        service = SearchService(
+            db_path=tmp_path / "test.db",
+            chroma_path=tmp_path / "chroma",
+        )
+        service._ensure_initialized()
+        assert service._chunk_repo is not None
+
+        # Insert a book and chunks with known section paths
+        book = Book(
+            id="a1b2c3",
+            title="Test Book",
+            authors=["Author"],
+            file_hash="a" * 64,
+            structure_source="toc",
+        )
+        service._book_repo.add(book)
+        for i, section in enumerate(
+            [
+                ["Chapter 6. Enriching Knowledge Graphs"],
+                ["Chapter 6. Enriching Knowledge Graphs", "Graph Algorithms"],
+                ["Chapter 7. Machine Learning"],
+            ]
+        ):
+            chunk = Chunk(
+                book_id="a1b2c3",
+                content=f"Content {i}",
+                content_type=ContentType.TEXT,
+                token_count=100,
+                section_path=section,
+                sections=[],
+                language="en",
+                sequence=i,
+            )
+            service._chunk_repo.add_many([chunk])
+
+        suggestions = service.suggest_sections("Chapter 6", book_id="a1b2c3")
+        assert len(suggestions) >= 1
+        assert any("Chapter 6" in s for s in suggestions)
+
+    def test_fuzzy_match(self, tmp_path):
+        """Falls back to fuzzy matching when no substring match."""
+        service = SearchService(
+            db_path=tmp_path / "test.db",
+            chroma_path=tmp_path / "chroma",
+        )
+        service._ensure_initialized()
+        assert service._chunk_repo is not None
+
+        book = Book(
+            id="d4e5f6",
+            title="Test Book",
+            authors=["Author"],
+            file_hash="b" * 64,
+            structure_source="toc",
+        )
+        service._book_repo.add(book)
+        chunk = Chunk(
+            book_id="d4e5f6",
+            content="Content",
+            content_type=ContentType.TEXT,
+            token_count=100,
+            section_path=["Experimenting with Graph Data Science"],
+            sections=[],
+            language="en",
+            sequence=0,
+        )
+        service._chunk_repo.add_many([chunk])
+
+        suggestions = service.suggest_sections("Experimenting Graph Science", book_id="d4e5f6")
+        assert len(suggestions) >= 1
+        assert "Experimenting with Graph Data Science" in suggestions
+
+    def test_empty_library_returns_empty(self, tmp_path):
+        """Returns empty list when no sections exist."""
+        service = SearchService(
+            db_path=tmp_path / "test.db",
+            chroma_path=tmp_path / "chroma",
+        )
+        service._ensure_initialized()
+        suggestions = service.suggest_sections("anything")
+        assert suggestions == []

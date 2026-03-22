@@ -94,6 +94,14 @@ def _search_books_impl(
         )
 
         if not results:
+            if section:
+                suggestions = service.suggest_sections(section, book_id)
+                if suggestions:
+                    quoted = ", ".join(f'"{s}"' for s in suggestions)
+                    return (
+                        f'No results found for: {query} in section "{section}". '
+                        f"Did you mean: {quoted}?"
+                    )
             return f"No results found for: {query}"
 
         if context_window >= 1:

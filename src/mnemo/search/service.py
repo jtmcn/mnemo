@@ -8,6 +8,7 @@ Provides a unified search interface that:
 
 from __future__ import annotations
 
+import difflib
 import logging
 import re
 import unicodedata
@@ -36,7 +37,17 @@ BACKMATTER_SECTIONS = frozenset(
         "further reading",
     }
 )
-BACKMATTER_PENALTY = 0.3
+FRONTMATTER_SECTIONS = frozenset(
+    {
+        "copyright",
+        "title page",
+        "dedication",
+        "half title",
+        "cover",
+        "table of contents",
+    }
+)
+BOILERPLATE_PENALTY = 0.3
 
 
 def _section_matches(query_norm: str, target_norm: str) -> bool:
@@ -173,7 +184,7 @@ class SearchService:
             )
 
         # Apply backmatter penalty before filtering/trimming
-        results = self._apply_backmatter_penalty(results)
+        results = self._apply_boilerplate_penalty(results)
 
         # Apply section post-filter (with Unicode normalization for accented names)
         if section:
@@ -620,22 +631,60 @@ class SearchService:
         return diversified
 
     @staticmethod
-    def _apply_backmatter_penalty(results: list[SearchResult]) -> list[SearchResult]:
-        """Demote back-matter pages (index, bibliography, etc.) in search results.
+    def _apply_boilerplate_penalty(results: list[SearchResult]) -> list[SearchResult]:
+        """Demote boilerplate pages (front/backmatter) in search results.
 
-        Multiplies scores by BACKMATTER_PENALTY for results whose section_path
-        contains a known back-matter section, then re-sorts by score.
+        Multiplies scores by BOILERPLATE_PENALTY for results whose section_path
+        contains a known front-matter or back-matter section, then re-sorts.
         """
         for r in results:
             if not r.section_path:
                 continue
             for element in r.section_path:
                 el_lower = element.lower()
-                if el_lower in BACKMATTER_SECTIONS or el_lower.startswith("appendix"):
-                    r.score *= BACKMATTER_PENALTY
+                if (
+                    el_lower in BACKMATTER_SECTIONS
+                    or el_lower in FRONTMATTER_SECTIONS
+                    or el_lower.startswith("appendix")
+                ):
+                    r.score *= BOILERPLATE_PENALTY
                     break
         results.sort(key=lambda r: r.score, reverse=True)
         return results
+
+    def suggest_sections(
+        self, section_query: str, book_id: str | None = None, max_suggestions: int = 5
+    ) -> list[str]:
+        """Suggest section names similar to the given query.
+
+        Uses difflib fuzzy matching against all distinct section names in the
+        library (or a specific book). Useful when a section filter yields zero
+        results.
+
+        Args:
+            section_query: The section name the user tried
+            book_id: Optional book ID to scope suggestions
+            max_suggestions: Maximum suggestions to return
+
+        Returns:
+            List of similar section names, best match first
+        """
+        self._ensure_initialized()
+        assert self._chunk_repo is not None
+
+        all_sections = self._chunk_repo.get_distinct_sections(book_id)
+        if not all_sections:
+            return []
+
+        query_lower = section_query.lower()
+        # First try substring containment (catches "Chapter 6" matching
+        # "Chapter 6. Enriching Knowledge Graphs")
+        contained = [s for s in all_sections if query_lower in s.lower()]
+        if contained:
+            return contained[:max_suggestions]
+
+        # Fall back to fuzzy matching
+        return difflib.get_close_matches(section_query, all_sections, n=max_suggestions, cutoff=0.4)
 
     def _ensure_initialized(self) -> None:
         """Lazy initialization of database connections and vector store."""
