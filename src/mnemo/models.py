@@ -35,6 +35,44 @@ class ContentType(str, Enum):
     TABLE = "table"
 
 
+BACKMATTER_SECTIONS = frozenset(
+    {
+        "index",
+        "bibliography",
+        "glossary",
+        "colophon",
+        "about the authors",
+        "about the author",
+        "references",
+        "further reading",
+    }
+)
+FRONTMATTER_SECTIONS = frozenset(
+    {
+        "copyright",
+        "title page",
+        "dedication",
+        "half title",
+        "cover",
+        "table of contents",
+        "contents",
+    }
+)
+
+
+def is_boilerplate_section(section_path: list[str]) -> bool:
+    """Check if a section path indicates front/back-matter boilerplate."""
+    for element in section_path:
+        el_lower = element.lower()
+        if (
+            el_lower in BACKMATTER_SECTIONS
+            or el_lower in FRONTMATTER_SECTIONS
+            or el_lower.startswith("appendix")
+        ):
+            return True
+    return False
+
+
 class Book(BaseModel):
     """Metadata about an indexed book.
 

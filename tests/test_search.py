@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from mnemo.models import Book, Chunk, ContentType
+from mnemo.models import Book, Chunk, ContentType, is_boilerplate_section
 from mnemo.search import SearchFilter, SearchResult, reciprocal_rank_fusion
 from mnemo.search.service import (
     BOILERPLATE_PENALTY,
@@ -588,8 +588,13 @@ class TestSemanticSearchCosineScores:
         assert len(results) == 1
         assert abs(results[0].score - 0.7) < 1e-6
 
-    def test_semantic_score_clamped_to_zero(self, service, mock_vector_store, mock_chunk_repo):
-        """Cosine similarity is clamped to 0.0 minimum."""
+    def test_semantic_score_clamped_to_zero_filtered(
+        self,
+        service,
+        mock_vector_store,
+        mock_chunk_repo,
+    ):
+        """Cosine distance > 1.0 yields similarity 0.0, filtered by score floor."""
         # Distance > 1.0 can happen with non-normalized vectors
         mock_vector_store.query.return_value = [
             {"id": "chunk-1", "distance": 1.5, "metadata": {}, "document": None},
@@ -606,7 +611,8 @@ class TestSemanticSearchCosineScores:
 
         results = service.search("test", mode="semantic")
 
-        assert results[0].score == 0.0
+        # Score 0.0 is below MIN_SEMANTIC_SCORE (0.25), so filtered out
+        assert len(results) == 0
 
     def test_semantic_score_clamped_to_one(self, service, mock_vector_store, mock_chunk_repo):
         """Cosine similarity is clamped to 1.0 maximum."""
@@ -2120,3 +2126,147 @@ class TestSuggestSections:
         service._ensure_initialized()
         suggestions = service.suggest_sections("anything")
         assert suggestions == []
+
+
+# ============================================================================
+# is_boilerplate_section Tests
+# ============================================================================
+
+
+class TestIsBoilerplateSection:
+    """Tests for the shared is_boilerplate_section helper."""
+
+    def test_backmatter_index(self):
+        assert is_boilerplate_section(["Index", "S"]) is True
+
+    def test_backmatter_bibliography(self):
+        assert is_boilerplate_section(["Bibliography"]) is True
+
+    def test_backmatter_glossary(self):
+        assert is_boilerplate_section(["Glossary"]) is True
+
+    def test_frontmatter_copyright(self):
+        assert is_boilerplate_section(["Copyright"]) is True
+
+    def test_frontmatter_cover(self):
+        assert is_boilerplate_section(["Cover"]) is True
+
+    def test_appendix(self):
+        assert is_boilerplate_section(["Appendix A"]) is True
+
+    def test_normal_chapter(self):
+        assert is_boilerplate_section(["Chapter 3", "Graphs"]) is False
+
+    def test_building_an_index_not_boilerplate(self):
+        """'Building an Index' is a chapter title, not backmatter."""
+        assert is_boilerplate_section(["Chapter 5", "Building an Index"]) is False
+
+    def test_empty_section_path(self):
+        assert is_boilerplate_section([]) is False
+
+    def test_case_insensitive(self):
+        assert is_boilerplate_section(["INDEX"]) is True
+        assert is_boilerplate_section(["table of contents"]) is True
+
+
+# ============================================================================
+# Semantic Score Floor Tests
+# ============================================================================
+
+
+class TestSemanticScoreFloor:
+    """Tests for MIN_SEMANTIC_SCORE filtering in semantic search."""
+
+    @pytest.fixture
+    def mock_vector_store(self):
+        return MagicMock()
+
+    @pytest.fixture
+    def mock_chunk_repo(self):
+        return MagicMock()
+
+    @pytest.fixture
+    def mock_book_repo(self):
+        return MagicMock()
+
+    @pytest.fixture
+    def mock_embedder(self):
+        embedder = MagicMock()
+        embedder.embed_one.return_value = [0.1] * 1024
+        return embedder
+
+    @pytest.fixture
+    def service(self, mock_chunk_repo, mock_book_repo, mock_vector_store, mock_embedder):
+        svc = SearchService()
+        svc._chunk_repo = mock_chunk_repo
+        svc._book_repo = mock_book_repo
+        svc._vector_store = mock_vector_store
+        svc._embedder = mock_embedder
+        return svc
+
+    def test_low_score_results_filtered(self, service, mock_vector_store, mock_chunk_repo):
+        """Results below MIN_SEMANTIC_SCORE are excluded from semantic search."""
+        # Distance 0.8 -> similarity 0.2, below the 0.25 floor
+        mock_vector_store.query.return_value = [
+            {"id": "chunk-1", "distance": 0.8, "metadata": {}, "document": None},
+        ]
+        mock_chunk = MagicMock(
+            id="chunk-1",
+            book_id="abc123",
+            content="x" * 200,
+            content_type=ContentType.TEXT,
+            section_path=["Ch1"],
+        )
+        mock_chunk_repo.get.return_value = mock_chunk
+        service._book_cache["abc123"] = "Test Book"
+
+        results = service.search("test", mode="semantic")
+        assert len(results) == 0
+
+    def test_above_floor_results_kept(self, service, mock_vector_store, mock_chunk_repo):
+        """Results at or above MIN_SEMANTIC_SCORE are kept."""
+        # Distance 0.7 -> similarity 0.3, above the 0.25 floor
+        mock_vector_store.query.return_value = [
+            {"id": "chunk-1", "distance": 0.7, "metadata": {}, "document": None},
+        ]
+        mock_chunk = MagicMock(
+            id="chunk-1",
+            book_id="abc123",
+            content="x" * 200,
+            content_type=ContentType.TEXT,
+            section_path=["Ch1"],
+        )
+        mock_chunk_repo.get.return_value = mock_chunk
+        service._book_cache["abc123"] = "Test Book"
+
+        results = service.search("test", mode="semantic")
+        assert len(results) == 1
+        assert results[0].score == pytest.approx(0.3)
+
+    def test_mixed_scores_partial_filter(self, service, mock_vector_store, mock_chunk_repo):
+        """Only low-score results are filtered; good ones survive."""
+        mock_vector_store.query.return_value = [
+            {"id": "chunk-1", "distance": 0.2, "metadata": {}, "document": None},
+            {"id": "chunk-2", "distance": 0.9, "metadata": {}, "document": None},
+        ]
+        good_chunk = MagicMock(
+            id="chunk-1",
+            book_id="abc123",
+            content="x" * 200,
+            content_type=ContentType.TEXT,
+            section_path=["Ch1"],
+        )
+        bad_chunk = MagicMock(
+            id="chunk-2",
+            book_id="abc123",
+            content="x" * 200,
+            content_type=ContentType.TEXT,
+            section_path=["Ch2"],
+        )
+        chunks = {"chunk-1": good_chunk, "chunk-2": bad_chunk}
+        mock_chunk_repo.get.side_effect = lambda cid: chunks[cid]
+        service._book_cache["abc123"] = "Test Book"
+
+        results = service.search("test", mode="semantic")
+        assert len(results) == 1
+        assert results[0].score == pytest.approx(0.8)
