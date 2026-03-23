@@ -16,7 +16,12 @@ import pytest
 
 from mnemo.models import Book, Chunk, ContentType
 from mnemo.search import SearchFilter, SearchResult, reciprocal_rank_fusion
-from mnemo.search.service import BOILERPLATE_PENALTY, SearchService, _section_matches
+from mnemo.search.service import (
+    BOILERPLATE_PENALTY,
+    SHORT_CONTENT_PENALTY,
+    SearchService,
+    _section_matches,
+)
 from mnemo.storage.database import get_connection, init_db
 from mnemo.storage.repository import BookRepository, ChunkRepository
 
@@ -364,7 +369,7 @@ class TestSearchServiceMocked:
         mock_chunk_repo.get.return_value = MagicMock(
             id="chunk-1",
             book_id="abc123",
-            content="Content",
+            content="x" * 200,
             content_type=ContentType.TEXT,
             section_path=[],
         )
@@ -387,7 +392,7 @@ class TestSearchServiceMocked:
         mock_chunk_repo.get.return_value = MagicMock(
             id="chunk-1",
             book_id="abc123",
-            content="Content",
+            content="x" * 200,
             content_type=ContentType.TEXT,
             section_path=[],
         )
@@ -454,7 +459,7 @@ class TestSearchServiceMocked:
             MagicMock(
                 id=f"chunk-{i}",
                 book_id="abc123",
-                content=f"Content {i}",
+                content="x" * 200,
                 content_type=ContentType.TEXT,
                 section_path=["Ch1"],
             )
@@ -476,7 +481,7 @@ class TestSearchServiceMocked:
         mock_chunk = MagicMock(
             id="chunk-1",
             book_id="unknown",
-            content="Content",
+            content="x" * 200,
             content_type=ContentType.TEXT,
             section_path=[],
         )
@@ -498,7 +503,7 @@ class TestSearchServiceMocked:
         mock_chunk = MagicMock(
             id="chunk-1",
             book_id="abc123",
-            content="Content",
+            content="x" * 200,
             content_type=ContentType.TEXT,
             section_path=[],
         )
@@ -571,7 +576,7 @@ class TestSemanticSearchCosineScores:
         mock_chunk = MagicMock(
             id="chunk-1",
             book_id="abc123",
-            content="Content",
+            content="x" * 200,
             content_type=ContentType.TEXT,
             section_path=["Ch1"],
         )
@@ -592,7 +597,7 @@ class TestSemanticSearchCosineScores:
         mock_chunk = MagicMock(
             id="chunk-1",
             book_id="abc123",
-            content="Content",
+            content="x" * 200,
             content_type=ContentType.TEXT,
             section_path=[],
         )
@@ -612,7 +617,7 @@ class TestSemanticSearchCosineScores:
         mock_chunk = MagicMock(
             id="chunk-1",
             book_id="abc123",
-            content="Content",
+            content="x" * 200,
             content_type=ContentType.TEXT,
             section_path=[],
         )
@@ -629,7 +634,7 @@ class TestSemanticSearchCosineScores:
             MagicMock(
                 id=f"chunk-{i}",
                 book_id="abc123",
-                content=f"Content {i}",
+                content="x" * 200,
                 content_type=ContentType.TEXT,
                 section_path=["Ch1"],
             )
@@ -889,7 +894,7 @@ class TestSectionFilter:
         return MagicMock(
             id=chunk_id,
             book_id="abc123",
-            content=f"Content for {chunk_id}",
+            content="x" * 200,
             content_type=ContentType.TEXT,
             section_path=section_path,
         )
@@ -1145,7 +1150,7 @@ class TestContextWindow:
         mock_chunk = MagicMock(
             id="c1",
             book_id="abc123",
-            content="Content",
+            content="x" * 200,
             content_type=ContentType.TEXT,
             section_path=["Ch1"],
         )
@@ -1167,7 +1172,7 @@ class TestContextWindow:
         search_chunk = MagicMock(
             id="c2",
             book_id="abc123",
-            content="Content for seq 2",
+            content="x" * 200,
             content_type=ContentType.TEXT,
             section_path=section,
         )
@@ -1205,7 +1210,7 @@ class TestContextWindow:
         search_chunk = MagicMock(
             id="c2",
             book_id="abc123",
-            content="Content for seq 2",
+            content="x" * 200,
             content_type=ContentType.TEXT,
             section_path=section_a,
         )
@@ -1232,14 +1237,14 @@ class TestContextWindow:
             MagicMock(
                 id="c3",
                 book_id="abc123",
-                content="Content for seq 3",
+                content="x" * 200,
                 content_type=ContentType.TEXT,
                 section_path=section,
             ),
             MagicMock(
                 id="c5",
                 book_id="abc123",
-                content="Content for seq 5",
+                content="x" * 200,
                 content_type=ContentType.TEXT,
                 section_path=section,
             ),
@@ -1277,14 +1282,14 @@ class TestContextWindow:
             MagicMock(
                 id="c2",
                 book_id="abc123",
-                content="Content for seq 2",
+                content="x" * 200,
                 content_type=ContentType.TEXT,
                 section_path=section,
             ),
             MagicMock(
                 id="c4",
                 book_id="abc123",
-                content="Content for seq 4",
+                content="x" * 200,
                 content_type=ContentType.TEXT,
                 section_path=section,
             ),
@@ -1500,7 +1505,7 @@ class TestUnicodeNormalization:
         mock_chunk = MagicMock(
             id="c1",
             book_id="abc123",
-            content="Content about naïve approaches",
+            content="x" * 200,
             content_type=ContentType.TEXT,
             section_path=["Chapter 3", "Exploring naïve RAG"],
         )
@@ -1526,7 +1531,7 @@ class TestUnicodeNormalization:
         mock_chunk = MagicMock(
             id="c1",
             book_id="abc123",
-            content="Content",
+            content="x" * 200,
             content_type=ContentType.TEXT,
             section_path=["Chapter 3", "Exploring naive RAG"],
         )
@@ -1608,7 +1613,7 @@ class TestHybridScoreNormalization:
             MagicMock(
                 id=f"c{i}",
                 book_id="abc123",
-                content=f"Content {i}",
+                content="x" * 200,
                 content_type=ContentType.TEXT,
                 section_path=["Ch1"],
             )
@@ -1637,7 +1642,7 @@ class TestHybridScoreNormalization:
             MagicMock(
                 id=f"c{i}",
                 book_id="abc123",
-                content=f"Content {i}",
+                content="x" * 200,
                 content_type=ContentType.TEXT,
                 section_path=["Ch1"],
             )
@@ -1666,7 +1671,7 @@ class TestHybridScoreNormalization:
         chunk = MagicMock(
             id="c0",
             book_id="abc123",
-            content="Content",
+            content="x" * 200,
             content_type=ContentType.TEXT,
             section_path=["Ch1"],
         )
@@ -1685,18 +1690,18 @@ class TestHybridScoreNormalization:
         assert abs(results[0].score - 0.85) < 1e-6
 
     def test_hybrid_keyword_only_hit_discounted(self, service):
-        """Keyword-only hits (no semantic match) get discounted to 0.4 * norm_rrf."""
+        """Keyword-only hits (no semantic match) get discounted to 0.3 * norm_rrf."""
         kw_chunk = MagicMock(
             id="kw1",
             book_id="abc123",
-            content="Keyword content",
+            content="x" * 200,
             content_type=ContentType.TEXT,
             section_path=["Ch1"],
         )
         sem_chunk = MagicMock(
             id="sem1",
             book_id="abc123",
-            content="Semantic content",
+            content="x" * 200,
             content_type=ContentType.TEXT,
             section_path=["Ch1"],
         )
@@ -1720,10 +1725,10 @@ class TestHybridScoreNormalization:
 
     def test_minimum_score_threshold_filters_low_results(self, service):
         """When all blended scores are below 0.25, hybrid returns empty results."""
-        # Create keyword-only hits (not in semantic) — these get 0.4 * norm_rrf.
+        # Create keyword-only hits (not in semantic) — these get 0.3 * norm_rrf.
         # With enough low-scoring keyword-only results, max blended < 0.25 is possible
-        # only if 0.4 * (1/61)/(max_rrf) < 0.25. But norm_rrf for top = 1.0, so
-        # 0.4 * 1.0 = 0.4 > 0.25. Keyword-only alone can't trigger the threshold.
+        # only if 0.3 * (1/61)/(max_rrf) < 0.25. But norm_rrf for top = 1.0, so
+        # 0.3 * 1.0 = 0.3 > 0.25. Keyword-only alone can't trigger the threshold.
         #
         # The threshold triggers when semantic results have very low similarity.
         # All results keyword+semantic with distance ~0.99 => sim 0.01:
@@ -1735,7 +1740,7 @@ class TestHybridScoreNormalization:
             MagicMock(
                 id=f"c{i}",
                 book_id="abc123",
-                content=f"Content {i}",
+                content="x" * 200,
                 content_type=ContentType.TEXT,
                 section_path=["Ch1"],
             )
@@ -1760,7 +1765,7 @@ class TestHybridScoreNormalization:
         chunk = MagicMock(
             id="c0",
             book_id="abc123",
-            content="Content",
+            content="x" * 200,
             content_type=ContentType.TEXT,
             section_path=["Ch1"],
         )
@@ -1867,15 +1872,20 @@ class TestSectionMatches:
 # ============================================================================
 
 
-class TestBackmatterPenalty:
-    """Tests for _apply_boilerplate_penalty."""
+class TestQualityPenalties:
+    """Tests for _apply_quality_penalties."""
 
-    def _make_result(self, section_path: list[str], score: float = 1.0) -> SearchResult:
+    def _make_result(
+        self,
+        section_path: list[str],
+        score: float = 1.0,
+        content: str | None = None,
+    ) -> SearchResult:
         return SearchResult(
             chunk_id="test",
             book_id="abc123",
             book_title="Test",
-            content="content",
+            content=content if content is not None else "x" * 200,
             content_type="text",
             section_path=section_path,
             score=score,
@@ -1886,62 +1896,137 @@ class TestBackmatterPenalty:
     def test_index_section_penalized(self):
         """Result with section_path ['Index', 'S'] gets penalized."""
         r = self._make_result(["Index", "S"], score=1.0)
-        results = SearchService._apply_boilerplate_penalty([r])
+        results = SearchService._apply_quality_penalties([r])
         assert results[0].score == pytest.approx(BOILERPLATE_PENALTY)
 
     def test_building_an_index_not_penalized(self):
         """'Building an Index' is a chapter title, not backmatter."""
         r = self._make_result(["Chapter 5", "Building an Index"], score=1.0)
-        results = SearchService._apply_boilerplate_penalty([r])
+        results = SearchService._apply_quality_penalties([r])
         assert results[0].score == pytest.approx(1.0)
 
     def test_appendix_penalized(self):
         """Result with section_path ['Appendix A'] is penalized."""
         r = self._make_result(["Appendix A"], score=1.0)
-        results = SearchService._apply_boilerplate_penalty([r])
+        results = SearchService._apply_quality_penalties([r])
         assert results[0].score == pytest.approx(BOILERPLATE_PENALTY)
 
     def test_bibliography_penalized(self):
         """Result with section_path ['Bibliography'] is penalized."""
         r = self._make_result(["Bibliography"], score=1.0)
-        results = SearchService._apply_boilerplate_penalty([r])
+        results = SearchService._apply_quality_penalties([r])
         assert results[0].score == pytest.approx(BOILERPLATE_PENALTY)
 
     def test_normal_chapter_not_penalized(self):
         """Normal chapter content is not penalized."""
         r = self._make_result(["Chapter 3", "Graphs"], score=1.0)
-        results = SearchService._apply_boilerplate_penalty([r])
+        results = SearchService._apply_quality_penalties([r])
         assert results[0].score == pytest.approx(1.0)
 
     def test_copyright_frontmatter_penalized(self):
         """Copyright page gets penalized as frontmatter."""
         r = self._make_result(["Copyright"], score=1.0)
-        results = SearchService._apply_boilerplate_penalty([r])
+        results = SearchService._apply_quality_penalties([r])
         assert results[0].score == pytest.approx(BOILERPLATE_PENALTY)
 
     def test_title_page_frontmatter_penalized(self):
         """Title Page gets penalized as frontmatter."""
         r = self._make_result(["Title Page"], score=1.0)
-        results = SearchService._apply_boilerplate_penalty([r])
+        results = SearchService._apply_quality_penalties([r])
         assert results[0].score == pytest.approx(BOILERPLATE_PENALTY)
 
     def test_dedication_frontmatter_penalized(self):
         """Dedication gets penalized as frontmatter."""
         r = self._make_result(["Dedication"], score=1.0)
-        results = SearchService._apply_boilerplate_penalty([r])
+        results = SearchService._apply_quality_penalties([r])
         assert results[0].score == pytest.approx(BOILERPLATE_PENALTY)
 
     def test_cover_frontmatter_penalized(self):
         """Cover gets penalized as frontmatter."""
         r = self._make_result(["Cover"], score=1.0)
-        results = SearchService._apply_boilerplate_penalty([r])
+        results = SearchService._apply_quality_penalties([r])
         assert results[0].score == pytest.approx(BOILERPLATE_PENALTY)
 
     def test_preface_not_penalized(self):
         """Preface is not penalized — it contains real content."""
         r = self._make_result(["Preface"], score=1.0)
-        results = SearchService._apply_boilerplate_penalty([r])
+        results = SearchService._apply_quality_penalties([r])
         assert results[0].score == pytest.approx(1.0)
+
+    def test_contents_frontmatter_penalized(self):
+        """'Contents' variant (not just 'Table of Contents') gets penalized."""
+        r = self._make_result(["Contents", "Chapter 1"], score=1.0)
+        results = SearchService._apply_quality_penalties([r])
+        assert results[0].score == pytest.approx(BOILERPLATE_PENALTY)
+
+    def test_short_content_penalized(self):
+        """Chunks below SHORT_CONTENT_THRESHOLD chars get penalized."""
+        r = self._make_result(["Chapter 1"], score=1.0, content="Short stub")
+        results = SearchService._apply_quality_penalties([r])
+        assert results[0].score == pytest.approx(SHORT_CONTENT_PENALTY)
+
+    def test_short_content_and_boilerplate_stacks(self):
+        """Both penalties multiply for short boilerplate chunks."""
+        r = self._make_result(["Index"], score=1.0, content="A")
+        results = SearchService._apply_quality_penalties([r])
+        assert results[0].score == pytest.approx(BOILERPLATE_PENALTY * SHORT_CONTENT_PENALTY)
+
+    def test_long_content_not_penalized(self):
+        """Content above threshold is not penalized by short content check."""
+        r = self._make_result(["Chapter 1"], score=1.0, content="x" * 200)
+        results = SearchService._apply_quality_penalties([r])
+        assert results[0].score == pytest.approx(1.0)
+
+
+class TestSemanticFloor:
+    """Tests for SEMANTIC_FLOOR discounting in hybrid search."""
+
+    @pytest.fixture
+    def service(self):
+        svc = SearchService()
+        svc._chunk_repo = MagicMock()
+        svc._book_repo = MagicMock()
+        svc._vector_store = MagicMock()
+        svc._embedder = MagicMock()
+        svc._embedder.embed_one.return_value = [0.1] * 1024
+        svc._book_cache["abc123"] = "Test Book"
+        return svc
+
+    def test_weak_semantic_discounted(self, service):
+        """Results with semantic similarity below SEMANTIC_FLOOR get discounted blend."""
+        kw_chunk = MagicMock(
+            id="c1",
+            book_id="abc123",
+            content="x" * 200,
+            content_type=ContentType.TEXT,
+            section_path=["Ch1"],
+        )
+        strong_chunk = MagicMock(
+            id="c2",
+            book_id="abc123",
+            content="x" * 200,
+            content_type=ContentType.TEXT,
+            section_path=["Ch1"],
+        )
+        service._chunk_repo.search_fts.return_value = [kw_chunk, strong_chunk]
+        # c1: weak semantic (distance 0.7 => sim 0.3, below SEMANTIC_FLOOR)
+        # c2: strong semantic (distance 0.1 => sim 0.9, above SEMANTIC_FLOOR)
+        service._vector_store.query.return_value = [
+            {"id": "c1", "distance": 0.7},
+            {"id": "c2", "distance": 0.1},
+        ]
+        service._chunk_repo.get.side_effect = lambda cid: (
+            kw_chunk if cid == "c1" else strong_chunk if cid == "c2" else None
+        )
+
+        results = service.search("test", mode="hybrid", top_k=5)
+
+        weak = next((r for r in results if r.chunk_id == "c1"), None)
+        strong = next((r for r in results if r.chunk_id == "c2"), None)
+        assert weak is not None
+        assert strong is not None
+        # Weak semantic result should score much lower than strong
+        assert weak.score < strong.score * 0.6
 
 
 # ============================================================================
@@ -1979,7 +2064,7 @@ class TestSuggestSections:
         ):
             chunk = Chunk(
                 book_id="a1b2c3",
-                content=f"Content {i}",
+                content="x" * 200,
                 content_type=ContentType.TEXT,
                 token_count=100,
                 section_path=section,
@@ -2012,7 +2097,7 @@ class TestSuggestSections:
         service._book_repo.add(book)
         chunk = Chunk(
             book_id="d4e5f6",
-            content="Content",
+            content="x" * 200,
             content_type=ContentType.TEXT,
             token_count=100,
             section_path=["Experimenting with Graph Data Science"],
