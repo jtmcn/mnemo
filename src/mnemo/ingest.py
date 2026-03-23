@@ -11,8 +11,10 @@ from pathlib import Path
 
 from mnemo.chunking import Chunker, ChunkerConfig
 from mnemo.epub import EPUBParser
-from mnemo.models import Book
+from mnemo.models import Book, is_boilerplate_section
 from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_db
+
+logger = __import__("logging").getLogger(__name__)
 
 
 def _batch_items(items: list, batch_size: int = 50) -> Iterator[list]:
@@ -57,6 +59,17 @@ def embed_book(
 
     if not chunks:
         raise ValueError(f"No chunks found for book: {book_id}")
+
+    # Filter out boilerplate (front/backmatter) — keep in SQLite for FTS5
+    # but don't waste embeddings on index pages, copyright notices, etc.
+    total = len(chunks)
+    chunks = [c for c in chunks if not is_boilerplate_section(c.section_path)]
+    skipped = total - len(chunks)
+    if skipped:
+        logger.info("Skipped %d boilerplate chunks (of %d total) for embedding", skipped, total)
+
+    if not chunks:
+        raise ValueError(f"No embeddable chunks for book: {book_id} (all boilerplate)")
 
     # Initialize embedder (will raise if no credentials)
     embedder = DatabricksEmbedder()

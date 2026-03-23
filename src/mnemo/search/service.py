@@ -15,7 +15,7 @@ import unicodedata
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from mnemo.models import ContentType
+from mnemo.models import ContentType, is_boilerplate_section
 from mnemo.search.hybrid import reciprocal_rank_fusion
 from mnemo.search.models import SearchResult
 
@@ -25,33 +25,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-BACKMATTER_SECTIONS = frozenset(
-    {
-        "index",
-        "bibliography",
-        "glossary",
-        "colophon",
-        "about the authors",
-        "about the author",
-        "references",
-        "further reading",
-    }
-)
-FRONTMATTER_SECTIONS = frozenset(
-    {
-        "copyright",
-        "title page",
-        "dedication",
-        "half title",
-        "cover",
-        "table of contents",
-        "contents",
-    }
-)
 BOILERPLATE_PENALTY = 0.3
 SEMANTIC_FLOOR = 0.45
 SHORT_CONTENT_THRESHOLD = 100
 SHORT_CONTENT_PENALTY = 0.5
+MIN_SEMANTIC_SCORE = 0.25
 
 
 def _section_matches(query_norm: str, target_norm: str) -> bool:
@@ -448,6 +426,8 @@ class SearchService:
                 )
             )
 
+        # Drop results below minimum similarity threshold
+        results = [r for r in results if r.score >= MIN_SEMANTIC_SCORE]
         return results
 
     def _hybrid_search(
@@ -638,16 +618,8 @@ class SearchService:
         Re-sorts by score after applying penalties.
         """
         for r in results:
-            if r.section_path:
-                for element in r.section_path:
-                    el_lower = element.lower()
-                    if (
-                        el_lower in BACKMATTER_SECTIONS
-                        or el_lower in FRONTMATTER_SECTIONS
-                        or el_lower.startswith("appendix")
-                    ):
-                        r.score *= BOILERPLATE_PENALTY
-                        break
+            if r.section_path and is_boilerplate_section(r.section_path):
+                r.score *= BOILERPLATE_PENALTY
 
             if len(r.content.strip()) < SHORT_CONTENT_THRESHOLD:
                 r.score *= SHORT_CONTENT_PENALTY
