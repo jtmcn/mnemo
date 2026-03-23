@@ -45,9 +45,13 @@ FRONTMATTER_SECTIONS = frozenset(
         "half title",
         "cover",
         "table of contents",
+        "contents",
     }
 )
 BOILERPLATE_PENALTY = 0.3
+SEMANTIC_FLOOR = 0.45
+SHORT_CONTENT_THRESHOLD = 100
+SHORT_CONTENT_PENALTY = 0.5
 
 
 def _section_matches(query_norm: str, target_norm: str) -> bool:
@@ -175,16 +179,14 @@ class SearchService:
 
         # Execute search based on mode
         if mode == "keyword":
-            results = self._keyword_search(query, fetch_k, book_id, content_type_enum, section)
+            results = self._keyword_search(query, fetch_k, book_id, content_type_enum)
         elif mode == "semantic":
-            results = self._semantic_search(query, fetch_k, book_id, content_type, section)
+            results = self._semantic_search(query, fetch_k, book_id, content_type)
         else:  # hybrid
-            results = self._hybrid_search(
-                query, fetch_k, book_id, content_type, content_type_enum, section
-            )
+            results = self._hybrid_search(query, fetch_k, book_id, content_type, content_type_enum)
 
-        # Apply backmatter penalty before filtering/trimming
-        results = self._apply_boilerplate_penalty(results)
+        # Apply quality penalties before filtering/trimming
+        results = self._apply_quality_penalties(results)
 
         # Apply section post-filter (with Unicode normalization for accented names)
         if section:
@@ -358,7 +360,6 @@ class SearchService:
         top_k: int,
         book_id: str | None,
         content_type: ContentType | None,
-        section: str | None = None,
     ) -> list[SearchResult]:
         """Execute keyword-only search via FTS5."""
         assert self._chunk_repo is not None
@@ -368,7 +369,6 @@ class SearchService:
             book_id=book_id,
             content_type=content_type,
             limit=top_k,
-            section=section,
         )
 
         # Compute RRF-style scores and normalize to 0-1 range
@@ -401,7 +401,6 @@ class SearchService:
         top_k: int,
         book_id: str | None,
         content_type: str | None,
-        section: str | None = None,
     ) -> list[SearchResult]:
         """Execute semantic-only search via ChromaDB."""
         assert self._vector_store is not None
@@ -421,7 +420,6 @@ class SearchService:
             n_results=top_k,
             book_id=book_id,
             content_type=content_type,
-            section=section,
         )
 
         results = []
@@ -459,7 +457,6 @@ class SearchService:
         book_id: str | None,
         content_type: str | None,
         content_type_enum: ContentType | None,
-        section: str | None = None,
     ) -> list[SearchResult]:
         """Execute hybrid search combining keyword + semantic with RRF."""
         assert self._chunk_repo is not None
@@ -474,7 +471,6 @@ class SearchService:
             book_id=book_id,
             content_type=content_type_enum,
             limit=fetch_k,
-            section=section,
         )
         keyword_ids = [c.id for c in keyword_chunks]
 
@@ -487,7 +483,6 @@ class SearchService:
                 n_results=fetch_k,
                 book_id=book_id,
                 content_type=content_type,
-                section=section,
             )
             # Filter out low-quality semantic results (cosine distance > 1.0
             # means similarity < 0, i.e. essentially unrelated content)
@@ -527,11 +522,14 @@ class SearchService:
         for chunk_id in rrf_scores:
             norm_rrf = rrf_scores[chunk_id] / max_rrf if max_rrf > 0 else 0.0
             raw_sim = semantic_sim_map.get(chunk_id, 0.0)
-            if raw_sim > 0:
+            if raw_sim >= SEMANTIC_FLOOR:
                 rrf_scores[chunk_id] = 0.5 * norm_rrf + 0.5 * raw_sim
+            elif raw_sim > 0:
+                # Weak semantic match: discount to prevent keyword-driven false positives
+                rrf_scores[chunk_id] = 0.3 * norm_rrf + 0.2 * raw_sim
             else:
                 # Keyword-only hit: discount since we can't verify semantic relevance
-                rrf_scores[chunk_id] = 0.4 * norm_rrf
+                rrf_scores[chunk_id] = 0.3 * norm_rrf
 
         # Minimum score threshold: if best blended score is very low, the query
         # is likely gibberish and all results are noise.
@@ -631,24 +629,29 @@ class SearchService:
         return diversified
 
     @staticmethod
-    def _apply_boilerplate_penalty(results: list[SearchResult]) -> list[SearchResult]:
-        """Demote boilerplate pages (front/backmatter) in search results.
+    def _apply_quality_penalties(results: list[SearchResult]) -> list[SearchResult]:
+        """Demote low-quality results: boilerplate and very short chunks.
 
         Multiplies scores by BOILERPLATE_PENALTY for results whose section_path
-        contains a known front-matter or back-matter section, then re-sorts.
+        contains a known front-matter or back-matter section, and by
+        SHORT_CONTENT_PENALTY for chunks below SHORT_CONTENT_THRESHOLD chars.
+        Re-sorts by score after applying penalties.
         """
         for r in results:
-            if not r.section_path:
-                continue
-            for element in r.section_path:
-                el_lower = element.lower()
-                if (
-                    el_lower in BACKMATTER_SECTIONS
-                    or el_lower in FRONTMATTER_SECTIONS
-                    or el_lower.startswith("appendix")
-                ):
-                    r.score *= BOILERPLATE_PENALTY
-                    break
+            if r.section_path:
+                for element in r.section_path:
+                    el_lower = element.lower()
+                    if (
+                        el_lower in BACKMATTER_SECTIONS
+                        or el_lower in FRONTMATTER_SECTIONS
+                        or el_lower.startswith("appendix")
+                    ):
+                        r.score *= BOILERPLATE_PENALTY
+                        break
+
+            if len(r.content.strip()) < SHORT_CONTENT_THRESHOLD:
+                r.score *= SHORT_CONTENT_PENALTY
+
         results.sort(key=lambda r: r.score, reverse=True)
         return results
 
