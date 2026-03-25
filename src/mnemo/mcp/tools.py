@@ -349,6 +349,18 @@ def _add_book_impl(
         result = f"Added: {book.title} by {authors_str} (ID: `{book.id}`) - {chunk_count} chunks"
         if soft_warning:
             result += soft_warning
+
+        # Check ISBN checksum validity (local only, no network calls)
+        if book.isbn:
+            from mnemo.epub.enrich import validate_isbn
+
+            is_valid, _ = validate_isbn(book.isbn)
+            if not is_valid:
+                result += (
+                    f"\nNote: ISBN {book.isbn} may be invalid (bad checksum). "
+                    f"Use enrich_book to look up the correct ISBN."
+                )
+
         return result
     finally:
         conn.close()
@@ -406,6 +418,86 @@ def _update_book_metadata_impl(
     except Exception as e:
         logger.exception("update_book_metadata failed")
         return f"Error: {e}"
+
+
+def _enrich_book_impl(book_id: str, apply: bool = False) -> str:
+    """Enrich a book's ISBN metadata via external lookup.
+
+    Args:
+        book_id: 6-char hex book identifier
+        apply: If True, automatically apply the corrected ISBN
+    """
+    logger.info(f"enrich_book: book_id={book_id}, apply={apply}")
+
+    if not book_id or len(book_id) != 6:
+        return "Error: book_id must be a 6-character identifier"
+
+    # Get own DB connection (thread safe — not shared with async caller)
+    init_db()
+    conn = get_connection()
+    try:
+        book_repo = BookRepository(conn)
+        book = book_repo.get(book_id)
+        if not book:
+            return f"Error: Book not found: {book_id}"
+
+        from mnemo.epub.enrich import enrich_book_metadata
+
+        result = enrich_book_metadata(book.isbn, book.title, book.authors)
+
+        # Format output
+        lines = [f"## Enrichment: {book.title}", ""]
+
+        # Current state
+        if book.isbn:
+            status = "valid" if result.isbn_valid else "invalid checksum"
+            lines.append(f"**Current ISBN:** {book.isbn} ({status})")
+        else:
+            lines.append("**Current ISBN:** none")
+
+        # Result
+        if result.error:
+            lines.append(f"**Lookup:** {result.error}")
+            return "\n".join(lines)
+
+        if result.validated_isbn:
+            lines.append(f"**Found ISBN:** {result.validated_isbn} (via {result.source})")
+        if result.title:
+            lines.append(f"**Found title:** {result.title}")
+        if result.authors:
+            lines.append(f"**Found authors:** {', '.join(result.authors)}")
+        if result.publisher:
+            lines.append(f"**Publisher:** {result.publisher}")
+        if result.year:
+            lines.append(f"**Year:** {result.year}")
+
+        # Apply if requested and we have a new ISBN
+        if apply and result.validated_isbn and result.validated_isbn != book.isbn:
+            book_repo.update(book_id=book_id, isbn=result.validated_isbn)
+
+            global _search_service
+            if _search_service is not None:
+                _search_service.invalidate_cache()
+
+            lines.append("")
+            lines.append(f"ISBN updated to {result.validated_isbn}.")
+        elif result.validated_isbn and result.validated_isbn != book.isbn:
+            lines.append("")
+            lines.append(
+                "Use `enrich_book` with `apply=true` to update, "
+                "or `update_book_metadata` to set manually."
+            )
+        elif result.validated_isbn == book.isbn:
+            lines.append("")
+            lines.append("ISBN is correct — no changes needed.")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        logger.exception("enrich_book failed")
+        return f"Error: {e}"
+    finally:
+        conn.close()
 
 
 def _get_book_chunks_impl(
@@ -827,6 +919,33 @@ def update_book_metadata(
         Updated book details, or an error message starting with "Error:"
     """
     return _update_book_metadata_impl(book_id, title, authors, isbn)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        openWorldHint=True,
+    )
+)
+async def enrich_book(
+    book_id: str,
+    apply: bool = False,
+    ctx: Context = CurrentContext(),  # noqa: B008
+) -> str:
+    """Look up and validate a book's ISBN using Google Books and Open Library.
+
+    Checks if the book's ISBN has a valid checksum, and if not, searches
+    external services to find the correct ISBN. Use apply=true to automatically
+    update the ISBN, or review the suggestions first.
+
+    Args:
+        book_id: 6-character book identifier (from list_available_books)
+        apply: If true, automatically update the book's ISBN with the found value
+
+    Returns:
+        Enrichment results showing current vs. found ISBN, or error message
+    """
+    await ctx.info(f"Enriching metadata for book {book_id}...")
+    return await asyncio.to_thread(_enrich_book_impl, book_id, apply)
 
 
 @mcp.tool(

@@ -20,20 +20,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def normalize_isbn(raw_isbn: str) -> str | None:
-    """Normalize ISBN to standard format (digits and X only).
+def _clean_isbn(raw_isbn: str) -> str | None:
+    """Clean raw ISBN string to digits and X only.
 
-    Handles various ISBN formats:
-    - ISBN-10: 10 digits (last may be X)
-    - ISBN-13: 13 digits
-    - URN format: urn:isbn:XXXX
-    - With hyphens/spaces
+    Strips URN prefixes, hyphens, spaces, and normalizes X to uppercase.
 
     Args:
         raw_isbn: Raw ISBN string from metadata
 
     Returns:
-        Normalized ISBN string or None if invalid
+        Cleaned ISBN string (digits + optional trailing X) or None if empty/invalid format
     """
     if not raw_isbn:
         return None
@@ -49,17 +45,66 @@ def normalize_isbn(raw_isbn: str) -> str | None:
     # Normalize X to uppercase
     isbn = isbn.upper()
 
-    # Validate length (ISBN-10 or ISBN-13)
-    if len(isbn) == 10:
-        # ISBN-10: 9 digits + check digit (digit or X)
-        if re.match(r"^\d{9}[\dX]$", isbn):
-            return isbn
-    elif len(isbn) == 13 and re.match(r"^\d{13}$", isbn):
-        # ISBN-13: 13 digits only
+    # Validate length and digit pattern
+    if len(isbn) == 10 and re.match(r"^\d{9}[\dX]$", isbn):
+        return isbn
+    if len(isbn) == 13 and re.match(r"^\d{13}$", isbn):
         return isbn
 
-    logger.warning("Invalid ISBN format: %s", raw_isbn)
     return None
+
+
+def normalize_isbn(raw_isbn: str) -> str | None:
+    """Normalize ISBN to standard format with checksum validation.
+
+    Handles various ISBN formats:
+    - ISBN-10: 10 digits (last may be X)
+    - ISBN-13: 13 digits
+    - URN format: urn:isbn:XXXX
+    - With hyphens/spaces
+
+    Validates the ISBN checksum using isbnlib. Returns None if the
+    checksum is invalid (use normalize_isbn_lenient for format-only checks).
+
+    Args:
+        raw_isbn: Raw ISBN string from metadata
+
+    Returns:
+        Normalized ISBN string or None if invalid format or bad checksum
+    """
+    import isbnlib
+
+    isbn = _clean_isbn(raw_isbn)
+    if isbn is None:
+        logger.warning("Invalid ISBN format: %s", raw_isbn)
+        return None
+
+    if len(isbn) == 10 and isbnlib.is_isbn10(isbn):
+        return isbn
+    if len(isbn) == 13 and isbnlib.is_isbn13(isbn):
+        return isbn
+
+    logger.warning("Invalid ISBN checksum: %s (cleaned: %s)", raw_isbn, isbn)
+    return None
+
+
+def normalize_isbn_lenient(raw_isbn: str) -> str | None:
+    """Normalize ISBN to standard format without checksum validation.
+
+    Same as normalize_isbn but only validates format (length + digit pattern),
+    not the checksum. Used during EPUB extraction to preserve the EPUB's
+    claimed ISBN even if the checksum is wrong.
+
+    Args:
+        raw_isbn: Raw ISBN string from metadata
+
+    Returns:
+        Normalized ISBN string or None if invalid format
+    """
+    isbn = _clean_isbn(raw_isbn)
+    if isbn is None:
+        logger.warning("Invalid ISBN format: %s", raw_isbn)
+    return isbn
 
 
 def extract_metadata(epub_path: Path | str) -> Book:
@@ -190,18 +235,18 @@ def _extract_isbn(epub_book: epub.EpubBook) -> str | None:
         # Check for explicit ISBN scheme
         scheme = attrs.get("{http://www.idpf.org/2007/opf}scheme", "").lower()
         if scheme == "isbn":
-            isbn = normalize_isbn(value)
+            isbn = normalize_isbn_lenient(value)
             if isbn:
                 return isbn
 
         # Check for URN format or ISBN prefix
         if "isbn" in value.lower():
-            isbn = normalize_isbn(value)
+            isbn = normalize_isbn_lenient(value)
             if isbn:
                 return isbn
 
         # Try to parse as ISBN anyway (some EPUBs omit scheme)
-        isbn = normalize_isbn(value)
+        isbn = normalize_isbn_lenient(value)
         if isbn:
             return isbn
 
