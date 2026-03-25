@@ -84,6 +84,15 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         if "duplicate column name" not in str(e):
             raise
 
+    # Migration: add enrichment metadata columns
+    for col in ("publisher TEXT", "year TEXT", "description TEXT"):
+        try:
+            conn.execute(f"ALTER TABLE books ADD COLUMN {col}")
+            conn.commit()
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e):
+                raise
+
 
 def get_db_path() -> Path:
     """Get the default database path.

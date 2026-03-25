@@ -46,8 +46,8 @@ class BookRepository:
             """
             INSERT INTO books (id, title, authors, isbn, file_hash,
                              default_language, structure_source, added_at,
-                             epub_path)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                             epub_path, publisher, year, description)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 book.id,
@@ -59,6 +59,9 @@ class BookRepository:
                 book.structure_source,
                 book.added_at.isoformat(),
                 book.epub_path,
+                book.publisher,
+                book.year,
+                book.description,
             ),
         )
         self.conn.commit()
@@ -146,6 +149,9 @@ class BookRepository:
         title: str | None = None,
         authors: list[str] | None = None,
         isbn: str | None = None,
+        publisher: str | None = None,
+        year: str | None = None,
+        description: str | None = None,
     ) -> Book | None:
         """Update a book's metadata fields.
 
@@ -157,6 +163,9 @@ class BookRepository:
             title: New title (if provided)
             authors: New author list (if provided)
             isbn: New ISBN (if provided)
+            publisher: Publisher name (if provided)
+            year: Publication year (if provided)
+            description: Book description (if provided)
 
         Returns:
             Updated Book instance, or None if book not found
@@ -178,9 +187,18 @@ class BookRepository:
             fields.append("isbn = ?")
             # Empty string means "clear ISBN" (store as NULL)
             values.append(isbn if isbn else None)
+        if publisher is not None:
+            fields.append("publisher = ?")
+            values.append(publisher)
+        if year is not None:
+            fields.append("year = ?")
+            values.append(year)
+        if description is not None:
+            fields.append("description = ?")
+            values.append(description)
 
         if not fields:
-            raise ValueError("At least one field (title, authors, isbn) must be provided")
+            raise ValueError("At least one field must be provided")
 
         values.append(book_id)
         sql = f"UPDATE books SET {', '.join(fields)} WHERE id = ?"
@@ -207,6 +225,9 @@ class BookRepository:
             structure_source=row["structure_source"],
             added_at=datetime.fromisoformat(row["added_at"]),
             epub_path=row["epub_path"],
+            publisher=row["publisher"],
+            year=row["year"],
+            description=row["description"],
         )
 
 

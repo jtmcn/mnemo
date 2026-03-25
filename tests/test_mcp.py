@@ -403,7 +403,7 @@ class TestIntegrationWithTempStorage:
             assert "Test Python Book" in result
             assert "abc123" in result
             assert "John Doe" in result
-            assert "2026-01-20" in result
+            assert "Description" in result
         finally:
             tools._db_connection = original_conn
 
