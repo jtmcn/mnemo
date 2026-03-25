@@ -141,11 +141,20 @@ def _list_available_books_impl() -> str:
         if not books:
             return "No books indexed yet. Use `mnemo add <path>` to add books."
 
-        lines = ["| ID | Title | Authors | Added |", "|---|---|---|---|"]
+        lines = [
+            "| ID | Title | Authors | Description |",
+            "|---|---|---|---|",
+        ]
         for book in books:
             authors = ", ".join(book.authors) if book.authors else "Unknown"
-            added = book.added_at.strftime("%Y-%m-%d")
-            lines.append(f"| `{book.id}` | {book.title} | {authors} | {added} |")
+            desc = ""
+            if book.description:
+                desc = (
+                    book.description[:80] + "..."
+                    if len(book.description) > 80
+                    else book.description
+                )
+            lines.append(f"| `{book.id}` | {book.title} | {authors} | {desc} |")
 
         return "\n".join(lines)
 
@@ -177,14 +186,26 @@ def _get_book_info_impl(book_id: str) -> str:
             f"**ID:** `{book.id}`",
             f"**Authors:** {', '.join(book.authors) if book.authors else 'Unknown'}",
             f"**ISBN:** {book.isbn or 'Not available'}",
-            f"**Chunks:** {chunk_count}",
-            f"**Added:** {book.added_at.strftime('%Y-%m-%d %H:%M')}",
-            f"**Structure:** {book.structure_source}",
-            f"**EPUB Path:** {book.epub_path or 'Not available'}",
         ]
+
+        if book.publisher:
+            lines.append(f"**Publisher:** {book.publisher}")
+        if book.year:
+            lines.append(f"**Year:** {book.year}")
+
+        lines.extend(
+            [
+                f"**Chunks:** {chunk_count}",
+                f"**Added:** {book.added_at.strftime('%Y-%m-%d %H:%M')}",
+                f"**Structure:** {book.structure_source}",
+                f"**EPUB Path:** {book.epub_path or 'Not available'}",
+            ]
+        )
 
         if book.default_language:
             lines.append(f"**Default language:** {book.default_language}")
+        if book.description:
+            lines.append(f"\n**Description:** {book.description}")
 
         return "\n".join(lines)
 
@@ -470,26 +491,43 @@ def _enrich_book_impl(book_id: str, apply: bool = False) -> str:
             lines.append(f"**Publisher:** {result.publisher}")
         if result.year:
             lines.append(f"**Year:** {result.year}")
+        if result.description:
+            desc_preview = result.description[:200]
+            if len(result.description) > 200:
+                desc_preview += "..."
+            lines.append(f"**Description:** {desc_preview}")
 
-        # Apply if requested and we have a new ISBN
-        if apply and result.validated_isbn and result.validated_isbn != book.isbn:
-            book_repo.update(book_id=book_id, isbn=result.validated_isbn)
+        # Apply if requested
+        if apply:
+            update_kwargs: dict[str, str] = {}
+            if result.validated_isbn and result.validated_isbn != book.isbn:
+                update_kwargs["isbn"] = result.validated_isbn
+            if result.publisher and result.publisher != book.publisher:
+                update_kwargs["publisher"] = result.publisher
+            if result.year and result.year != book.year:
+                update_kwargs["year"] = result.year
+            if result.description and result.description != book.description:
+                update_kwargs["description"] = result.description
 
-            global _search_service
-            if _search_service is not None:
-                _search_service.invalidate_cache()
+            if update_kwargs:
+                book_repo.update(book_id=book_id, **update_kwargs)
 
-            lines.append("")
-            lines.append(f"ISBN updated to {result.validated_isbn}.")
+                global _search_service
+                if _search_service is not None:
+                    _search_service.invalidate_cache()
+
+                fields = ", ".join(update_kwargs.keys())
+                lines.append("")
+                lines.append(f"Updated: {fields}.")
+            else:
+                lines.append("")
+                lines.append("All metadata is up to date — no changes needed.")
         elif result.validated_isbn and result.validated_isbn != book.isbn:
             lines.append("")
             lines.append(
                 "Use `enrich_book` with `apply=true` to update, "
                 "or `update_book_metadata` to set manually."
             )
-        elif result.validated_isbn == book.isbn:
-            lines.append("")
-            lines.append("ISBN is correct — no changes needed.")
 
         return "\n".join(lines)
 

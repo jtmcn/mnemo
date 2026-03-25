@@ -7,6 +7,7 @@ httpx for direct API calls to Google Books and Open Library.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 
 import httpx
@@ -15,6 +16,7 @@ import isbnlib
 logger = logging.getLogger(__name__)
 
 _TIMEOUT = 10  # seconds per HTTP request
+_YEAR_RE = re.compile(r"\b((?:19|20)\d{2})\b")
 
 
 @dataclass
@@ -29,6 +31,7 @@ class EnrichmentResult:
     authors: list[str] = field(default_factory=list)
     publisher: str | None = None
     year: str | None = None
+    description: str | None = None
     error: str | None = None
 
 
@@ -51,6 +54,14 @@ def validate_isbn(isbn: str | None) -> tuple[bool, str | None]:
         return True, isbnlib.to_isbn13(isbn)
 
     return False, None
+
+
+def _extract_year(date_str: str | None) -> str | None:
+    """Extract a 4-digit year from a date string like '2021', '2018-01-06', or 'May 2021'."""
+    if not date_str:
+        return None
+    m = _YEAR_RE.search(date_str)
+    return m.group(1) if m else None
 
 
 def _google_books_by_isbn(isbn: str) -> EnrichmentResult | None:
@@ -86,7 +97,8 @@ def _google_books_by_isbn(isbn: str) -> EnrichmentResult | None:
         title=info.get("title"),
         authors=info.get("authors", []),
         publisher=info.get("publisher"),
-        year=info.get("publishedDate", "")[:4] or None,
+        year=_extract_year(info.get("publishedDate")),
+        description=info.get("description"),
     )
 
 
@@ -125,6 +137,27 @@ def _open_library_by_isbn(isbn: str) -> EnrichmentResult | None:
             except Exception:
                 pass
 
+    # Get description from the works endpoint
+    description = None
+    works = book.get("works", [])
+    if works:
+        work_key = works[0].get("key")
+        if work_key:
+            try:
+                w_resp = httpx.get(
+                    f"https://openlibrary.org{work_key}.json",
+                    timeout=_TIMEOUT,
+                )
+                w_resp.raise_for_status()
+                work = w_resp.json()
+                desc = work.get("description")
+                if isinstance(desc, dict):
+                    desc = desc.get("value")
+                if isinstance(desc, str):
+                    description = desc
+            except Exception:
+                pass
+
     return EnrichmentResult(
         original_isbn=isbn,
         validated_isbn=isbn13 or isbn,
@@ -133,7 +166,8 @@ def _open_library_by_isbn(isbn: str) -> EnrichmentResult | None:
         title=book.get("title"),
         authors=authors,
         publisher=book.get("publishers", [None])[0] if book.get("publishers") else None,
-        year=book.get("publish_date", "")[:4] or None,
+        year=_extract_year(book.get("publish_date")),
+        description=description,
     )
 
 
@@ -172,7 +206,8 @@ def _google_books_search(query: str) -> EnrichmentResult | None:
         title=info.get("title"),
         authors=info.get("authors", []),
         publisher=info.get("publisher"),
-        year=info.get("publishedDate", "")[:4] or None,
+        year=_extract_year(info.get("publishedDate")),
+        description=info.get("description"),
     )
 
 
