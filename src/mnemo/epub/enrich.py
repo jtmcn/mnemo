@@ -244,6 +244,12 @@ def _open_library_search(query: str) -> EnrichmentResult | None:
     if not isbn13:
         return None
 
+    # Follow up with ISBN lookup to get full metadata (especially description)
+    full_result = _open_library_by_isbn(isbn13)
+    if full_result:
+        return full_result
+
+    # Fall back to search-only data (no description available)
     year = doc.get("first_publish_year")
     return EnrichmentResult(
         validated_isbn=isbn13,
@@ -326,6 +332,13 @@ def enrich_book_metadata(
         result = lookup_by_isbn(isbn13)
         result.original_isbn = isbn
         result.isbn_valid = True
+        if result.error:
+            # ISBN is valid but not found in any service — try title/author search
+            fallback = search_by_title_author(title, authors)
+            if not fallback.error:
+                fallback.original_isbn = isbn
+                fallback.isbn_valid = True
+                return fallback
         return result
 
     # ISBN missing or invalid — search by title/author
