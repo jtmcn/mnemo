@@ -223,6 +223,36 @@ def list_books(
 
 
 @app.command()
+def export(
+    output: Annotated[
+        Path,
+        typer.Argument(help="Output file path (one EPUB path per line)"),
+    ] = Path("book-paths.txt"),
+) -> None:
+    """Export EPUB paths for all indexed books.
+
+    Writes one path per line, suitable for re-importing with:
+        mnemo add (cat book-paths.txt)
+    """
+    from mnemo.storage import BookRepository, get_connection, init_db
+
+    init_db()
+    conn = get_connection()
+    book_repo = BookRepository(conn)
+    books = book_repo.list_all()
+    conn.close()
+
+    paths = [book.epub_path for book in books if book.epub_path]
+
+    if not paths:
+        console.print("[yellow]No books with EPUB paths to export.[/yellow]")
+        raise typer.Exit(1)
+
+    output.write_text("\n".join(paths) + "\n")
+    console.print(f"[green]Exported {len(paths)} paths to {output}[/green]")
+
+
+@app.command()
 def remove(
     book_id: Annotated[
         str,
