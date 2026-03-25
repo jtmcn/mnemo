@@ -442,11 +442,11 @@ def _update_book_metadata_impl(
 
 
 def _enrich_book_impl(book_id: str, apply: bool = False) -> str:
-    """Enrich a book's ISBN metadata via external lookup.
+    """Enrich a book's metadata via external lookup.
 
     Args:
         book_id: 6-char hex book identifier
-        apply: If True, automatically apply the corrected ISBN
+        apply: If True, automatically apply found metadata
     """
     logger.info(f"enrich_book: book_id={book_id}, apply={apply}")
 
@@ -522,12 +522,19 @@ def _enrich_book_impl(book_id: str, apply: bool = False) -> str:
             else:
                 lines.append("")
                 lines.append("All metadata is up to date — no changes needed.")
-        elif result.validated_isbn and result.validated_isbn != book.isbn:
-            lines.append("")
-            lines.append(
-                "Use `enrich_book` with `apply=true` to update, "
-                "or `update_book_metadata` to set manually."
+        else:
+            has_updates = (
+                (result.validated_isbn and result.validated_isbn != book.isbn)
+                or (result.publisher and result.publisher != book.publisher)
+                or (result.year and result.year != book.year)
+                or (result.description and result.description != book.description)
             )
+            if has_updates:
+                lines.append("")
+                lines.append(
+                    "Use `enrich_book` with `apply=true` to update, "
+                    "or `update_book_metadata` to set manually."
+                )
 
         return "\n".join(lines)
 
@@ -969,15 +976,15 @@ async def enrich_book(
     apply: bool = False,
     ctx: Context = CurrentContext(),  # noqa: B008
 ) -> str:
-    """Look up and validate a book's ISBN using Google Books and Open Library.
+    """Enrich a book's metadata via Google Books and Open Library.
 
-    Checks if the book's ISBN has a valid checksum, and if not, searches
-    external services to find the correct ISBN. Use apply=true to automatically
-    update the ISBN, or review the suggestions first.
+    Validates the ISBN checksum, looks up or searches for the book in external
+    services, and returns any metadata found (publisher, year, description, authors).
+    Use apply=true to automatically update the book's metadata, or review first.
 
     Args:
         book_id: 6-character book identifier (from list_available_books)
-        apply: If true, automatically update the book's ISBN with the found value
+        apply: If true, automatically update the book's metadata with found values
 
     Returns:
         Enrichment results showing current vs. found ISBN, or error message

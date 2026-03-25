@@ -161,8 +161,11 @@ class TestGoogleBooksSearch:
 class TestOpenLibrarySearch:
     """Tests for Open Library title/author search."""
 
+    @patch("mnemo.epub.enrich._open_library_by_isbn")
     @patch("mnemo.epub.enrich.httpx.get")
-    def test_finds_match(self, mock_get: MagicMock) -> None:
+    def test_finds_match_with_isbn_followup(
+        self, mock_get: MagicMock, mock_isbn_lookup: MagicMock
+    ) -> None:
         resp = MagicMock()
         resp.json.return_value = {
             "docs": [
@@ -176,12 +179,49 @@ class TestOpenLibrarySearch:
             ]
         }
         mock_get.return_value = resp
+        mock_isbn_lookup.return_value = EnrichmentResult(
+            validated_isbn="9783982438801",
+            source="openlibrary",
+            title="How to Take Smart Notes",
+            authors=["Sönke Ahrens"],
+            publisher="Sönke Ahrens",
+            year="2017",
+            description="A great book about note-taking.",
+        )
+
+        result = _open_library_search("How to Take Smart Notes")
+
+        assert result is not None
+        assert result.source == "openlibrary"
+        assert result.description == "A great book about note-taking."
+        mock_isbn_lookup.assert_called_once_with("9783982438801")
+
+    @patch("mnemo.epub.enrich._open_library_by_isbn")
+    @patch("mnemo.epub.enrich.httpx.get")
+    def test_isbn_followup_fails_returns_search_result(
+        self, mock_get: MagicMock, mock_isbn_lookup: MagicMock
+    ) -> None:
+        resp = MagicMock()
+        resp.json.return_value = {
+            "docs": [
+                {
+                    "title": "How to Take Smart Notes",
+                    "author_name": ["Sönke Ahrens"],
+                    "isbn": ["9783982438801"],
+                    "publisher": ["Sönke Ahrens"],
+                    "first_publish_year": 2017,
+                }
+            ]
+        }
+        mock_get.return_value = resp
+        mock_isbn_lookup.return_value = None
 
         result = _open_library_search("How to Take Smart Notes")
 
         assert result is not None
         assert result.source == "openlibrary"
         assert result.title == "How to Take Smart Notes"
+        assert result.description is None
 
 
 class TestLookupByIsbn:
@@ -289,6 +329,53 @@ class TestEnrichBookMetadata:
         mock_search.assert_called_once()
         assert result.original_isbn is None
 
+    @patch("mnemo.epub.enrich.search_by_title_author")
+    @patch("mnemo.epub.enrich.lookup_by_isbn")
+    def test_valid_isbn_falls_back_to_title_search(
+        self, mock_lookup: MagicMock, mock_search: MagicMock
+    ) -> None:
+        """When ISBN is valid but lookup finds nothing, fall back to title/author search."""
+        mock_lookup.return_value = EnrichmentResult(
+            error="No metadata found for ISBN 9781914549090",
+        )
+        mock_search.return_value = EnrichmentResult(
+            validated_isbn="9781914549090",
+            source="google",
+            title="Personal Knowledge Graphs",
+            authors=["Ivo Velitchkov"],
+            publisher="Some Publisher",
+        )
+
+        result = enrich_book_metadata(
+            "9781914549090", "Personal Knowledge Graphs", ["Ivo Velitchkov"]
+        )
+
+        mock_lookup.assert_called_once()
+        mock_search.assert_called_once()
+        assert result.source == "google"
+        assert result.isbn_valid is True
+        assert result.original_isbn == "9781914549090"
+
+    @patch("mnemo.epub.enrich.search_by_title_author")
+    @patch("mnemo.epub.enrich.lookup_by_isbn")
+    def test_valid_isbn_fallback_also_fails(
+        self, mock_lookup: MagicMock, mock_search: MagicMock
+    ) -> None:
+        """When both ISBN lookup and title search fail, return the original ISBN error."""
+        mock_lookup.return_value = EnrichmentResult(
+            error="No metadata found for ISBN 9781914549090",
+        )
+        mock_search.return_value = EnrichmentResult(
+            error="No results found for: Personal Knowledge Graphs",
+        )
+
+        result = enrich_book_metadata(
+            "9781914549090", "Personal Knowledge Graphs", ["Ivo Velitchkov"]
+        )
+
+        assert result.error is not None
+        assert "ISBN" in result.error
+
 
 class TestEnrichBookImpl:
     """Tests for the MCP tool implementation function."""
@@ -395,3 +482,43 @@ class TestEnrichBookImpl:
             book_id="abc123", isbn="9780134685991"
         )
         assert "updated" in result.lower()
+
+    @patch("mnemo.mcp.tools.get_connection")
+    @patch("mnemo.mcp.tools.init_db")
+    @patch("mnemo.mcp.tools.BookRepository")
+    @patch("mnemo.epub.enrich.enrich_book_metadata")
+    def test_prompt_shown_when_metadata_differs_but_isbn_matches(
+        self,
+        mock_enrich: MagicMock,
+        mock_repo_cls: MagicMock,
+        mock_init: MagicMock,
+        mock_conn: MagicMock,
+    ) -> None:
+        """Apply prompt should appear when metadata differs, even if ISBN matches."""
+        from mnemo.mcp.tools import _enrich_book_impl
+        from mnemo.models import Book
+
+        mock_book = Book(
+            id="abc123",
+            title="Test Book",
+            authors=["Author"],
+            isbn="9780134685991",
+            file_hash="a" * 64,
+            default_language=None,
+            structure_source="toc",
+            added_at="2024-01-01T00:00:00",
+            epub_path=None,
+        )
+        mock_repo_cls.return_value.get.return_value = mock_book
+        mock_enrich.return_value = EnrichmentResult(
+            original_isbn="9780134685991",
+            validated_isbn="9780134685991",
+            isbn_valid=True,
+            source="google",
+            publisher="Addison-Wesley",
+            year="2018",
+        )
+
+        result = _enrich_book_impl("abc123")
+
+        assert "apply=true" in result.lower() or "apply" in result.lower()
