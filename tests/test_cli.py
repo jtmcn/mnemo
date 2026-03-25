@@ -24,6 +24,7 @@ class TestHelp:
         assert "remove" in result.stdout
         assert "search" in result.stdout
         assert "serve" in result.stdout
+        assert "export" in result.stdout
 
     def test_add_help(self) -> None:
         """Add command help shows EPUB info."""
@@ -54,6 +55,12 @@ class TestHelp:
         result = runner.invoke(app, ["serve", "--help"])
         assert result.exit_code == 0
         assert "MCP" in result.stdout
+
+    def test_export_help(self) -> None:
+        """Export command help shows path info."""
+        result = runner.invoke(app, ["export", "--help"])
+        assert result.exit_code == 0
+        assert "EPUB" in result.stdout
 
 
 class TestList:
@@ -104,6 +111,77 @@ class TestRemove:
         data = json.loads(result.stdout)
         assert data["removed"] is False
         assert data["book_id"] == "abc123"
+
+
+class TestExport:
+    """Tests for the export command."""
+
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    @patch("mnemo.storage.BookRepository")
+    def test_export_writes_paths(self, mock_repo_cls, mock_init, mock_conn, tmp_path) -> None:
+        """Export writes one EPUB path per line."""
+        mock_book_1 = MagicMock()
+        mock_book_1.epub_path = "/books/one.epub"
+        mock_book_2 = MagicMock()
+        mock_book_2.epub_path = "/books/two.epub"
+        mock_repo_cls.return_value.list_all.return_value = [mock_book_1, mock_book_2]
+
+        out = tmp_path / "export.txt"
+        result = runner.invoke(app, ["export", str(out)])
+
+        assert result.exit_code == 0
+        assert "2 paths" in result.stdout
+        lines = out.read_text().strip().splitlines()
+        assert lines == ["/books/one.epub", "/books/two.epub"]
+
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    @patch("mnemo.storage.BookRepository")
+    def test_export_skips_books_without_path(
+        self, mock_repo_cls, mock_init, mock_conn, tmp_path
+    ) -> None:
+        """Export skips books that have no epub_path."""
+        mock_book = MagicMock()
+        mock_book.epub_path = "/books/one.epub"
+        mock_no_path = MagicMock()
+        mock_no_path.epub_path = None
+        mock_repo_cls.return_value.list_all.return_value = [mock_book, mock_no_path]
+
+        out = tmp_path / "export.txt"
+        result = runner.invoke(app, ["export", str(out)])
+
+        assert result.exit_code == 0
+        assert "1 paths" in result.stdout
+        lines = out.read_text().strip().splitlines()
+        assert lines == ["/books/one.epub"]
+
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    @patch("mnemo.storage.BookRepository")
+    def test_export_empty_library(self, mock_repo_cls, mock_init, mock_conn, tmp_path) -> None:
+        """Export with no books exits with error."""
+        mock_repo_cls.return_value.list_all.return_value = []
+
+        out = tmp_path / "export.txt"
+        result = runner.invoke(app, ["export", str(out)])
+
+        assert result.exit_code == 1
+        assert "no books" in result.stdout.lower()
+
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    @patch("mnemo.storage.BookRepository")
+    def test_export_default_filename(self, mock_repo_cls, mock_init, mock_conn) -> None:
+        """Export defaults to book-paths.txt."""
+        mock_book = MagicMock()
+        mock_book.epub_path = "/books/one.epub"
+        mock_repo_cls.return_value.list_all.return_value = [mock_book]
+
+        result = runner.invoke(app, ["export"])
+
+        assert result.exit_code == 0
+        assert "book-paths.txt" in result.stdout
 
 
 class TestMigrateCosine:
