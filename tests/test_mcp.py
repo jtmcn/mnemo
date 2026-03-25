@@ -27,7 +27,7 @@ class TestServerSetup:
         assert mcp.name.startswith("mnemo")
 
     def test_tools_registered(self):
-        """Verify all nine tools are registered with the server."""
+        """Verify all ten tools are registered with the server."""
         from mnemo.mcp.server import mcp
 
         # FastMCP stores tools in _tool_manager
@@ -38,6 +38,7 @@ class TestServerSetup:
         assert "update_book_metadata" in tool_names
         assert "remove_book" in tool_names
         assert "add_book" in tool_names
+        assert "enrich_book" in tool_names
         assert "get_book_structure" in tool_names
         assert "get_book_chunks" in tool_names
         assert "reindex_all_books" in tool_names

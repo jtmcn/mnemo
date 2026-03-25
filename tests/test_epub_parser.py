@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup, Tag
 
 from mnemo.epub import EPUBParser
 from mnemo.epub.content import ContentBlock, _extract_math
-from mnemo.epub.metadata import extract_metadata, normalize_isbn
+from mnemo.epub.metadata import extract_metadata, normalize_isbn, normalize_isbn_lenient
 from mnemo.models import Book, ContentType
 from tests.fixtures.epub_factory import (
     create_epub_with_code,
@@ -19,16 +19,16 @@ from tests.fixtures.epub_factory import (
 
 
 class TestNormalizeIsbn:
-    """Tests for ISBN normalization."""
+    """Tests for ISBN normalization with checksum validation."""
 
     def test_isbn13_with_hyphens(self) -> None:
         assert normalize_isbn("978-0-13-468599-1") == "9780134685991"
 
-    def test_isbn10(self) -> None:
-        assert normalize_isbn("0-13-468599-5") == "0134685995"
+    def test_isbn10_valid(self) -> None:
+        assert normalize_isbn("0-596-00712-4") == "0596007124"
 
     def test_isbn10_with_x(self) -> None:
-        assert normalize_isbn("0-596-00712-X") == "059600712X"
+        assert normalize_isbn("0-8044-2957-X") == "080442957X"
 
     def test_urn_format(self) -> None:
         assert normalize_isbn("urn:isbn:9780134685991") == "9780134685991"
@@ -38,6 +38,34 @@ class TestNormalizeIsbn:
 
     def test_empty_isbn(self) -> None:
         assert normalize_isbn("") is None
+
+    def test_bad_checksum_isbn13(self) -> None:
+        """ISBN-13 with wrong check digit is rejected."""
+        assert normalize_isbn("978-1-234-56789-0") is None
+
+    def test_bad_checksum_isbn10(self) -> None:
+        """ISBN-10 with wrong check digit is rejected."""
+        assert normalize_isbn("0-13-468599-5") is None
+
+
+class TestNormalizeIsbnLenient:
+    """Tests for lenient ISBN normalization (format-only, no checksum)."""
+
+    def test_accepts_valid_isbn13(self) -> None:
+        assert normalize_isbn_lenient("978-0-13-468599-1") == "9780134685991"
+
+    def test_accepts_bad_checksum_isbn13(self) -> None:
+        """Lenient mode accepts format-valid ISBN with bad checksum."""
+        assert normalize_isbn_lenient("978-1-234-56789-0") == "9781234567890"
+
+    def test_accepts_isbn10_with_x(self) -> None:
+        assert normalize_isbn_lenient("0-596-00712-X") == "059600712X"
+
+    def test_rejects_invalid_format(self) -> None:
+        assert normalize_isbn_lenient("not-an-isbn") is None
+
+    def test_empty_isbn(self) -> None:
+        assert normalize_isbn_lenient("") is None
 
 
 class TestExtractMetadata:

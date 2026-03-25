@@ -11,13 +11,13 @@ from __future__ import annotations
 import hashlib
 import uuid
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, Field, computed_field
 
 
-class ContentType(str, Enum):
+class ContentType(StrEnum):
     """Classification of chunk content types.
 
     Used to filter search results and handle content appropriately:
