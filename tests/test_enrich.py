@@ -8,6 +8,7 @@ from mnemo.epub.enrich import (
     EnrichmentResult,
     _google_books_by_isbn,
     _google_books_search,
+    _normalize_title,
     _open_library_by_isbn,
     _open_library_search,
     enrich_book_metadata,
@@ -45,6 +46,31 @@ class TestValidateIsbn:
         is_valid, isbn13 = validate_isbn("")
         assert is_valid is False
         assert isbn13 is None
+
+
+class TestNormalizeTitle:
+    """Tests for title normalization."""
+
+    def test_strips_second_edition(self) -> None:
+        assert (
+            _normalize_title("Refactoring: Improving the Design of Existing Code, Second Edition")
+            == "Refactoring: Improving the Design of Existing Code"
+        )
+
+    def test_strips_2nd_edition(self) -> None:
+        assert _normalize_title("Some Book, 2nd Edition") == "Some Book"
+
+    def test_strips_third_edition(self) -> None:
+        assert _normalize_title("Title Third Edition") == "Title"
+
+    def test_strips_4th_edition(self) -> None:
+        assert _normalize_title("Algorithms, 4th Edition") == "Algorithms"
+
+    def test_no_edition_unchanged(self) -> None:
+        assert _normalize_title("Clean Code") == "Clean Code"
+
+    def test_case_insensitive(self) -> None:
+        assert _normalize_title("Book SECOND EDITION") == "Book"
 
 
 def _mock_google_response(isbn13: str = "9780134685991") -> MagicMock:
@@ -254,6 +280,67 @@ class TestLookupByIsbn:
         result = lookup_by_isbn("9780134685991")
         assert result.error is not None
 
+    @patch("mnemo.epub.enrich._open_library_by_isbn")
+    @patch("mnemo.epub.enrich._google_books_by_isbn")
+    def test_backfill_description_from_google(
+        self,
+        mock_google: MagicMock,
+        mock_ol: MagicMock,
+    ) -> None:
+        """When OpenLibrary wins without description, backfill from Google."""
+        mock_google.side_effect = [
+            None,  # First call: Google lookup fails
+            EnrichmentResult(  # Second call: backfill succeeds
+                source="google",
+                description="A great book.",
+            ),
+        ]
+        mock_ol.return_value = EnrichmentResult(
+            validated_isbn="9780134685991",
+            source="openlibrary",
+            publisher="O'Reilly",
+        )
+
+        result = lookup_by_isbn("9780134685991")
+        assert result.source == "openlibrary"
+        assert result.description == "A great book."
+
+    @patch("mnemo.epub.enrich._google_books_by_isbn")
+    def test_no_backfill_when_google_wins(
+        self,
+        mock_google: MagicMock,
+    ) -> None:
+        """When Google wins, no redundant backfill call."""
+        mock_google.return_value = EnrichmentResult(
+            validated_isbn="9780134685991",
+            source="google",
+            description="Already has one.",
+        )
+
+        result = lookup_by_isbn("9780134685991")
+        assert result.description == "Already has one."
+        mock_google.assert_called_once()
+
+    @patch("mnemo.epub.enrich._open_library_by_isbn")
+    @patch("mnemo.epub.enrich._google_books_by_isbn")
+    def test_no_backfill_when_description_present(
+        self,
+        mock_google: MagicMock,
+        mock_ol: MagicMock,
+    ) -> None:
+        """When OpenLibrary already has a description, skip backfill."""
+        mock_google.return_value = None
+        mock_ol.return_value = EnrichmentResult(
+            validated_isbn="9780134685991",
+            source="openlibrary",
+            description="OL description.",
+        )
+
+        result = lookup_by_isbn("9780134685991")
+        assert result.description == "OL description."
+        # Google was called once (and failed), no backfill call
+        mock_google.assert_called_once()
+
 
 class TestSearchByTitleAuthor:
     """Tests for title/author-based ISBN search."""
@@ -283,6 +370,57 @@ class TestSearchByTitleAuthor:
         # First call args — query should just be the title
         call_args = mock_search.call_args[0]
         assert call_args[0] == "Some Book"
+
+    @patch("mnemo.epub.enrich._google_books_search")
+    def test_edition_stripped_from_query(
+        self,
+        mock_search: MagicMock,
+    ) -> None:
+        """Edition markers should be stripped before searching."""
+        mock_search.return_value = EnrichmentResult(
+            validated_isbn="9780134757599",
+            source="google",
+        )
+
+        search_by_title_author(
+            "Refactoring, Second Edition",
+            ["Martin Fowler"],
+        )
+
+        query = mock_search.call_args[0][0]
+        assert "Second Edition" not in query
+        assert "Refactoring" in query
+
+    @patch("mnemo.epub.enrich._open_library_search")
+    @patch("mnemo.epub.enrich._google_books_search")
+    def test_subtitle_retry_on_failure(
+        self,
+        mock_google: MagicMock,
+        mock_ol: MagicMock,
+    ) -> None:
+        """When full title fails, retry with just the main title."""
+        # First round: both fail
+        # Second round: Google finds it with short title
+        mock_google.side_effect = [
+            None,
+            EnrichmentResult(
+                validated_isbn="9780134757599",
+                source="google",
+                description="A classic.",
+            ),
+        ]
+        mock_ol.return_value = None
+
+        result = search_by_title_author(
+            "Refactoring: Improving the Design of Existing Code",
+            ["Martin Fowler"],
+        )
+
+        assert result.validated_isbn == "9780134757599"
+        # Google was called twice: full query, then short query
+        assert mock_google.call_count == 2
+        short_query = mock_google.call_args_list[1][0][0]
+        assert short_query == "Refactoring Martin Fowler"
 
 
 class TestEnrichBookMetadata:

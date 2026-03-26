@@ -17,6 +17,12 @@ logger = logging.getLogger(__name__)
 
 _TIMEOUT = 10  # seconds per HTTP request
 _YEAR_RE = re.compile(r"\b((?:19|20)\d{2})\b")
+_EDITION_RE = re.compile(
+    r",?\s*\b(?:\d+\w*\s+edition"
+    r"|(?:first|second|third|fourth|fifth|sixth|seventh"
+    r"|eighth|ninth|tenth)\s+edition)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -54,6 +60,11 @@ def validate_isbn(isbn: str | None) -> tuple[bool, str | None]:
         return True, isbnlib.to_isbn13(isbn)
 
     return False, None
+
+
+def _normalize_title(title: str) -> str:
+    """Strip edition markers from a title for cleaner search queries."""
+    return _EDITION_RE.sub("", title).strip()
 
 
 def _extract_year(date_str: str | None) -> str | None:
@@ -262,6 +273,17 @@ def _open_library_search(query: str) -> EnrichmentResult | None:
     )
 
 
+def _backfill_description(
+    result: EnrichmentResult,
+    isbn: str,
+) -> EnrichmentResult:
+    """Try Google Books to fill in a missing description."""
+    google = _google_books_by_isbn(isbn)
+    if google and google.description:
+        result.description = google.description
+    return result
+
+
 def lookup_by_isbn(isbn: str) -> EnrichmentResult:
     """Look up metadata by ISBN from Google Books, then Open Library.
 
@@ -274,6 +296,8 @@ def lookup_by_isbn(isbn: str) -> EnrichmentResult:
     for fn in (_google_books_by_isbn, _open_library_by_isbn):
         result = fn(isbn)
         if result:
+            if not result.description and result.source != "google":
+                _backfill_description(result, isbn)
             return result
 
     return EnrichmentResult(
@@ -293,12 +317,30 @@ def search_by_title_author(title: str, authors: list[str]) -> EnrichmentResult:
         EnrichmentResult with the best match, or error if none found
     """
     author_str = " ".join(authors) if authors and authors != ["Unknown"] else ""
-    query = f"{title} {author_str}".strip()
+    clean_title = _normalize_title(title)
+    query = f"{clean_title} {author_str}".strip()
 
     for fn in (_google_books_search, _open_library_search):
         result = fn(query)
         if result:
+            if not result.description and result.validated_isbn:
+                _backfill_description(result, result.validated_isbn)
             return result
+
+    # Retry with subtitle stripped if title has a colon
+    if ":" in clean_title:
+        short_title = clean_title.split(":")[0].strip()
+        short_query = f"{short_title} {author_str}".strip()
+        if short_query != query:
+            for fn in (_google_books_search, _open_library_search):
+                result = fn(short_query)
+                if result:
+                    if not result.description and result.validated_isbn:
+                        _backfill_description(
+                            result,
+                            result.validated_isbn,
+                        )
+                    return result
 
     return EnrichmentResult(
         error=f"No results found for: {query}",
