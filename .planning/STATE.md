@@ -1,41 +1,41 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.3
-milestone_name: Quality & Polish
-current_phase: 13
-status: completed
-stopped_at: "Milestone v1.3 completed and archived"
-last_updated: "2026-03-16"
-last_activity: 2026-03-16 — Milestone v1.3 archived
+milestone: v1.4
+milestone_name: Tech Debt Cleanup
+current_phase: 0
+status: defining_requirements
+stopped_at: "Defining requirements for v1.4"
+last_updated: "2026-03-26"
+last_activity: 2026-03-26 — Milestone v1.4 started
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 5
-  completed_plans: 5
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State: Mnemo
 
-**Last Updated:** 2026-03-16
+**Last Updated:** 2026-03-26
 **Current Phase:** —
 **Overall Progress:** v1.0 shipped, v1.1 shipped, v1.2 shipped, v1.3 shipped
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-16)
+See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** Ask Claude a question, get answers from your book collection.
-**Current focus:** Planning next milestone
+**Current focus:** v1.4 Tech Debt Cleanup
 
 ## Current Position
 
-Phase: — (milestone complete)
+Phase: Not started (defining requirements)
 Plan: —
-Status: Planning next milestone
-Last activity: 2026-03-16 — Milestone v1.3 archived
+Status: Defining requirements
+Last activity: 2026-03-26 — Milestone v1.4 started
 
-Progress: [██████████] 100% (v1.3)
+Progress: [░░░░░░░░░░] 0% (v1.4)
 
 ## Performance Metrics
 
@@ -54,6 +54,7 @@ Progress: [██████████] 100% (v1.3)
 | v1.1 Book Management | 5-7 | 5 | Shipped |
 | v1.2 RAG Improvements | 8-9 | 5 | Shipped |
 | v1.3 Quality & Polish | 10-13 | 5 | Shipped |
+| v1.4 Tech Debt Cleanup | — | — | Active |
 
 ## Accumulated Context
 
@@ -68,10 +69,10 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-16
-Stopped at: Milestone v1.3 completed and archived
+Last session: 2026-03-26
+Stopped at: Defining requirements for v1.4
 Resume file: None
 
 ---
 *State initialized: 2026-01-19*
-*Last updated: 2026-03-16*
+*Last updated: 2026-03-26*
