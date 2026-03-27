@@ -46,7 +46,20 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 
 ### Active
 
-(None — planning next milestone)
+#### Current Milestone: v1.4 Tech Debt Cleanup
+
+**Goal:** Harden the codebase by addressing structural tech debt, missing dependencies, data safety gaps, and CI/quality gates.
+
+**Target features:**
+- Split large files (tools.py, content.py) and extract shared CLI/MCP logic into service layer
+- Refactor MCP module from global singletons to dependency injection
+- Add schema version tracking with numbered migration scripts
+- Declare missing dependencies (typer, rich) in pyproject.toml
+- Add .env.example documenting required environment variables
+- Configurable log levels without code changes
+- Full backup/export covering SQLite database and ChromaDB vectors
+- GitHub Actions CI pipeline with automated testing
+- pytest-cov minimum coverage threshold enforcement
 
 ### Out of Scope
 
@@ -120,5 +133,22 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 | FRONT_MATTER_STEMS heuristic | Exact + prefix/suffix filename matching | ✓ Good — covers major publishers, extensible |
 | MATCH/Context labels with --- separators | Visual chunk delineation in enriched results | ✓ Good — immediately readable in Claude Desktop |
 
+## Evolution
+
+This document evolves at phase transitions and milestone boundaries.
+
+**After each phase transition** (via `/gsd:transition`):
+1. Requirements invalidated? → Move to Out of Scope with reason
+2. Requirements validated? → Move to Validated with phase reference
+3. New requirements emerged? → Add to Active
+4. Decisions to log? → Add to Key Decisions
+5. "What This Is" still accurate? → Update if drifted
+
+**After each milestone** (via `/gsd:complete-milestone`):
+1. Full review of all sections
+2. Core Value check — still the right priority?
+3. Audit Out of Scope — reasons still valid?
+4. Update Context with current state
+
 ---
-*Last updated: 2026-03-16 after v1.3 milestone completion*
+*Last updated: 2026-03-26 after v1.4 milestone start*
