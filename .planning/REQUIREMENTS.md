@@ -63,29 +63,29 @@ Requirements for the tech debt cleanup milestone. Each maps to roadmap phases.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| STRC-01 | — | Pending |
-| STRC-02 | — | Pending |
-| STRC-03 | — | Pending |
-| STRC-04 | — | Pending |
-| STRC-05 | — | Pending |
-| CONF-01 | — | Pending |
-| CONF-02 | — | Pending |
-| CONF-03 | — | Pending |
-| DATA-01 | — | Pending |
-| DATA-02 | — | Pending |
-| DATA-03 | — | Pending |
-| DATA-04 | — | Pending |
-| DATA-05 | — | Pending |
-| CICD-01 | — | Pending |
-| CICD-02 | — | Pending |
-| CICD-03 | — | Pending |
-| CICD-04 | — | Pending |
+| CONF-01 | Phase 14 | Pending |
+| CONF-02 | Phase 14 | Pending |
+| CONF-03 | Phase 14 | Pending |
+| DATA-04 | Phase 15 | Pending |
+| DATA-05 | Phase 15 | Pending |
+| DATA-01 | Phase 16 | Pending |
+| DATA-02 | Phase 16 | Pending |
+| DATA-03 | Phase 16 | Pending |
+| STRC-02 | Phase 17 | Pending |
+| STRC-01 | Phase 18 | Pending |
+| STRC-03 | Phase 18 | Pending |
+| STRC-04 | Phase 18 | Pending |
+| STRC-05 | Phase 18 | Pending |
+| CICD-01 | Phase 19 | Pending |
+| CICD-02 | Phase 19 | Pending |
+| CICD-03 | Phase 19 | Pending |
+| CICD-04 | Phase 19 | Pending |
 
 **Coverage:**
 - v1.4 requirements: 17 total
-- Mapped to phases: 0
-- Unmapped: 17 ⚠️ (awaiting roadmap)
+- Mapped to phases: 17
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-26*
-*Last updated: 2026-03-26 after initial definition*
+*Last updated: 2026-03-26 after roadmap creation*
