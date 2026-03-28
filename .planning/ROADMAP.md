@@ -70,7 +70,9 @@
   2. A new contributor can configure all required environment variables by copying `.env.example`
   3. Setting `MNEMO_LOG_LEVEL=DEBUG` produces verbose output without any code changes
   4. All existing tests pass unchanged
-**Plans**: TBD
+**Plans:** 1 plan
+Plans:
+- [ ] 14-01-PLAN.md — Declare deps, document env vars, configurable logging
 
 ### Phase 15: Schema Migration Framework
 **Goal**: Schema changes are versioned and applied automatically in order, replacing fragile try/except pattern
@@ -83,7 +85,9 @@
   3. Opening an older database automatically applies pending migrations in order
   4. A fresh database initializes to the latest schema version without running incremental migrations
   5. All existing tests pass unchanged
-**Plans**: TBD
+**Plans:** 1 plan
+Plans:
+- [ ] 14-01-PLAN.md — Declare deps, document env vars, configurable logging
 
 ### Phase 16: Backup & Restore
 **Goal**: Users can fully back up and restore their library (SQLite + ChromaDB) without re-ingesting EPUBs
@@ -95,7 +99,9 @@
   2. `mnemo restore` (or `mnemo import`) restores the archive to a working state where search returns results
   3. A round-trip backup-then-restore on a library with books produces identical search results
   4. All existing tests pass unchanged
-**Plans**: TBD
+**Plans:** 1 plan
+Plans:
+- [ ] 14-01-PLAN.md — Declare deps, document env vars, configurable logging
 
 ### Phase 17: EPUB Content Split
 **Goal**: epub/content.py is decomposed into focused modules, each under ~400 lines, with no behavior changes
@@ -107,7 +113,9 @@
   2. Content classification, extraction, and utility logic live in separate modules
   3. All imports from `epub.content` continue to work (re-exports from new modules if needed)
   4. All existing tests pass unchanged
-**Plans**: TBD
+**Plans:** 1 plan
+Plans:
+- [ ] 14-01-PLAN.md — Declare deps, document env vars, configurable logging
 
 ### Phase 18: MCP & Service Layer Refactor
 **Goal**: MCP tools are organized by domain, shared CLI/MCP logic lives in a service layer, and global singletons are replaced with dependency injection
@@ -120,7 +128,9 @@
   3. CLI commands and MCP tools both delegate to the same service layer functions for validation and business logic
   4. Adding a new operation requires implementing it once in the service layer, not twice in CLI and MCP
   5. All 367+ existing tests pass with no behavior changes
-**Plans**: TBD
+**Plans:** 1 plan
+Plans:
+- [ ] 14-01-PLAN.md — Declare deps, document env vars, configurable logging
 
 ### Phase 19: CI & Quality Gates
 **Goal**: Every push and PR is automatically validated by a CI pipeline that enforces testing, linting, and coverage standards
@@ -132,7 +142,9 @@
   2. The CI workflow fails if ruff or mypy report errors
   3. The CI workflow fails if pytest-cov reports coverage below the configured threshold
   4. README.md displays a CI status badge showing current build status
-**Plans**: TBD
+**Plans:** 1 plan
+Plans:
+- [ ] 14-01-PLAN.md — Declare deps, document env vars, configurable logging
 
 ## Progress
 
@@ -151,7 +163,7 @@
 | 11. Search Filter & MCP Tool | v1.3 | 1/1 | Complete | 2026-03-14 |
 | 12. Output Formatting | v1.3 | 1/1 | Complete | 2026-03-14 |
 | 13. Audit Gap Closure | v1.3 | 1/1 | Complete | 2026-03-15 |
-| 14. Dependencies & Configuration | v1.4 | 0/? | Not started | - |
+| 14. Dependencies & Configuration | v1.4 | 0/1 | Planned | - |
 | 15. Schema Migration Framework | v1.4 | 0/? | Not started | - |
 | 16. Backup & Restore | v1.4 | 0/? | Not started | - |
 | 17. EPUB Content Split | v1.4 | 0/? | Not started | - |
