@@ -12,6 +12,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+from mnemo.storage.migrations import apply_pending_migrations, ensure_schema_version
+
 # Schema SQL statements
 _SCHEMA_SQL = """
 -- Books table
@@ -70,30 +72,6 @@ CREATE INDEX IF NOT EXISTS idx_chunks_sequence ON chunks(book_id, sequence);
 """
 
 
-def _migrate_schema(conn: sqlite3.Connection) -> None:
-    """Apply schema migrations for existing databases.
-
-    Idempotent - safe to call multiple times. Each migration
-    handles its own "already applied" case gracefully.
-    """
-    # Migration: add epub_path column to books table
-    try:
-        conn.execute("ALTER TABLE books ADD COLUMN epub_path TEXT")
-        conn.commit()
-    except sqlite3.OperationalError as e:
-        if "duplicate column name" not in str(e):
-            raise
-
-    # Migration: add enrichment metadata columns
-    for col in ("publisher TEXT", "year TEXT", "description TEXT"):
-        try:
-            conn.execute(f"ALTER TABLE books ADD COLUMN {col}")
-            conn.commit()
-        except sqlite3.OperationalError as e:
-            if "duplicate column name" not in str(e):
-                raise
-
-
 def get_db_path() -> Path:
     """Get the default database path.
 
@@ -129,8 +107,9 @@ def init_db(db_path: Path | None = None) -> None:
         # Execute schema
         conn.executescript(_SCHEMA_SQL)
         conn.commit()
-        # Apply migrations for existing databases
-        _migrate_schema(conn)
+        # Apply versioned migrations
+        ensure_schema_version(conn)
+        apply_pending_migrations(conn)
     finally:
         conn.close()
 
