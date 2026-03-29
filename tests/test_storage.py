@@ -151,6 +151,133 @@ class TestDatabaseInitialization:
         conn.close()
 
 
+class TestSchemaVersion:
+    """Tests for schema_version table and migration versioning."""
+
+    def test_fresh_db_has_schema_version(self, db_path: Path):
+        """Fresh database should have a schema_version table."""
+        import sqlite3
+
+        init_db(db_path)
+        conn = get_connection(db_path)
+        tables = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        table_names = [t["name"] for t in tables]
+        assert "schema_version" in table_names
+        conn.close()
+
+    def test_fresh_db_at_latest_version(self, db_path: Path):
+        """Fresh database should be stamped at version 4 after init_db."""
+        import sqlite3
+
+        init_db(db_path)
+        conn = sqlite3.connect(db_path)
+        row = conn.execute("SELECT version FROM schema_version").fetchone()
+        assert row is not None
+        assert row[0] == 4
+        conn.close()
+
+    def test_versioned_db_idempotent(self, db_path: Path):
+        """Calling init_db twice should leave schema_version = 4 with exactly one row."""
+        import sqlite3
+
+        init_db(db_path)
+        init_db(db_path)
+        conn = sqlite3.connect(db_path)
+        version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
+        assert version == 4
+        count = conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0]
+        assert count == 1
+        conn.close()
+
+    def test_legacy_db_gets_stamped(self, db_path: Path):
+        """Legacy DB with all columns but no schema_version should be stamped at 4."""
+        import sqlite3
+
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(db_path)
+        conn.execute("""
+            CREATE TABLE books (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                authors TEXT NOT NULL,
+                isbn TEXT,
+                file_hash TEXT UNIQUE NOT NULL,
+                default_language TEXT,
+                structure_source TEXT NOT NULL,
+                added_at TEXT NOT NULL,
+                epub_path TEXT,
+                publisher TEXT,
+                year TEXT,
+                description TEXT
+            )
+        """)
+        conn.execute(
+            "INSERT INTO books VALUES ('abc123','Title','[\"Author\"]',NULL,'a'*64,'python','toc','2026-01-01','/p',NULL,NULL,NULL)"
+        )
+        conn.commit()
+        conn.close()
+
+        init_db(db_path)
+        conn = sqlite3.connect(db_path)
+        version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
+        assert version == 4
+        conn.close()
+
+    def test_partial_legacy_db_migrated(self, db_path: Path):
+        """Legacy DB missing columns should get them applied and be stamped at 4."""
+        import sqlite3
+
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(db_path)
+        conn.execute("""
+            CREATE TABLE books (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                authors TEXT NOT NULL,
+                isbn TEXT,
+                file_hash TEXT UNIQUE NOT NULL,
+                default_language TEXT,
+                structure_source TEXT NOT NULL,
+                added_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE chunks (
+                id TEXT PRIMARY KEY,
+                book_id TEXT NOT NULL,
+                content TEXT NOT NULL,
+                content_type TEXT NOT NULL,
+                token_count INTEGER NOT NULL,
+                section_path TEXT NOT NULL,
+                sections TEXT NOT NULL,
+                language TEXT,
+                sequence INTEGER NOT NULL,
+                prev_chunk_id TEXT,
+                next_chunk_id TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE VIRTUAL TABLE chunks_fts USING fts5(
+                content,
+                content=chunks,
+                content_rowid=rowid
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+        init_db(db_path)
+        conn = sqlite3.connect(db_path)
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(books)")}
+        assert "epub_path" in columns
+        assert "publisher" in columns
+        assert "year" in columns
+        assert "description" in columns
+        version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
+        assert version == 4
+        conn.close()
+
+
 class TestBookRepository:
     """Tests for BookRepository CRUD operations."""
 
