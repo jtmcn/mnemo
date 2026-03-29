@@ -91,7 +91,7 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 **Tech stack:** Python 3.11+, uv, ChromaDB (cosine), SQLite/FTS5, Databricks GTE-large-en, FastMCP 2.0, Typer, Rich.
 **MCP tools:** 8 total — search_books, list_available_books, get_book_info, get_book_chunks, get_book_structure, update_book_metadata, remove_book, add_book.
 **Known items:** Code chunking heuristics need tuning with real data; MNEMO_BOOKS_DIR path restriction not yet implemented; semantic chunking deferred (mixed benchmarks); FRONT_MATTER_STEMS heuristic may need publisher-specific additions.
-**Tech debt:** typer not in explicit dependencies (works via chromadb transitive dep); `_format_enriched_results` omits closing `---` after final result (cosmetic).
+**Tech debt:** `_format_enriched_results` omits closing `---` after final result (cosmetic).
 
 ## Constraints
 
@@ -151,4 +151,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-26 after v1.4 milestone start*
+*Last updated: 2026-03-28 after Phase 14 (Dependencies & Configuration) complete*
