@@ -52,7 +52,7 @@
 **Milestone Goal:** Harden the codebase by addressing structural tech debt, missing dependencies, data safety gaps, and CI/quality gates. No new user-facing features — all 367+ tests must pass throughout.
 
 - [x] **Phase 14: Dependencies & Configuration** - Declare missing deps, document env vars, add configurable logging (completed 2026-03-29)
-- [ ] **Phase 15: Schema Migration Framework** - Replace try/except ALTER TABLE with versioned migration scripts
+- [x] **Phase 15: Schema Migration Framework** - Replace try/except ALTER TABLE with versioned migration scripts (completed 2026-03-29)
 - [ ] **Phase 16: Backup & Restore** - Full export/import of SQLite database and ChromaDB vectors
 - [ ] **Phase 17: EPUB Content Split** - Split content.py into focused modules under 400 lines each
 - [ ] **Phase 18: MCP & Service Layer Refactor** - Split tools.py, extract service layer, inject dependencies
@@ -85,9 +85,9 @@ Plans:
   3. Opening an older database automatically applies pending migrations in order
   4. A fresh database initializes to the latest schema version without running incremental migrations
   5. All existing tests pass unchanged
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 Plans:
-- [ ] 15-01-PLAN.md — Migration framework with schema_version table and numbered migrations
+- [x] 15-01-PLAN.md — Migration framework with schema_version table and numbered migrations
 
 
 
@@ -167,7 +167,7 @@ Plans:
 | 12. Output Formatting | v1.3 | 1/1 | Complete | 2026-03-14 |
 | 13. Audit Gap Closure | v1.3 | 1/1 | Complete | 2026-03-15 |
 | 14. Dependencies & Configuration | v1.4 | 0/1 | Complete    | 2026-03-29 |
-| 15. Schema Migration Framework | v1.4 | 0/? | Not started | - |
+| 15. Schema Migration Framework | v1.4 | 1/1 | Complete   | 2026-03-29 |
 | 16. Backup & Restore | v1.4 | 0/? | Not started | - |
 | 17. EPUB Content Split | v1.4 | 0/? | Not started | - |
 | 18. MCP & Service Layer Refactor | v1.4 | 0/? | Not started | - |
