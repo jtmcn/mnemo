@@ -51,7 +51,7 @@
 
 **Milestone Goal:** Harden the codebase by addressing structural tech debt, missing dependencies, data safety gaps, and CI/quality gates. No new user-facing features — all 367+ tests must pass throughout.
 
-- [ ] **Phase 14: Dependencies & Configuration** - Declare missing deps, document env vars, add configurable logging
+- [x] **Phase 14: Dependencies & Configuration** - Declare missing deps, document env vars, add configurable logging (completed 2026-03-29)
 - [ ] **Phase 15: Schema Migration Framework** - Replace try/except ALTER TABLE with versioned migration scripts
 - [ ] **Phase 16: Backup & Restore** - Full export/import of SQLite database and ChromaDB vectors
 - [ ] **Phase 17: EPUB Content Split** - Split content.py into focused modules under 400 lines each
@@ -70,7 +70,7 @@
   2. A new contributor can configure all required environment variables by copying `.env.example`
   3. Setting `MNEMO_LOG_LEVEL=DEBUG` produces verbose output without any code changes
   4. All existing tests pass unchanged
-**Plans:** 0/1 plans executed
+**Plans:** 1/1 plans complete
 Plans:
 - [ ] 14-01-PLAN.md — Declare deps, document env vars, configurable logging
 
@@ -163,7 +163,7 @@ Plans:
 | 11. Search Filter & MCP Tool | v1.3 | 1/1 | Complete | 2026-03-14 |
 | 12. Output Formatting | v1.3 | 1/1 | Complete | 2026-03-14 |
 | 13. Audit Gap Closure | v1.3 | 1/1 | Complete | 2026-03-15 |
-| 14. Dependencies & Configuration | v1.4 | 0/1 | Planned    |  |
+| 14. Dependencies & Configuration | v1.4 | 0/1 | Complete    | 2026-03-29 |
 | 15. Schema Migration Framework | v1.4 | 0/? | Not started | - |
 | 16. Backup & Restore | v1.4 | 0/? | Not started | - |
 | 17. EPUB Content Split | v1.4 | 0/? | Not started | - |
