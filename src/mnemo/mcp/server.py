@@ -5,6 +5,7 @@ Use logging to stderr only.
 """
 
 import logging
+import os
 import sys
 
 from fastmcp import FastMCP
@@ -12,8 +13,10 @@ from fastmcp import FastMCP
 from mnemo import __version__
 
 # Configure logging to stderr (critical for STDIO)
+_level_name = os.environ.get("MNEMO_LOG_LEVEL", "INFO").upper()
+_log_level = getattr(logging, _level_name, logging.INFO)
 logging.basicConfig(
-    level=logging.INFO,
+    level=_log_level,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler(sys.stderr)],
 )
