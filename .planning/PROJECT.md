@@ -53,7 +53,7 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 **Target features:**
 - Split large files (tools.py, content.py) and extract shared CLI/MCP logic into service layer
 - Refactor MCP module from global singletons to dependency injection
-- Add schema version tracking with numbered migration scripts
+- ~~Add schema version tracking with numbered migration scripts~~ ✓ Phase 15
 - Declare missing dependencies (typer, rich) in pyproject.toml
 - Add .env.example documenting required environment variables
 - Configurable log levels without code changes
@@ -151,4 +151,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-28 after Phase 14 (Dependencies & Configuration) complete*
+*Last updated: 2026-03-29 after Phase 15 (Schema Migration Framework) complete*
