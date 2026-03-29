@@ -26,8 +26,8 @@ Requirements for the tech debt cleanup milestone. Each maps to roadmap phases.
 - [ ] **DATA-01**: `mnemo export` (or new `mnemo backup`) can export the SQLite database file
 - [ ] **DATA-02**: `mnemo export` (or new `mnemo backup`) can export ChromaDB vector data
 - [ ] **DATA-03**: Exported data can be restored to a working state with a corresponding import/restore command
-- [ ] **DATA-04**: Schema changes are tracked with a `schema_version` table in SQLite
-- [ ] **DATA-05**: Each schema migration is a numbered script applied in order, replacing the try/except ALTER TABLE pattern
+- [x] **DATA-04**: Schema changes are tracked with a `schema_version` table in SQLite
+- [x] **DATA-05**: Each schema migration is a numbered script applied in order, replacing the try/except ALTER TABLE pattern
 
 ### CI & Quality Gates
 
@@ -66,8 +66,8 @@ Requirements for the tech debt cleanup milestone. Each maps to roadmap phases.
 | CONF-01 | Phase 14 | Complete |
 | CONF-02 | Phase 14 | Complete |
 | CONF-03 | Phase 14 | Complete |
-| DATA-04 | Phase 15 | Pending |
-| DATA-05 | Phase 15 | Pending |
+| DATA-04 | Phase 15 | Complete |
+| DATA-05 | Phase 15 | Complete |
 | DATA-01 | Phase 16 | Pending |
 | DATA-02 | Phase 16 | Pending |
 | DATA-03 | Phase 16 | Pending |

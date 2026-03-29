@@ -4,14 +4,14 @@ milestone: v1.4
 milestone_name: Tech Debt Cleanup
 current_phase: 15
 status: planning
-stopped_at: Completed 14-01-PLAN.md (dependencies-configuration)
-last_updated: "2026-03-29T03:35:45.562Z"
+stopped_at: Completed 15-01-PLAN.md (schema-migration-framework)
+last_updated: "2026-03-29T19:26:41.106Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 6
-  completed_phases: 1
-  total_plans: 1
-  completed_plans: 1
+  completed_phases: 2
+  total_plans: 2
+  completed_plans: 2
   percent: 0
 ---
 
@@ -57,6 +57,7 @@ Progress: [░░░░░░░░░░] 0% (v1.4)
 | v1.3 Quality & Polish | 10-13 | 5 | Shipped |
 | v1.4 Tech Debt Cleanup | 14-19 | TBD | Active |
 | Phase 14 P01 | 8 | 3 tasks | 4 files |
+| Phase 15 P01 | 5 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -66,6 +67,9 @@ See PROJECT.md for full decision log (28 decisions with outcomes).
 
 - [Phase 14]: typer>=0.12 and rich>=13.0 declared as explicit direct deps in pyproject.toml
 - [Phase 14]: MNEMO_LOG_LEVEL uses getattr(logging, name, logging.INFO) fallback pattern for safe level parsing
+- [Phase 15]: schema_version table with single-row UPDATE/INSERT pattern for personal-scale single-writer SQLite DB
+- [Phase 15]: Fresh DB detection: count==0 AND description column present — stamp LATEST_VERSION without incremental migrations
+- [Phase 15]: Legacy DB version inference by column presence; each migration commits individually for partial-failure safety
 
 ### Pending Todos
 
@@ -77,8 +81,8 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-29T03:32:33.779Z
-Stopped at: Completed 14-01-PLAN.md (dependencies-configuration)
+Last session: 2026-03-29T19:26:41.104Z
+Stopped at: Completed 15-01-PLAN.md (schema-migration-framework)
 Resume file: None
 
 ---
