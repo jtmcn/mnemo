@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Tech Debt Cleanup
-current_phase: 15
-status: planning
-stopped_at: Completed 15-01-PLAN.md (schema-migration-framework)
-last_updated: "2026-03-29T19:26:41.106Z"
+current_phase: 16
+status: executing
+stopped_at: Completed 14-01-PLAN.md (dependencies-configuration)
+last_updated: "2026-03-29T19:29:27.675Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 6
@@ -18,7 +18,7 @@ progress:
 # Project State: Mnemo
 
 **Last Updated:** 2026-03-26
-**Current Phase:** 15
+**Current Phase:** 16
 **Overall Progress:** v1.0-v1.3 shipped, v1.4 roadmapped
 
 ## Project Reference
@@ -26,13 +26,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** Ask Claude a question, get answers from your book collection.
-**Current focus:** v1.4 Tech Debt Cleanup — Phase 14 (Dependencies & Configuration)
+**Current focus:** Phase 15 — schema-migration-framework
 
 ## Current Position
 
-Phase: 14 of 19 (Dependencies & Configuration)
+Phase: 15 (schema-migration-framework) — EXECUTING
 Plan: Not started
-Status: Ready to plan
+Status: Executing Phase 15
 Last activity: 2026-03-29
 
 Progress: [░░░░░░░░░░] 0% (v1.4)
@@ -57,7 +57,6 @@ Progress: [░░░░░░░░░░] 0% (v1.4)
 | v1.3 Quality & Polish | 10-13 | 5 | Shipped |
 | v1.4 Tech Debt Cleanup | 14-19 | TBD | Active |
 | Phase 14 P01 | 8 | 3 tasks | 4 files |
-| Phase 15 P01 | 5 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -67,9 +66,6 @@ See PROJECT.md for full decision log (28 decisions with outcomes).
 
 - [Phase 14]: typer>=0.12 and rich>=13.0 declared as explicit direct deps in pyproject.toml
 - [Phase 14]: MNEMO_LOG_LEVEL uses getattr(logging, name, logging.INFO) fallback pattern for safe level parsing
-- [Phase 15]: schema_version table with single-row UPDATE/INSERT pattern for personal-scale single-writer SQLite DB
-- [Phase 15]: Fresh DB detection: count==0 AND description column present — stamp LATEST_VERSION without incremental migrations
-- [Phase 15]: Legacy DB version inference by column presence; each migration commits individually for partial-failure safety
 
 ### Pending Todos
 
@@ -81,8 +77,8 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-29T19:26:41.104Z
-Stopped at: Completed 15-01-PLAN.md (schema-migration-framework)
+Last session: 2026-03-29T03:32:33.779Z
+Stopped at: Completed 14-01-PLAN.md (dependencies-configuration)
 Resume file: None
 
 ---

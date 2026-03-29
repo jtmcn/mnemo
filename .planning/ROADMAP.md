@@ -167,7 +167,7 @@ Plans:
 | 12. Output Formatting | v1.3 | 1/1 | Complete | 2026-03-14 |
 | 13. Audit Gap Closure | v1.3 | 1/1 | Complete | 2026-03-15 |
 | 14. Dependencies & Configuration | v1.4 | 0/1 | Complete    | 2026-03-29 |
-| 15. Schema Migration Framework | v1.4 | 1/1 | Complete   | 2026-03-29 |
+| 15. Schema Migration Framework | v1.4 | 1/1 | Complete    | 2026-03-29 |
 | 16. Backup & Restore | v1.4 | 0/? | Not started | - |
 | 17. EPUB Content Split | v1.4 | 0/? | Not started | - |
 | 18. MCP & Service Layer Refactor | v1.4 | 0/? | Not started | - |
