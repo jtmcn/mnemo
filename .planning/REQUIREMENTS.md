@@ -17,9 +17,9 @@ Requirements for the tech debt cleanup milestone. Each maps to roadmap phases.
 
 ### Dependencies & Configuration
 
-- [ ] **CONF-01**: `typer` and `rich` are declared in `[project.dependencies]` in pyproject.toml
-- [ ] **CONF-02**: `.env.example` file documents all required and optional environment variables (Databricks token, data directory, etc.)
-- [ ] **CONF-03**: Log level is configurable via environment variable (e.g., `MNEMO_LOG_LEVEL`) without code changes
+- [x] **CONF-01**: `typer` and `rich` are declared in `[project.dependencies]` in pyproject.toml
+- [x] **CONF-02**: `.env.example` file documents all required and optional environment variables (Databricks token, data directory, etc.)
+- [x] **CONF-03**: Log level is configurable via environment variable (e.g., `MNEMO_LOG_LEVEL`) without code changes
 
 ### Data Safety
 
@@ -63,9 +63,9 @@ Requirements for the tech debt cleanup milestone. Each maps to roadmap phases.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CONF-01 | Phase 14 | Pending |
-| CONF-02 | Phase 14 | Pending |
-| CONF-03 | Phase 14 | Pending |
+| CONF-01 | Phase 14 | Complete |
+| CONF-02 | Phase 14 | Complete |
+| CONF-03 | Phase 14 | Complete |
 | DATA-04 | Phase 15 | Pending |
 | DATA-05 | Phase 15 | Pending |
 | DATA-01 | Phase 16 | Pending |
