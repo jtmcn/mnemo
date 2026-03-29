@@ -87,7 +87,10 @@ Plans:
   5. All existing tests pass unchanged
 **Plans:** 1 plan
 Plans:
-- [ ] 14-01-PLAN.md — Declare deps, document env vars, configurable logging
+- [ ] 15-01-PLAN.md — Migration framework with schema_version table and numbered migrations
+
+
+
 
 ### Phase 16: Backup & Restore
 **Goal**: Users can fully back up and restore their library (SQLite + ChromaDB) without re-ingesting EPUBs
