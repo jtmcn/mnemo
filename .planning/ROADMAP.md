@@ -70,7 +70,7 @@
   2. A new contributor can configure all required environment variables by copying `.env.example`
   3. Setting `MNEMO_LOG_LEVEL=DEBUG` produces verbose output without any code changes
   4. All existing tests pass unchanged
-**Plans:** 1 plan
+**Plans:** 0/1 plans executed
 Plans:
 - [ ] 14-01-PLAN.md — Declare deps, document env vars, configurable logging
 
@@ -163,7 +163,7 @@ Plans:
 | 11. Search Filter & MCP Tool | v1.3 | 1/1 | Complete | 2026-03-14 |
 | 12. Output Formatting | v1.3 | 1/1 | Complete | 2026-03-14 |
 | 13. Audit Gap Closure | v1.3 | 1/1 | Complete | 2026-03-15 |
-| 14. Dependencies & Configuration | v1.4 | 0/1 | Planned | - |
+| 14. Dependencies & Configuration | v1.4 | 0/1 | Planned    |  |
 | 15. Schema Migration Framework | v1.4 | 0/? | Not started | - |
 | 16. Backup & Restore | v1.4 | 0/? | Not started | - |
 | 17. EPUB Content Split | v1.4 | 0/? | Not started | - |
