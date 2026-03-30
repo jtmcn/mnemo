@@ -23,9 +23,9 @@ Requirements for the tech debt cleanup milestone. Each maps to roadmap phases.
 
 ### Data Safety
 
-- [ ] **DATA-01**: `mnemo export` (or new `mnemo backup`) can export the SQLite database file
-- [ ] **DATA-02**: `mnemo export` (or new `mnemo backup`) can export ChromaDB vector data
-- [ ] **DATA-03**: Exported data can be restored to a working state with a corresponding import/restore command
+- [x] **DATA-01**: `mnemo export` (or new `mnemo backup`) can export the SQLite database file
+- [x] **DATA-02**: `mnemo export` (or new `mnemo backup`) can export ChromaDB vector data
+- [x] **DATA-03**: Exported data can be restored to a working state with a corresponding import/restore command
 - [x] **DATA-04**: Schema changes are tracked with a `schema_version` table in SQLite
 - [x] **DATA-05**: Each schema migration is a numbered script applied in order, replacing the try/except ALTER TABLE pattern
 
@@ -68,9 +68,9 @@ Requirements for the tech debt cleanup milestone. Each maps to roadmap phases.
 | CONF-03 | Phase 14 | Complete |
 | DATA-04 | Phase 15 | Complete |
 | DATA-05 | Phase 15 | Complete |
-| DATA-01 | Phase 16 | Pending |
-| DATA-02 | Phase 16 | Pending |
-| DATA-03 | Phase 16 | Pending |
+| DATA-01 | Phase 16 | Complete |
+| DATA-02 | Phase 16 | Complete |
+| DATA-03 | Phase 16 | Complete |
 | STRC-02 | Phase 17 | Pending |
 | STRC-01 | Phase 18 | Pending |
 | STRC-03 | Phase 18 | Pending |
