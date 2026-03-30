@@ -57,7 +57,7 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 - Declare missing dependencies (typer, rich) in pyproject.toml
 - Add .env.example documenting required environment variables
 - Configurable log levels without code changes
-- Full backup/export covering SQLite database and ChromaDB vectors
+- ~~Full backup/export covering SQLite database and ChromaDB vectors~~ ✓ Phase 16
 - GitHub Actions CI pipeline with automated testing
 - pytest-cov minimum coverage threshold enforcement
 
@@ -87,7 +87,7 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 
 ## Context
 
-**Shipped v1.3** with 5,360 LOC Python source, 367 tests passing.
+**Shipped v1.3** with 5,360 LOC Python source, 367 tests passing. Phase 16 complete — backup/restore with 525 tests passing.
 **Tech stack:** Python 3.11+, uv, ChromaDB (cosine), SQLite/FTS5, Databricks GTE-large-en, FastMCP 2.0, Typer, Rich.
 **MCP tools:** 8 total — search_books, list_available_books, get_book_info, get_book_chunks, get_book_structure, update_book_metadata, remove_book, add_book.
 **Known items:** Code chunking heuristics need tuning with real data; MNEMO_BOOKS_DIR path restriction not yet implemented; semantic chunking deferred (mixed benchmarks); FRONT_MATTER_STEMS heuristic may need publisher-specific additions.
@@ -151,4 +151,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-29 after Phase 15 (Schema Migration Framework) complete*
+*Last updated: 2026-03-30 after Phase 16 (Backup & Restore) complete*
