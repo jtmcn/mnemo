@@ -7,6 +7,8 @@ Provides commands to manage the book library and MCP server:
 - search: Search books for content
 - serve: Start the MCP server for Claude
 - migrate-cosine: Migrate ChromaDB from L2 to cosine distance
+- backup: Archive the library (SQLite + ChromaDB) to a .tar.gz file
+- restore: Restore a library from a .tar.gz backup archive
 """
 
 from __future__ import annotations
@@ -469,6 +471,138 @@ def migrate_cosine(
             print(json.dumps({"error": str(e)}))
         else:
             console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1) from e
+
+
+@app.command()
+def backup(
+    output: Annotated[
+        Path | None,
+        typer.Argument(help="Output archive path (default: mnemo-backup-TIMESTAMP.tar.gz)"),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output as JSON"),
+    ] = False,
+) -> None:
+    """Back up the library to a .tar.gz archive.
+
+    Creates a portable archive containing the SQLite database and all
+    ChromaDB vectors. Use 'mnemo restore' to recreate the library from
+    the archive.
+    """
+    import chromadb
+
+    from mnemo.backup import create_backup
+    from mnemo.storage import get_db_path, init_db
+    from mnemo.vectors.config import VectorConfig
+
+    # Resolve output path
+    if output is None:
+        from datetime import datetime
+
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        output = Path(f"mnemo-backup-{timestamp}.tar.gz")
+
+    init_db()
+    db_path = get_db_path()
+    config = VectorConfig()
+    chroma_client = chromadb.PersistentClient(path=str(config.get_persist_path()))
+
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+            disable=json_output,
+        ) as progress:
+            progress.add_task(description="Creating backup...", total=None)
+            manifest = create_backup(db_path, chroma_client, output, collection_name=config.collection_name)
+
+        if json_output:
+            print(json.dumps({**manifest, "archive_path": str(output)}))
+        else:
+            console.print(
+                f"[green]Backup created:[/green] {output}\n"
+                f"  Books: {manifest['book_count']}, "
+                f"Vectors: {manifest['vector_count']}, "
+                f"Schema: v{manifest['schema_version']}"
+            )
+
+    except Exception as e:
+        if json_output:
+            print(json.dumps({"error": str(e)}))
+        else:
+            console.print(f"[red]Backup failed: {e}[/red]")
+        raise typer.Exit(1) from e
+
+
+@app.command()
+def restore(
+    archive: Annotated[
+        Path,
+        typer.Argument(help="Path to the .tar.gz backup archive"),
+    ],
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help="Overwrite existing data"),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output as JSON"),
+    ] = False,
+) -> None:
+    """Restore a library from a .tar.gz backup archive.
+
+    Recreates the SQLite database and ChromaDB vector collection from
+    a backup created with 'mnemo backup'. Use --force to overwrite an
+    existing library.
+    """
+    import chromadb
+
+    from mnemo.backup import restore_backup
+    from mnemo.storage import get_db_path
+    from mnemo.vectors.config import VectorConfig
+
+    db_path = get_db_path()
+    config = VectorConfig()
+    chroma_client = chromadb.PersistentClient(path=str(config.get_persist_path()))
+
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+            disable=json_output,
+        ) as progress:
+            progress.add_task(description="Restoring backup...", total=None)
+            manifest = restore_backup(
+                archive, db_path, chroma_client,
+                force=force, collection_name=config.collection_name,
+            )
+
+        if json_output:
+            print(json.dumps({**manifest, "archive_path": str(archive)}))
+        else:
+            console.print(
+                f"[green]Restore complete:[/green] {archive}\n"
+                f"  Books: {manifest['book_count']}, "
+                f"Vectors: {manifest['vector_count']}, "
+                f"Schema: v{manifest['schema_version']}"
+            )
+
+    except FileExistsError as e:
+        if json_output:
+            print(json.dumps({"error": str(e)}))
+        else:
+            console.print(f"[red]Error: {e}[/red]")
+            console.print("[yellow]Use --force to overwrite existing data.[/yellow]")
+        raise typer.Exit(1) from e
+    except (ValueError, Exception) as e:
+        if json_output:
+            print(json.dumps({"error": str(e)}))
+        else:
+            console.print(f"[red]Restore failed: {e}[/red]")
         raise typer.Exit(1) from e
 
 
