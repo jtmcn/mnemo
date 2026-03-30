@@ -517,7 +517,9 @@ def backup(
             disable=json_output,
         ) as progress:
             progress.add_task(description="Creating backup...", total=None)
-            manifest = create_backup(db_path, chroma_client, output, collection_name=config.collection_name)
+            manifest = create_backup(
+                db_path, chroma_client, output, collection_name=config.collection_name
+            )
 
         if json_output:
             print(json.dumps({**manifest, "archive_path": str(output)}))
@@ -577,8 +579,11 @@ def restore(
         ) as progress:
             progress.add_task(description="Restoring backup...", total=None)
             manifest = restore_backup(
-                archive, db_path, chroma_client,
-                force=force, collection_name=config.collection_name,
+                archive,
+                db_path,
+                chroma_client,
+                force=force,
+                collection_name=config.collection_name,
             )
 
         if json_output:

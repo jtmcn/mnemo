@@ -156,7 +156,6 @@ class TestSchemaVersion:
 
     def test_fresh_db_has_schema_version(self, db_path: Path):
         """Fresh database should have a schema_version table."""
-        import sqlite3
 
         init_db(db_path)
         conn = get_connection(db_path)
@@ -212,7 +211,9 @@ class TestSchemaVersion:
             )
         """)
         conn.execute(
-            "INSERT INTO books VALUES ('abc123','Title','[\"Author\"]',NULL,'a'*64,'python','toc','2026-01-01','/p',NULL,NULL,NULL)"
+            "INSERT INTO books VALUES "
+            "('abc123','Title','[\"Author\"]',NULL,"
+            "'a'*64,'python','toc','2026-01-01','/p',NULL,NULL,NULL)"
         )
         conn.commit()
         conn.close()

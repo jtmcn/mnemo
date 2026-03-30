@@ -7,7 +7,7 @@ numbered migration functions tracked by a schema_version table.
 from __future__ import annotations
 
 import sqlite3
-from typing import Callable
+from collections.abc import Callable
 
 # --- Migration functions ---
 # Each receives a connection and applies exactly one schema change.
@@ -88,9 +88,7 @@ def _infer_legacy_version(conn: sqlite3.Connection) -> int:
 
 def ensure_schema_version(conn: sqlite3.Connection) -> None:
     """Create the schema_version table if it doesn't exist."""
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)"
-    )
+    conn.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
     conn.commit()
 
 

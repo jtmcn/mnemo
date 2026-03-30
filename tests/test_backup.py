@@ -19,7 +19,6 @@ from mnemo.backup import create_backup, restore_backup
 from mnemo.storage.database import init_db
 from mnemo.storage.migrations import LATEST_VERSION
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -363,6 +362,5 @@ class TestSafety:
         dest = tmp_path / "safe_dest"
         dest.mkdir()
 
-        with tarfile.open(archive, "r:gz") as tar:
-            with pytest.raises(ValueError, match="traversal"):
-                _safe_extract(tar, dest)
+        with tarfile.open(archive, "r:gz") as tar, pytest.raises(ValueError, match="traversal"):
+            _safe_extract(tar, dest)
