@@ -89,9 +89,6 @@ Plans:
 Plans:
 - [x] 15-01-PLAN.md — Migration framework with schema_version table and numbered migrations
 
-
-
-
 ### Phase 16: Backup & Restore
 **Goal**: Users can fully back up and restore their library (SQLite + ChromaDB) without re-ingesting EPUBs
 **Depends on**: Phase 15 (schema versioning needed so backups include version metadata)
@@ -104,7 +101,8 @@ Plans:
   4. All existing tests pass unchanged
 **Plans:** 1 plan
 Plans:
-- [ ] 14-01-PLAN.md — Declare deps, document env vars, configurable logging
+- [ ] 16-01-PLAN.md — Backup & restore: archive creation, CLI commands, round-trip verification
+
 
 ### Phase 17: EPUB Content Split
 **Goal**: epub/content.py is decomposed into focused modules, each under ~400 lines, with no behavior changes
