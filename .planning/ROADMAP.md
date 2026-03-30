@@ -53,7 +53,7 @@
 
 - [x] **Phase 14: Dependencies & Configuration** - Declare missing deps, document env vars, add configurable logging (completed 2026-03-29)
 - [x] **Phase 15: Schema Migration Framework** - Replace try/except ALTER TABLE with versioned migration scripts (completed 2026-03-29)
-- [ ] **Phase 16: Backup & Restore** - Full export/import of SQLite database and ChromaDB vectors
+- [x] **Phase 16: Backup & Restore** - Full export/import of SQLite database and ChromaDB vectors (completed 2026-03-30)
 - [ ] **Phase 17: EPUB Content Split** - Split content.py into focused modules under 400 lines each
 - [ ] **Phase 18: MCP & Service Layer Refactor** - Split tools.py, extract service layer, inject dependencies
 - [ ] **Phase 19: CI & Quality Gates** - GitHub Actions pipeline with linting, testing, and coverage enforcement
@@ -99,9 +99,9 @@ Plans:
   2. `mnemo restore` (or `mnemo import`) restores the archive to a working state where search returns results
   3. A round-trip backup-then-restore on a library with books produces identical search results
   4. All existing tests pass unchanged
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 Plans:
-- [ ] 16-01-PLAN.md — Backup & restore: archive creation, CLI commands, round-trip verification
+- [x] 16-01-PLAN.md — Backup & restore: archive creation, CLI commands, round-trip verification
 
 
 ### Phase 17: EPUB Content Split
@@ -166,7 +166,7 @@ Plans:
 | 13. Audit Gap Closure | v1.3 | 1/1 | Complete | 2026-03-15 |
 | 14. Dependencies & Configuration | v1.4 | 0/1 | Complete    | 2026-03-29 |
 | 15. Schema Migration Framework | v1.4 | 1/1 | Complete    | 2026-03-29 |
-| 16. Backup & Restore | v1.4 | 0/? | Not started | - |
+| 16. Backup & Restore | v1.4 | 1/1 | Complete   | 2026-03-30 |
 | 17. EPUB Content Split | v1.4 | 0/? | Not started | - |
 | 18. MCP & Service Layer Refactor | v1.4 | 0/? | Not started | - |
 | 19. CI & Quality Gates | v1.4 | 0/? | Not started | - |
