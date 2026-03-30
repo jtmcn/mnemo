@@ -407,3 +407,23 @@ class TestSearch:
         """Search with --book filter option works."""
         result = runner.invoke(app, ["search", "test", "--book", "abc123"])
         assert result.exit_code == 0
+
+
+class TestBackupCLI:
+    """Tests for the backup CLI command."""
+
+    def test_backup_help(self) -> None:
+        """backup --help shows help text."""
+        result = runner.invoke(app, ["backup", "--help"])
+        assert result.exit_code == 0
+        assert "backup" in result.stdout.lower()
+
+
+class TestRestoreCLI:
+    """Tests for the restore CLI command."""
+
+    def test_restore_help(self) -> None:
+        """restore --help shows help text."""
+        result = runner.invoke(app, ["restore", "--help"])
+        assert result.exit_code == 0
+        assert "restore" in result.stdout.lower()
