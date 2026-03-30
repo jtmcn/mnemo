@@ -17,11 +17,12 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 import tarfile
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import chromadb
@@ -43,9 +44,7 @@ def _safe_extract(tar: tarfile.TarFile, dest: Path) -> None:
     for member in tar.getmembers():
         member_path = (resolved_dest / member.name).resolve()
         if not str(member_path).startswith(str(resolved_dest)):
-            raise ValueError(
-                f"Path traversal attempt detected in archive: {member.name!r}"
-            )
+            raise ValueError(f"Path traversal attempt detected in archive: {member.name!r}")
     tar.extractall(dest, filter="data")  # noqa: S202 — paths validated above
 
 
@@ -177,9 +176,7 @@ def create_backup(
         # 3. Gather counts from the DB snapshot
         conn = sqlite3.connect(staged_db)
         try:
-            schema_version = conn.execute(
-                "SELECT version FROM schema_version"
-            ).fetchone()
+            schema_version = conn.execute("SELECT version FROM schema_version").fetchone()
             schema_ver = schema_version[0] if schema_version else 0
             book_count = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
             chunk_count = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
@@ -191,7 +188,7 @@ def create_backup(
             "mnemo_version": mnemo.__version__,
             "schema_version": schema_ver,
             "chromadb_version": chromadb.__version__,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
             "book_count": book_count,
             "chunk_count": chunk_count,
             "vector_count": vector_count,
@@ -237,10 +234,8 @@ def _restore_chromadb(
     documents: list[str | None] = data.get("documents", [])
 
     # Remove existing collection if present, then recreate with cosine metric
-    try:
+    with contextlib.suppress(Exception):
         client.delete_collection(collection_name)
-    except Exception:
-        pass  # Collection did not exist — that's fine
 
     collection = client.create_collection(
         name=collection_name,

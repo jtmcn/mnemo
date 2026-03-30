@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Tech Debt Cleanup
-current_phase: 16
+current_phase: 17
 status: executing
 stopped_at: Completed 16-01-PLAN.md (backup-restore)
-last_updated: "2026-03-30T20:46:43.872Z"
-last_activity: 2026-03-29
+last_updated: "2026-03-30T20:50:00.969Z"
+last_activity: 2026-03-30
 progress:
   total_phases: 6
   completed_phases: 3
@@ -18,7 +18,7 @@ progress:
 # Project State: Mnemo
 
 **Last Updated:** 2026-03-26
-**Current Phase:** 16
+**Current Phase:** 17
 **Overall Progress:** v1.0-v1.3 shipped, v1.4 roadmapped
 
 ## Project Reference
@@ -26,14 +26,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** Ask Claude a question, get answers from your book collection.
-**Current focus:** Phase 15 — schema-migration-framework
+**Current focus:** Phase 16 — backup-restore
 
 ## Current Position
 
-Phase: 15 (schema-migration-framework) — EXECUTING
+Phase: 16 (backup-restore) — EXECUTING
 Plan: Not started
-Status: Executing Phase 15
-Last activity: 2026-03-29
+Status: Executing Phase 16
+Last activity: 2026-03-30
 
 Progress: [░░░░░░░░░░] 0% (v1.4)
 
