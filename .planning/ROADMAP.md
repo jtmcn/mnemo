@@ -116,7 +116,7 @@ Plans:
   4. All existing tests pass unchanged
 **Plans:** 1 plan
 Plans:
-- [ ] 14-01-PLAN.md — Declare deps, document env vars, configurable logging
+- [ ] 17-01-PLAN.md — Split content.py into _models, _classify, _extract submodules with re-export shim
 
 ### Phase 18: MCP & Service Layer Refactor
 **Goal**: MCP tools are organized by domain, shared CLI/MCP logic lives in a service layer, and global singletons are replaced with dependency injection
@@ -167,7 +167,7 @@ Plans:
 | 14. Dependencies & Configuration | v1.4 | 0/1 | Complete    | 2026-03-29 |
 | 15. Schema Migration Framework | v1.4 | 1/1 | Complete    | 2026-03-29 |
 | 16. Backup & Restore | v1.4 | 1/1 | Complete    | 2026-03-30 |
-| 17. EPUB Content Split | v1.4 | 0/? | Not started | - |
+| 17. EPUB Content Split | v1.4 | 0/1 | Not started | - |
 | 18. MCP & Service Layer Refactor | v1.4 | 0/? | Not started | - |
 | 19. CI & Quality Gates | v1.4 | 0/? | Not started | - |
 
