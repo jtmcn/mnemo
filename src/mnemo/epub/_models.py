@@ -1,0 +1,143 @@
+"""Data models and constants for EPUB content extraction."""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+from mnemo.models import ContentType
+
+if TYPE_CHECKING:
+    pass
+
+# Maps filename stems to human-readable front-matter section labels.
+# Used by _infer_front_matter_label to assign descriptive labels to spine items
+# that are absent from the EPUB's NAV/NCX table of contents.
+FRONT_MATTER_STEMS: dict[str, str] = {
+    "cover": "Cover",
+    "toc": "Table of Contents",
+    "contents": "Table of Contents",
+    "copyright": "Copyright",
+    "copyrights": "Copyright",
+    "title": "Title Page",
+    "titlepage": "Title Page",
+    "title-page": "Title Page",
+    "dedication": "Dedication",
+    "preface": "Preface",
+    "foreword": "Foreword",
+    "introduction": "Introduction",
+    "intro": "Introduction",
+    "acknowledgements": "Acknowledgements",
+    "acknowledgments": "Acknowledgements",
+    "about": "About",
+    "colophon": "Colophon",
+    "halftitle": "Half Title",
+    "half-title": "Half Title",
+}
+
+
+@dataclass
+class ContentBlock:
+    """Intermediate representation of parsed EPUB content.
+
+    Represents a single block of content extracted from an EPUB document,
+    with metadata about its type, location, and source.
+
+    Attributes:
+        content: The text content of the block
+        content_type: Classification of the content (TEXT, CODE, etc.)
+        section_path: Hierarchical path to this content (e.g., ["Chapter 1", "Section 1.1"])
+        language: Programming language for code blocks (e.g., "python")
+        source_file: EPUB item href where this content was found
+    """
+
+    content: str
+    content_type: ContentType = ContentType.TEXT
+    section_path: list[str] = field(default_factory=list)
+    language: str | None = None
+    source_file: str = ""
+
+
+# Publisher-specific code block CSS classes
+CODE_CLASSES = {
+    # Standard
+    "highlight",
+    "sourceCode",
+    "source-code",
+    "listing",
+    "codehilite",
+    # O'Reilly
+    "programlisting",
+    "screen",
+    # Pragmatic
+    "code",
+    "livecodelozenge",
+    # Manning
+    "listingblock",
+    # General
+    "syntax",
+    "prettyprint",
+}
+
+# Classes that indicate ASCII diagrams
+DIAGRAM_CLASSES = {"ascii", "diagram", "ascii-diagram", "ascii-art"}
+
+# Math-related classes and patterns
+MATH_CLASSES = {"equation", "math", "formula", "katex", "mathjax"}
+
+# LaTeX delimiter patterns
+LATEX_BLOCK_PATTERN = re.compile(r"\\\[.*?\\\]", re.DOTALL)
+LATEX_INLINE_PATTERN = re.compile(r"\$[^$]+\$")
+
+# Common programming languages for detection
+_KNOWN_LANGUAGES = {
+    "python",
+    "javascript",
+    "typescript",
+    "java",
+    "go",
+    "rust",
+    "ruby",
+    "php",
+    "c",
+    "cpp",
+    "csharp",
+    "swift",
+    "kotlin",
+    "scala",
+    "shell",
+    "bash",
+    "sh",
+    "sql",
+    "html",
+    "css",
+    "json",
+    "yaml",
+    "xml",
+    "markdown",
+}
+
+
+MATHML_ELEMENTS = frozenset(
+    {
+        "mi",
+        "mo",
+        "mn",
+        "mrow",
+        "msup",
+        "msub",
+        "mfrac",
+        "mover",
+        "munder",
+        "msqrt",
+        "mroot",
+        "mtext",
+        "mspace",
+        "mtable",
+        "mtr",
+        "mtd",
+        "mpadded",
+        "mstyle",
+    }
+)
