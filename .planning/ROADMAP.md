@@ -54,7 +54,7 @@
 - [x] **Phase 14: Dependencies & Configuration** - Declare missing deps, document env vars, add configurable logging (completed 2026-03-29)
 - [x] **Phase 15: Schema Migration Framework** - Replace try/except ALTER TABLE with versioned migration scripts (completed 2026-03-29)
 - [x] **Phase 16: Backup & Restore** - Full export/import of SQLite database and ChromaDB vectors (completed 2026-03-30)
-- [ ] **Phase 17: EPUB Content Split** - Split content.py into focused modules under 400 lines each
+- [x] **Phase 17: EPUB Content Split** - Split content.py into focused modules under 400 lines each (completed 2026-03-31)
 - [ ] **Phase 18: MCP & Service Layer Refactor** - Split tools.py, extract service layer, inject dependencies
 - [ ] **Phase 19: CI & Quality Gates** - GitHub Actions pipeline with linting, testing, and coverage enforcement
 
@@ -114,9 +114,9 @@ Plans:
   2. Content classification, extraction, and utility logic live in separate modules
   3. All imports from `epub.content` continue to work (re-exports from new modules if needed)
   4. All existing tests pass unchanged
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 Plans:
-- [ ] 17-01-PLAN.md — Split content.py into _models, _classify, _extract submodules with re-export shim
+- [x] 17-01-PLAN.md — Split content.py into _models, _classify, _extract submodules with re-export shim
 
 ### Phase 18: MCP & Service Layer Refactor
 **Goal**: MCP tools are organized by domain, shared CLI/MCP logic lives in a service layer, and global singletons are replaced with dependency injection
@@ -167,7 +167,7 @@ Plans:
 | 14. Dependencies & Configuration | v1.4 | 0/1 | Complete    | 2026-03-29 |
 | 15. Schema Migration Framework | v1.4 | 1/1 | Complete    | 2026-03-29 |
 | 16. Backup & Restore | v1.4 | 1/1 | Complete    | 2026-03-30 |
-| 17. EPUB Content Split | v1.4 | 0/1 | Not started | - |
+| 17. EPUB Content Split | v1.4 | 1/1 | Complete   | 2026-03-31 |
 | 18. MCP & Service Layer Refactor | v1.4 | 0/? | Not started | - |
 | 19. CI & Quality Gates | v1.4 | 0/? | Not started | - |
 

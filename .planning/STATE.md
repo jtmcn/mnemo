@@ -4,14 +4,14 @@ milestone: v1.4
 milestone_name: Tech Debt Cleanup
 current_phase: 17
 status: executing
-stopped_at: Completed 16-01-PLAN.md (backup-restore)
-last_updated: "2026-03-30T20:50:00.969Z"
+stopped_at: Completed 17-01-PLAN.md (epub-content-split)
+last_updated: "2026-03-31T06:05:44.565Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 6
-  completed_phases: 3
-  total_plans: 3
-  completed_plans: 3
+  completed_phases: 4
+  total_plans: 4
+  completed_plans: 4
   percent: 0
 ---
 
@@ -58,6 +58,7 @@ Progress: [░░░░░░░░░░] 0% (v1.4)
 | v1.4 Tech Debt Cleanup | 14-19 | TBD | Active |
 | Phase 14 P01 | 8 | 3 tasks | 4 files |
 | Phase 16 P01 | 306 | 3 tasks | 5 files |
+| Phase 17 P01 | 3 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -69,6 +70,8 @@ See PROJECT.md for full decision log (28 decisions with outcomes).
 - [Phase 14]: MNEMO_LOG_LEVEL uses getattr(logging, name, logging.INFO) fallback pattern for safe level parsing
 - [Phase 16]: sqlite3.Connection.backup() used for WAL-consolidated DB snapshot — no WAL file needed after backup
 - [Phase 16]: Flat tar member names (manifest.json, mnemo.db, chroma_export.json) — no subdirectory prefix
+- [Phase 17]: Private module prefix (_models, _classify, _extract) signals internal API boundaries within epub package
+- [Phase 17]: Re-export shim in content.py preserves all existing imports without changes to callers
 
 ### Pending Todos
 
@@ -80,8 +83,8 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-30T20:46:43.869Z
-Stopped at: Completed 16-01-PLAN.md (backup-restore)
+Last session: 2026-03-31T06:05:44.562Z
+Stopped at: Completed 17-01-PLAN.md (epub-content-split)
 Resume file: None
 
 ---
