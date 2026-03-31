@@ -9,21 +9,18 @@ from typing import TYPE_CHECKING
 
 from bs4 import BeautifulSoup, NavigableString, Tag, XMLParsedAsHTMLWarning
 
-from mnemo.models import ContentType
-from mnemo.epub._models import (
-    ContentBlock,
-    FRONT_MATTER_STEMS,
-    LATEX_BLOCK_PATTERN,
-    LATEX_INLINE_PATTERN,
-    MATHML_ELEMENTS,
-)
 from mnemo.epub._classify import (
     _detect_code_language,
     _is_code_block,
     _is_diagram,
     _is_math,
-    _looks_like_ascii_art,
 )
+from mnemo.epub._models import (
+    FRONT_MATTER_STEMS,
+    MATHML_ELEMENTS,
+    ContentBlock,
+)
+from mnemo.models import ContentType
 
 # EPUB content is XHTML but lxml HTML parser handles real-world EPUBs better
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
@@ -56,7 +53,7 @@ def _infer_front_matter_label(href: str) -> list[str] | None:
 
 
 def extract_content(
-    epub_book: "ebooklib.epub.EpubBook",
+    epub_book: ebooklib.epub.EpubBook,
     toc_mapping: dict[str, list[str]],
     default_language: str | None = None,
 ) -> list[ContentBlock]:
