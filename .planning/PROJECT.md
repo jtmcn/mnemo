@@ -51,7 +51,7 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 **Goal:** Harden the codebase by addressing structural tech debt, missing dependencies, data safety gaps, and CI/quality gates.
 
 **Target features:**
-- Split large files (tools.py, content.py) and extract shared CLI/MCP logic into service layer
+- ~~Split large files (tools.py, content.py)~~ ✓ Phase 17 (content.py split) — and extract shared CLI/MCP logic into service layer
 - Refactor MCP module from global singletons to dependency injection
 - ~~Add schema version tracking with numbered migration scripts~~ ✓ Phase 15
 - Declare missing dependencies (typer, rich) in pyproject.toml
@@ -87,7 +87,7 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 
 ## Context
 
-**Shipped v1.3** with 5,360 LOC Python source, 367 tests passing. Phase 16 complete — backup/restore with 525 tests passing.
+**Shipped v1.3** with 5,360 LOC Python source, 367 tests passing. Phase 17 complete — epub/content.py split into focused submodules (_models, _classify, _extract) with 525 tests passing.
 **Tech stack:** Python 3.11+, uv, ChromaDB (cosine), SQLite/FTS5, Databricks GTE-large-en, FastMCP 2.0, Typer, Rich.
 **MCP tools:** 8 total — search_books, list_available_books, get_book_info, get_book_chunks, get_book_structure, update_book_metadata, remove_book, add_book.
 **Known items:** Code chunking heuristics need tuning with real data; MNEMO_BOOKS_DIR path restriction not yet implemented; semantic chunking deferred (mixed benchmarks); FRONT_MATTER_STEMS heuristic may need publisher-specific additions.
@@ -151,4 +151,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-30 after Phase 16 (Backup & Restore) complete*
+*Last updated: 2026-03-31 after Phase 17 (EPUB Content Split) complete*
