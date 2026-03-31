@@ -6,7 +6,7 @@ current_phase: 17
 status: executing
 stopped_at: Completed 17-01-PLAN.md (epub-content-split)
 last_updated: "2026-03-31T06:05:44.565Z"
-last_activity: 2026-03-30
+last_activity: 2026-03-31 -- Phase 17 execution started
 progress:
   total_phases: 6
   completed_phases: 4
@@ -26,14 +26,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** Ask Claude a question, get answers from your book collection.
-**Current focus:** Phase 16 — backup-restore
+**Current focus:** Phase 17 — epub-content-split
 
 ## Current Position
 
-Phase: 16 (backup-restore) — EXECUTING
-Plan: Not started
-Status: Executing Phase 16
-Last activity: 2026-03-30
+Phase: 17 (epub-content-split) — EXECUTING
+Plan: 1 of 1
+Status: Executing Phase 17
+Last activity: 2026-03-31 -- Phase 17 execution started
 
 Progress: [░░░░░░░░░░] 0% (v1.4)
 
