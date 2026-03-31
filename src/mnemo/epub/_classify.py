@@ -5,13 +5,12 @@ from __future__ import annotations
 from bs4 import Tag
 
 from mnemo.epub._models import (
+    _KNOWN_LANGUAGES,
     CODE_CLASSES,
     DIAGRAM_CLASSES,
     LATEX_BLOCK_PATTERN,
     LATEX_INLINE_PATTERN,
     MATH_CLASSES,
-    MATHML_ELEMENTS,
-    _KNOWN_LANGUAGES,
 )
 
 
