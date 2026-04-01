@@ -6,6 +6,7 @@ Registers: add_book, remove_book, reindex_all_books
 import asyncio
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fastmcp import Context
 from fastmcp.dependencies import CurrentContext
@@ -14,6 +15,9 @@ from mcp.types import ToolAnnotations
 from mnemo.mcp.server import mcp
 from mnemo.search import SearchService
 from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_db
+
+if TYPE_CHECKING:
+    from mnemo.models import Book
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +58,7 @@ def _get_chunk_repo() -> ChunkRepository:
 def _add_book_impl(
     file_path: str,
     force: bool = False,
-    pre_parsed: "BookRepository | None" = None,
+    pre_parsed: "Book | None" = None,
     chunk_min_tokens: int | None = None,
     chunk_max_tokens: int | None = None,
 ) -> str:
