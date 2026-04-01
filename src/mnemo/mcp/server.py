@@ -24,8 +24,10 @@ logger = logging.getLogger(__name__)
 
 mcp = FastMCP(f"mnemo v{__version__}")
 
-# Import tools to register them (use full path to avoid circular import when running as -m)
-import mnemo.mcp.tools  # noqa: F401, E402
+# Import domain tool modules to trigger @mcp.tool registration
+import mnemo.mcp.tools_search    # noqa: F401, E402
+import mnemo.mcp.tools_books     # noqa: F401, E402
+import mnemo.mcp.tools_metadata  # noqa: F401, E402
 
 if __name__ == "__main__":
     mcp.run()  # STDIO transport
