@@ -4,14 +4,14 @@ milestone: v1.4
 milestone_name: Tech Debt Cleanup
 current_phase: 18
 status: executing
-stopped_at: Completed 18-01-PLAN.md (mcp-service-layer-refactor)
-last_updated: "2026-04-01T05:34:08.177Z"
+stopped_at: Completed 18-02-PLAN.md (mcp-service-layer-refactor DI refactor)
+last_updated: "2026-04-01T06:01:37.129Z"
 last_activity: 2026-03-31
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 6
-  completed_plans: 5
+  completed_plans: 6
   percent: 0
 ---
 
@@ -60,6 +60,7 @@ Progress: [░░░░░░░░░░] 0% (v1.4)
 | Phase 16 P01 | 306 | 3 tasks | 5 files |
 | Phase 17 P01 | 3 | 2 tasks | 5 files |
 | Phase 18 P01 | 6 | 2 tasks | 8 files |
+| Phase 18 P02 | 65 | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,9 @@ See PROJECT.md for full decision log (28 decisions with outcomes).
 - [Phase 17]: Re-export shim in content.py preserves all existing imports without changes to callers
 - [Phase 18]: cli.py serve command no longer imports mnemo.mcp.tools directly — server.py domain imports are sufficient
 - [Phase 18]: Domain module split keeps globals per-module temporarily — Plan 02 DI refactor will consolidate
+- [Phase 18]: _impl dep parameters default to None so validation-only tests work without mocks
+- [Phase 18]: _add_book_impl keeps internal DB connection for thread-safety in asyncio.to_thread
+- [Phase 18]: Re-export shim (tools.py) also exports asyncio and storage helpers for test patching compatibility
 
 ### Pending Todos
 
@@ -86,8 +90,8 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-01T05:34:08.175Z
-Stopped at: Completed 18-01-PLAN.md (mcp-service-layer-refactor)
+Last session: 2026-04-01T06:01:37.127Z
+Stopped at: Completed 18-02-PLAN.md (mcp-service-layer-refactor DI refactor)
 Resume file: None
 
 ---
