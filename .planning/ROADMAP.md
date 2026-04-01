@@ -169,7 +169,7 @@ Plans:
 | 15. Schema Migration Framework | v1.4 | 1/1 | Complete    | 2026-03-29 |
 | 16. Backup & Restore | v1.4 | 1/1 | Complete    | 2026-03-30 |
 | 17. EPUB Content Split | v1.4 | 1/1 | Complete    | 2026-03-31 |
-| 18. MCP & Service Layer Refactor | v1.4 | 2/2 | Complete   | 2026-04-01 |
+| 18. MCP & Service Layer Refactor | v1.4 | 2/2 | Complete    | 2026-04-01 |
 | 19. CI & Quality Gates | v1.4 | 0/? | Not started | - |
 
 ---
