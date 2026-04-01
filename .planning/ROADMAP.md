@@ -129,9 +129,9 @@ Plans:
   3. CLI commands and MCP tools both delegate to the same service layer functions for validation and business logic
   4. Adding a new operation requires implementing it once in the service layer, not twice in CLI and MCP
   5. All 367+ existing tests pass with no behavior changes
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 Plans:
-- [ ] 18-01-PLAN.md — Split tools.py into domain modules, create service layer and formatters
+- [x] 18-01-PLAN.md — Split tools.py into domain modules, create service layer and formatters
 - [ ] 18-02-PLAN.md — DI refactor on impl functions, CLI service layer wiring, test updates
 
 ### Phase 19: CI & Quality Gates
@@ -169,7 +169,7 @@ Plans:
 | 15. Schema Migration Framework | v1.4 | 1/1 | Complete    | 2026-03-29 |
 | 16. Backup & Restore | v1.4 | 1/1 | Complete    | 2026-03-30 |
 | 17. EPUB Content Split | v1.4 | 1/1 | Complete    | 2026-03-31 |
-| 18. MCP & Service Layer Refactor | v1.4 | 0/2 | Not started | - |
+| 18. MCP & Service Layer Refactor | v1.4 | 1/2 | In Progress|  |
 | 19. CI & Quality Gates | v1.4 | 0/? | Not started | - |
 
 ---

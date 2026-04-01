@@ -4,14 +4,14 @@ milestone: v1.4
 milestone_name: Tech Debt Cleanup
 current_phase: 18
 status: executing
-stopped_at: Completed 17-01-PLAN.md (epub-content-split)
-last_updated: "2026-03-31T06:09:11.767Z"
+stopped_at: Completed 18-01-PLAN.md (mcp-service-layer-refactor)
+last_updated: "2026-04-01T05:34:08.177Z"
 last_activity: 2026-03-31
 progress:
   total_phases: 6
   completed_phases: 4
-  total_plans: 4
-  completed_plans: 4
+  total_plans: 6
+  completed_plans: 5
   percent: 0
 ---
 
@@ -59,6 +59,7 @@ Progress: [░░░░░░░░░░] 0% (v1.4)
 | Phase 14 P01 | 8 | 3 tasks | 4 files |
 | Phase 16 P01 | 306 | 3 tasks | 5 files |
 | Phase 17 P01 | 3 | 2 tasks | 5 files |
+| Phase 18 P01 | 6 | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,8 @@ See PROJECT.md for full decision log (28 decisions with outcomes).
 - [Phase 16]: Flat tar member names (manifest.json, mnemo.db, chroma_export.json) — no subdirectory prefix
 - [Phase 17]: Private module prefix (_models, _classify, _extract) signals internal API boundaries within epub package
 - [Phase 17]: Re-export shim in content.py preserves all existing imports without changes to callers
+- [Phase 18]: cli.py serve command no longer imports mnemo.mcp.tools directly — server.py domain imports are sufficient
+- [Phase 18]: Domain module split keeps globals per-module temporarily — Plan 02 DI refactor will consolidate
 
 ### Pending Todos
 
@@ -83,8 +86,8 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-31T06:05:44.562Z
-Stopped at: Completed 17-01-PLAN.md (epub-content-split)
+Last session: 2026-04-01T05:34:08.175Z
+Stopped at: Completed 18-01-PLAN.md (mcp-service-layer-refactor)
 Resume file: None
 
 ---
