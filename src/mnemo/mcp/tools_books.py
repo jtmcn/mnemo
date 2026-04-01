@@ -26,7 +26,7 @@ _search_service: SearchService | None = None
 _db_connection = None
 
 
-def _get_search_service() -> SearchService:
+def _make_search_service() -> SearchService:
     """Get or create SearchService (lazy init)."""
     global _search_service
     if _search_service is None:
@@ -34,7 +34,7 @@ def _get_search_service() -> SearchService:
     return _search_service
 
 
-def _get_book_repo() -> BookRepository:
+def _make_book_repo() -> BookRepository:
     """Get BookRepository (lazy init)."""
     global _db_connection
     if _db_connection is None:
@@ -43,7 +43,7 @@ def _get_book_repo() -> BookRepository:
     return BookRepository(_db_connection)
 
 
-def _get_chunk_repo() -> ChunkRepository:
+def _make_chunk_repo() -> ChunkRepository:
     """Get ChunkRepository (lazy init)."""
     global _db_connection
     if _db_connection is None:
@@ -52,7 +52,7 @@ def _get_chunk_repo() -> ChunkRepository:
     return ChunkRepository(_db_connection)
 
 
-# Implementation functions (testable directly)
+# Implementation functions (testable directly via DI)
 
 
 def _add_book_impl(
@@ -71,6 +71,10 @@ def _add_book_impl(
             When called from async wrapper, metadata is extracted before the thread.
         chunk_min_tokens: Minimum tokens per chunk (default 400, min 100)
         chunk_max_tokens: Maximum tokens per chunk (default 800, max 2000)
+
+    Note: This function creates its own DB connection internally for thread safety.
+    It does not accept a book_repo parameter because it runs in asyncio.to_thread
+    and needs a thread-local connection.
     """
     logger.info(f"add_book: file_path={file_path!r}, force={force}")
 
@@ -187,7 +191,12 @@ def _add_book_impl(
         conn.close()
 
 
-def _remove_book_impl(book_id: str) -> str:
+def _remove_book_impl(
+    book_id: str,
+    book_repo: BookRepository | None = None,
+    chunk_repo: ChunkRepository | None = None,
+    search_service: SearchService | None = None,
+) -> str:
     """Remove book implementation - see remove_book for docs."""
     logger.info(f"remove_book: book_id={book_id}")
 
@@ -196,14 +205,12 @@ def _remove_book_impl(book_id: str) -> str:
 
     try:
         # Fetch book info BEFORE deletion (for the response message)
-        book_repo = _get_book_repo()
         book = book_repo.get(book_id)
 
         if not book:
             return f"Error: Book not found: {book_id}"
 
         # Get chunk count before deletion
-        chunk_repo = ChunkRepository(_db_connection)
         chunk_count = chunk_repo.count_by_book(book_id)
 
         # Perform deletion via existing pipeline
@@ -212,9 +219,8 @@ def _remove_book_impl(book_id: str) -> str:
         pipeline_remove(book_id)
 
         # Invalidate search cache
-        global _search_service
-        if _search_service is not None:
-            _search_service.invalidate_cache()
+        if search_service is not None:
+            search_service.invalidate_cache()
 
         # Return success message with deleted book info
         authors_str = ", ".join(book.authors) if book.authors else "Unknown"
@@ -228,7 +234,7 @@ def _remove_book_impl(book_id: str) -> str:
         return f"Error: {e}"
 
 
-def _reindex_all_books_impl() -> str:
+def _reindex_all_books_impl(search_service: SearchService | None = None) -> str:
     """Reindex implementation - see reindex_all_books for docs."""
     logger.info("reindex_all_books called")
 
@@ -241,9 +247,8 @@ def _reindex_all_books_impl() -> str:
             return "No books in library to reindex."
 
         # Invalidate search cache
-        global _search_service
-        if _search_service is not None:
-            _search_service.invalidate_cache()
+        if search_service is not None:
+            search_service.invalidate_cache()
 
         success = sum(1 for r in results if r["status"] == "success")
         skipped = sum(1 for r in results if r["status"] == "skipped")
@@ -366,7 +371,12 @@ def remove_book(book_id: str) -> str:
     Returns:
         Confirmation with deleted book details, or an error message starting with "Error:"
     """
-    return _remove_book_impl(book_id)
+    return _remove_book_impl(
+        book_id,
+        _make_book_repo(),
+        _make_chunk_repo(),
+        _make_search_service() if _search_service is not None else None,
+    )
 
 
 @mcp.tool(
@@ -394,7 +404,10 @@ async def reindex_all_books(
 
     try:
         result = await asyncio.wait_for(
-            asyncio.to_thread(_reindex_all_books_impl),
+            asyncio.to_thread(
+                _reindex_all_books_impl,
+                _make_search_service() if _search_service is not None else None,
+            ),
             timeout=900,  # 15 minutes
         )
     except TimeoutError:
