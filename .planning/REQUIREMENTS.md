@@ -11,9 +11,9 @@ Requirements for the tech debt cleanup milestone. Each maps to roadmap phases.
 
 - [x] **STRC-01**: `mcp/tools.py` is split into domain-specific modules (search, book management, metadata) with no single file exceeding ~400 lines
 - [x] **STRC-02**: `epub/content.py` is split into focused modules (classification, extraction, utilities) with no single file exceeding ~400 lines
-- [ ] **STRC-03**: MCP module uses dependency injection — db connection and search service are passed as parameters, not accessed via global singletons
+- [x] **STRC-03**: MCP module uses dependency injection — db connection and search service are passed as parameters, not accessed via global singletons
 - [x] **STRC-04**: Shared logic between CLI and MCP tools is extracted into a service layer, eliminating validation and business logic duplication
-- [ ] **STRC-05**: All existing tests pass after restructuring with no behavior changes
+- [x] **STRC-05**: All existing tests pass after restructuring with no behavior changes
 
 ### Dependencies & Configuration
 
@@ -73,9 +73,9 @@ Requirements for the tech debt cleanup milestone. Each maps to roadmap phases.
 | DATA-03 | Phase 16 | Complete |
 | STRC-02 | Phase 17 | Complete |
 | STRC-01 | Phase 18 | Complete |
-| STRC-03 | Phase 18 | Pending |
+| STRC-03 | Phase 18 | Complete |
 | STRC-04 | Phase 18 | Complete |
-| STRC-05 | Phase 18 | Pending |
+| STRC-05 | Phase 18 | Complete |
 | CICD-01 | Phase 19 | Pending |
 | CICD-02 | Phase 19 | Pending |
 | CICD-03 | Phase 19 | Pending |

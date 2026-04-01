@@ -55,7 +55,7 @@
 - [x] **Phase 15: Schema Migration Framework** - Replace try/except ALTER TABLE with versioned migration scripts (completed 2026-03-29)
 - [x] **Phase 16: Backup & Restore** - Full export/import of SQLite database and ChromaDB vectors (completed 2026-03-30)
 - [x] **Phase 17: EPUB Content Split** - Split content.py into focused modules under 400 lines each (completed 2026-03-31)
-- [ ] **Phase 18: MCP & Service Layer Refactor** - Split tools.py, extract service layer, inject dependencies
+- [x] **Phase 18: MCP & Service Layer Refactor** - Split tools.py, extract service layer, inject dependencies (completed 2026-04-01)
 - [ ] **Phase 19: CI & Quality Gates** - GitHub Actions pipeline with linting, testing, and coverage enforcement
 
 ## Phase Details
@@ -129,10 +129,10 @@ Plans:
   3. CLI commands and MCP tools both delegate to the same service layer functions for validation and business logic
   4. Adding a new operation requires implementing it once in the service layer, not twice in CLI and MCP
   5. All 367+ existing tests pass with no behavior changes
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [x] 18-01-PLAN.md — Split tools.py into domain modules, create service layer and formatters
-- [ ] 18-02-PLAN.md — DI refactor on impl functions, CLI service layer wiring, test updates
+- [x] 18-02-PLAN.md — DI refactor on impl functions, CLI service layer wiring, test updates
 
 ### Phase 19: CI & Quality Gates
 **Goal**: Every push and PR is automatically validated by a CI pipeline that enforces testing, linting, and coverage standards
@@ -169,7 +169,7 @@ Plans:
 | 15. Schema Migration Framework | v1.4 | 1/1 | Complete    | 2026-03-29 |
 | 16. Backup & Restore | v1.4 | 1/1 | Complete    | 2026-03-30 |
 | 17. EPUB Content Split | v1.4 | 1/1 | Complete    | 2026-03-31 |
-| 18. MCP & Service Layer Refactor | v1.4 | 1/2 | In Progress|  |
+| 18. MCP & Service Layer Refactor | v1.4 | 2/2 | Complete   | 2026-04-01 |
 | 19. CI & Quality Gates | v1.4 | 0/? | Not started | - |
 
 ---
