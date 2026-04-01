@@ -12,7 +12,6 @@ from mnemo.mcp.formatters import (
     _format_enriched_results,
     _format_mixed_results,
     _format_search_results,
-    _truncate_at_boundary,
 )
 from mnemo.mcp.server import mcp
 from mnemo.search import SearchService

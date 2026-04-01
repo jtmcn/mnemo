@@ -1,8 +1,8 @@
 """Shared book operations used by both CLI and MCP layers."""
 from pathlib import Path
 
-from mnemo.storage import BookRepository
 from mnemo.models import Book
+from mnemo.storage import BookRepository
 
 
 def validate_epub_path(path: Path) -> str | None:
