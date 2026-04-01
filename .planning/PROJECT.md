@@ -51,8 +51,8 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 **Goal:** Harden the codebase by addressing structural tech debt, missing dependencies, data safety gaps, and CI/quality gates.
 
 **Target features:**
-- ~~Split large files (tools.py, content.py)~~ ✓ Phase 17 (content.py split) — and extract shared CLI/MCP logic into service layer
-- Refactor MCP module from global singletons to dependency injection
+- ~~Split large files (tools.py, content.py)~~ ✓ Phase 17 (content.py), Phase 18 (tools.py) — and extract shared CLI/MCP logic into service layer
+- ~~Refactor MCP module from global singletons to dependency injection~~ ✓ Phase 18
 - ~~Add schema version tracking with numbered migration scripts~~ ✓ Phase 15
 - Declare missing dependencies (typer, rich) in pyproject.toml
 - Add .env.example documenting required environment variables
@@ -87,9 +87,9 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 
 ## Context
 
-**Shipped v1.3** with 5,360 LOC Python source, 367 tests passing. Phase 17 complete — epub/content.py split into focused submodules (_models, _classify, _extract) with 525 tests passing.
+**Shipped v1.3** with 5,360 LOC Python source, 525 tests passing. Phase 18 complete — mcp/tools.py split into domain modules (tools_search, tools_books, tools_metadata, formatters), service layer extracted (services/book_service.py), dependency injection applied to all _impl functions.
 **Tech stack:** Python 3.11+, uv, ChromaDB (cosine), SQLite/FTS5, Databricks GTE-large-en, FastMCP 2.0, Typer, Rich.
-**MCP tools:** 8 total — search_books, list_available_books, get_book_info, get_book_chunks, get_book_structure, update_book_metadata, remove_book, add_book.
+**MCP tools:** 10 total — search_books, list_available_books, get_book_info, get_book_chunks, get_book_structure, update_book_metadata, remove_book, add_book, enrich_book, reindex_all_books.
 **Known items:** Code chunking heuristics need tuning with real data; MNEMO_BOOKS_DIR path restriction not yet implemented; semantic chunking deferred (mixed benchmarks); FRONT_MATTER_STEMS heuristic may need publisher-specific additions.
 **Tech debt:** `_format_enriched_results` omits closing `---` after final result (cosmetic).
 
@@ -115,7 +115,7 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 | 6-char hex book ID | SHA256 of content+title+author | ✓ Good — collision-resistant at personal scale |
 | Lazy imports for embeddings | Avoid hard dependency on credentials | ✓ Good — CLI works without Databricks config |
 | print() for JSON output | Rich console adds formatting/wrapping | ✓ Good — clean machine-readable output |
-| Direct delegation for MCP tools | Tools call ingest.py functions directly, no service layer | ✓ Good — simple, minimal abstraction |
+| Service layer + DI for MCP tools | _impl functions accept deps as params, service layer for shared logic | ✓ Good — testable, CLI/MCP share validation |
 | Sync MCP tool impls | Ingest pipeline is sync, no concurrency benefit for STDIO | ✓ Good — avoid unnecessary async complexity |
 | Async timeout for add_book | asyncio.wait_for(to_thread(), timeout=300) | ✓ Good — prevents hung embedding calls |
 | Cache clear over selective eviction | _book_cache.clear() on any mutation | ✓ Good — simpler at personal scale |
@@ -151,4 +151,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-31 after Phase 17 (EPUB Content Split) complete*
+*Last updated: 2026-03-31 after Phase 18 (MCP Service Layer Refactor) complete*
