@@ -21,7 +21,7 @@ _search_service: SearchService | None = None
 _db_connection = None
 
 
-def _get_search_service() -> SearchService:
+def _make_search_service() -> SearchService:
     """Get or create SearchService (lazy init)."""
     global _search_service
     if _search_service is None:
@@ -29,7 +29,7 @@ def _get_search_service() -> SearchService:
     return _search_service
 
 
-def _get_book_repo() -> BookRepository:
+def _make_book_repo() -> BookRepository:
     """Get BookRepository (lazy init)."""
     global _db_connection
     if _db_connection is None:
@@ -38,7 +38,7 @@ def _get_book_repo() -> BookRepository:
     return BookRepository(_db_connection)
 
 
-def _get_chunk_repo() -> ChunkRepository:
+def _make_chunk_repo() -> ChunkRepository:
     """Get ChunkRepository (lazy init)."""
     global _db_connection
     if _db_connection is None:
@@ -47,15 +47,14 @@ def _get_chunk_repo() -> ChunkRepository:
     return ChunkRepository(_db_connection)
 
 
-# Implementation functions (testable directly)
+# Implementation functions (testable directly via DI)
 
 
-def _list_available_books_impl() -> str:
+def _list_available_books_impl(book_repo: BookRepository | None = None) -> str:
     """List implementation - see list_available_books for docs."""
     logger.info("list_available_books called")
 
     try:
-        book_repo = _get_book_repo()
         books = book_repo.list_all()
 
         if not books:
@@ -83,7 +82,11 @@ def _list_available_books_impl() -> str:
         return f"Error: Failed to list books: {e}"
 
 
-def _get_book_info_impl(book_id: str) -> str:
+def _get_book_info_impl(
+    book_id: str,
+    book_repo: BookRepository | None = None,
+    chunk_repo: ChunkRepository | None = None,
+) -> str:
     """Get book info implementation - see get_book_info for docs."""
     logger.info(f"get_book_info: book_id={book_id}")
 
@@ -91,13 +94,11 @@ def _get_book_info_impl(book_id: str) -> str:
         return "Error: book_id must be a 6-character identifier"
 
     try:
-        book_repo = _get_book_repo()
         book = book_repo.get(book_id)
 
         if not book:
             return f"Error: Book not found: {book_id}"
 
-        chunk_repo = ChunkRepository(_db_connection)
         chunk_count = chunk_repo.count_by_book(book_id)
 
         lines = [
@@ -136,6 +137,9 @@ def _get_book_info_impl(book_id: str) -> str:
 
 def _update_book_metadata_impl(
     book_id: str,
+    book_repo: BookRepository | None = None,
+    chunk_repo: ChunkRepository | None = None,
+    search_service: SearchService | None = None,
     title: str | None = None,
     authors: list[str] | None = None,
     isbn: str | None = None,
@@ -170,18 +174,16 @@ def _update_book_metadata_impl(
         isbn = normalized
 
     try:
-        book_repo = _get_book_repo()
         updated = book_repo.update(book_id=book_id, title=title, authors=authors, isbn=isbn)
 
         if updated is None:
             return f"Error: Book not found: {book_id}"
 
         # Invalidate search cache so search_books reflects changes
-        global _search_service
-        if _search_service is not None:
-            _search_service.invalidate_cache()
+        if search_service is not None:
+            search_service.invalidate_cache()
 
-        return _get_book_info_impl(book_id)
+        return _get_book_info_impl(book_id, book_repo, chunk_repo)
 
     except Exception as e:
         logger.exception("update_book_metadata failed")
@@ -312,7 +314,7 @@ def list_available_books() -> str:
     Returns:
         Markdown table of available books, or a message if the library is empty
     """
-    return _list_available_books_impl()
+    return _list_available_books_impl(_make_book_repo())
 
 
 @mcp.tool(
@@ -335,7 +337,7 @@ def get_book_info(book_id: str) -> str:
     Returns:
         Markdown-formatted book details, or an error message starting with "Error:"
     """
-    return _get_book_info_impl(book_id)
+    return _get_book_info_impl(book_id, _make_book_repo(), _make_chunk_repo())
 
 
 @mcp.tool(
@@ -365,7 +367,15 @@ def update_book_metadata(
     Returns:
         Updated book details, or an error message starting with "Error:"
     """
-    return _update_book_metadata_impl(book_id, title, authors, isbn)
+    return _update_book_metadata_impl(
+        book_id,
+        _make_book_repo(),
+        _make_chunk_repo(),
+        _make_search_service() if _search_service is not None else None,
+        title,
+        authors,
+        isbn,
+    )
 
 
 @mcp.tool(

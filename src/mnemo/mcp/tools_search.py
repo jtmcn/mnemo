@@ -27,7 +27,7 @@ _search_service: SearchService | None = None
 _db_connection = None
 
 
-def _get_search_service() -> SearchService:
+def _make_search_service() -> SearchService:
     """Get or create SearchService (lazy init)."""
     global _search_service
     if _search_service is None:
@@ -35,7 +35,7 @@ def _get_search_service() -> SearchService:
     return _search_service
 
 
-def _get_book_repo() -> BookRepository:
+def _make_book_repo() -> BookRepository:
     """Get BookRepository (lazy init)."""
     global _db_connection
     if _db_connection is None:
@@ -44,7 +44,7 @@ def _get_book_repo() -> BookRepository:
     return BookRepository(_db_connection)
 
 
-def _get_chunk_repo() -> ChunkRepository:
+def _make_chunk_repo() -> ChunkRepository:
     """Get ChunkRepository (lazy init)."""
     global _db_connection
     if _db_connection is None:
@@ -53,7 +53,7 @@ def _get_chunk_repo() -> ChunkRepository:
     return ChunkRepository(_db_connection)
 
 
-# Implementation functions (testable directly)
+# Implementation functions (testable directly via DI)
 
 
 def _search_books_impl(
@@ -65,6 +65,8 @@ def _search_books_impl(
     section: str | None = None,
     context_window: int = 0,
     max_chars: int = 2000,
+    *,
+    search_service: SearchService | None = None,
 ) -> str:
     """Search implementation - see search_books for docs."""
     logger.info(f"search_books: query={query!r}, book_id={book_id}, top_k={top_k}")
@@ -78,7 +80,7 @@ def _search_books_impl(
     max_chars = min(max(100, max_chars), 10000)  # Clamp to 100-10000
 
     try:
-        service = _get_search_service()
+        service = search_service
         results = service.search(
             query=query,
             top_k=top_k,
@@ -126,7 +128,11 @@ def _search_books_impl(
         return f"Error: Search failed: {e}"
 
 
-def _get_book_structure_impl(book_id: str) -> str:
+def _get_book_structure_impl(
+    book_id: str,
+    book_repo: BookRepository | None = None,
+    chunk_repo: ChunkRepository | None = None,
+) -> str:
     """Get book structure implementation - see get_book_structure for docs."""
     logger.info(f"get_book_structure: book_id={book_id}")
 
@@ -134,12 +140,10 @@ def _get_book_structure_impl(book_id: str) -> str:
         return "Error: book_id must be a 6-character identifier"
 
     try:
-        book_repo = _get_book_repo()
         book = book_repo.get(book_id)
         if not book:
             return f"Error: Book not found: {book_id}"
 
-        chunk_repo = _get_chunk_repo()
         rows = chunk_repo.get_section_structure(book_id)
 
         if not rows:
@@ -165,6 +169,7 @@ def _get_book_chunks_impl(
     book_id: str,
     start_sequence: int,
     end_sequence: int,
+    chunk_repo: ChunkRepository | None = None,
 ) -> str:
     """Get book chunks implementation - see get_book_chunks for docs."""
     logger.info(f"get_book_chunks: book_id={book_id}, start={start_sequence}, end={end_sequence}")
@@ -183,7 +188,6 @@ def _get_book_chunks_impl(
         return "Error: end_sequence must be >= start_sequence"
 
     try:
-        chunk_repo = _get_chunk_repo()
         chunks = chunk_repo.get_chunk_range(book_id, start_sequence, end_sequence)
 
         if not chunks:
@@ -260,6 +264,7 @@ def search_books(
         section,
         context_window,
         max_chars,
+        search_service=_make_search_service(),
     )
 
 
@@ -284,7 +289,7 @@ def get_book_structure(book_id: str) -> str:
     Returns:
         Indented markdown section outline, or an error message starting with "Error:"
     """
-    return _get_book_structure_impl(book_id)
+    return _get_book_structure_impl(book_id, _make_book_repo(), _make_chunk_repo())
 
 
 @mcp.tool(
@@ -313,4 +318,4 @@ def get_book_chunks(
         Markdown-formatted chunks with content, section path, content type,
         and sequence number, or an error message starting with "Error:"
     """
-    return _get_book_chunks_impl(book_id, start_sequence, end_sequence)
+    return _get_book_chunks_impl(book_id, start_sequence, end_sequence, _make_chunk_repo())
