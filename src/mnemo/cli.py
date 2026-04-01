@@ -70,24 +70,19 @@ def add(
     everything for search. Multiple files can be added in one command.
     """
     from mnemo.ingest import ingest_book
+    from mnemo.services.book_service import find_duplicate, validate_epub_path
     from mnemo.storage import BookRepository, get_connection, init_db
 
     results = []
 
     for path in paths:
-        # Validate file exists
-        if not path.exists():
+        # Validate path using service layer
+        error = validate_epub_path(path)
+        if error:
             if json_output:
-                print(json.dumps({"error": f"File not found: {path}"}))
+                print(json.dumps({"error": error}))
             else:
-                console.print(f"[red]File not found: {path}[/red]")
-            raise typer.Exit(1)
-
-        if path.suffix.lower() != ".epub":
-            if json_output:
-                print(json.dumps({"error": f"Not an EPUB file: {path}"}))
-            else:
-                console.print(f"[red]Not an EPUB file: {path}[/red]")
+                console.print(f"[red]{error}[/red]")
             raise typer.Exit(1)
 
         # Check for duplicate
@@ -99,7 +94,7 @@ def add(
         import hashlib
 
         file_hash = hashlib.sha256(path.read_bytes()).hexdigest()
-        existing = book_repo.get_by_hash(file_hash)
+        existing = find_duplicate(book_repo, file_hash)
         conn.close()
 
         should_force = force
