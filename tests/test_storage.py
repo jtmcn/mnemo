@@ -950,21 +950,12 @@ class TestEpubPath:
             epub_path="/path/to/test.epub",
         )
 
-        with (
-            patch("mnemo.mcp.tools._get_book_repo") as mock_repo,
-            patch("mnemo.mcp.tools.ChunkRepository") as mock_chunk_cls,
-        ):
-            mock_repo.return_value.get.return_value = book
-            mock_chunk_cls.return_value.count_by_book.return_value = 10
-            # Need to set _db_connection to avoid issues
-            import mnemo.mcp.tools as tools_mod
+        mock_book_repo = MagicMock()
+        mock_book_repo.get.return_value = book
+        mock_chunk_repo = MagicMock()
+        mock_chunk_repo.count_by_book.return_value = 10
 
-            old_conn = tools_mod._db_connection
-            tools_mod._db_connection = MagicMock()
-            try:
-                result = _get_book_info_impl("abc123")
-            finally:
-                tools_mod._db_connection = old_conn
+        result = _get_book_info_impl("abc123", mock_book_repo, mock_chunk_repo)
 
         assert "EPUB Path" in result
         assert "/path/to/test.epub" in result

@@ -118,42 +118,28 @@ class TestSearchBooksValidation:
 
     def test_search_books_clamps_top_k_high(self):
         """top_k > 50 should be clamped to 50."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _search_books_impl
 
-        # Mock the SearchService to capture the top_k value
         mock_service = MagicMock()
         mock_service.search.return_value = []
 
-        # Reset the cached service
-        original_service = tools._search_service
-        tools._search_service = mock_service
-
-        try:
-            tools._search_books_impl("test query", top_k=100)
-            # Should have clamped to 50
-            mock_service.search.assert_called_once()
-            call_kwargs = mock_service.search.call_args[1]
-            assert call_kwargs["top_k"] == 50
-        finally:
-            tools._search_service = original_service
+        _search_books_impl("test query", top_k=100, search_service=mock_service)
+        # Should have clamped to 50
+        mock_service.search.assert_called_once()
+        call_kwargs = mock_service.search.call_args[1]
+        assert call_kwargs["top_k"] == 50
 
     def test_search_books_clamps_top_k_low(self):
         """top_k < 1 should be clamped to 1."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _search_books_impl
 
         mock_service = MagicMock()
         mock_service.search.return_value = []
 
-        original_service = tools._search_service
-        tools._search_service = mock_service
-
-        try:
-            tools._search_books_impl("test query", top_k=-5)
-            mock_service.search.assert_called_once()
-            call_kwargs = mock_service.search.call_args[1]
-            assert call_kwargs["top_k"] == 1
-        finally:
-            tools._search_service = original_service
+        _search_books_impl("test query", top_k=-5, search_service=mock_service)
+        mock_service.search.assert_called_once()
+        call_kwargs = mock_service.search.call_args[1]
+        assert call_kwargs["top_k"] == 1
 
 
 class TestGetBookInfoValidation:
@@ -391,75 +377,62 @@ class TestIntegrationWithTempStorage:
 
     def test_list_available_books_with_data(self, temp_db):
         """list_available_books should return books from temp database."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _list_available_books_impl
+        from mnemo.storage import BookRepository
 
-        # Reset the connection to use our temp db
-        original_conn = tools._db_connection
-        tools._db_connection = temp_db["conn"]
+        book_repo = BookRepository(temp_db["conn"])
+        result = _list_available_books_impl(book_repo)
 
-        try:
-            result = tools._list_available_books_impl()
-
-            assert "Test Python Book" in result
-            assert "abc123" in result
-            assert "John Doe" in result
-            assert "Description" in result
-        finally:
-            tools._db_connection = original_conn
+        assert "Test Python Book" in result
+        assert "abc123" in result
+        assert "John Doe" in result
+        assert "Description" in result
 
     def test_list_available_books_empty_library(self, tmp_path):
         """list_available_books with empty db should return help message."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _list_available_books_impl
+        from mnemo.storage import BookRepository
         from mnemo.storage.database import get_connection, init_db
 
         db_path = tmp_path / "empty.db"
         init_db(db_path)
         conn = get_connection(db_path)
 
-        original_conn = tools._db_connection
-        tools._db_connection = conn
-
         try:
-            result = tools._list_available_books_impl()
+            book_repo = BookRepository(conn)
+            result = _list_available_books_impl(book_repo)
 
             assert "No books indexed" in result
             assert "mnemo add" in result
         finally:
-            tools._db_connection = original_conn
             conn.close()
 
     def test_get_book_info_found(self, temp_db):
         """get_book_info should return book details."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _get_book_info_impl
+        from mnemo.storage import BookRepository, ChunkRepository
 
-        original_conn = tools._db_connection
-        tools._db_connection = temp_db["conn"]
+        book_repo = BookRepository(temp_db["conn"])
+        chunk_repo = ChunkRepository(temp_db["conn"])
+        result = _get_book_info_impl("abc123", book_repo, chunk_repo)
 
-        try:
-            result = tools._get_book_info_impl("abc123")
-
-            assert "Test Python Book" in result
-            assert "abc123" in result
-            assert "John Doe" in result
-            assert "978-1234567890" in result
-            assert "Chunks:" in result
-            assert "3" in result  # 3 chunks
-        finally:
-            tools._db_connection = original_conn
+        assert "Test Python Book" in result
+        assert "abc123" in result
+        assert "John Doe" in result
+        assert "978-1234567890" in result
+        assert "Chunks:" in result
+        assert "3" in result  # 3 chunks
 
     def test_get_book_info_not_found(self, temp_db):
         """get_book_info with unknown id should return not found message."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _get_book_info_impl
+        from mnemo.storage import BookRepository, ChunkRepository
 
-        original_conn = tools._db_connection
-        tools._db_connection = temp_db["conn"]
+        book_repo = BookRepository(temp_db["conn"])
+        chunk_repo = ChunkRepository(temp_db["conn"])
+        result = _get_book_info_impl("xyz789", book_repo, chunk_repo)
 
-        try:
-            result = tools._get_book_info_impl("xyz789")
-
-            assert "not found" in result.lower()
-        finally:
-            tools._db_connection = original_conn
+        assert "not found" in result.lower()
 
 
 class TestSearchBooksIntegration:
@@ -467,7 +440,7 @@ class TestSearchBooksIntegration:
 
     def test_search_books_returns_formatted_results(self):
         """search_books should return markdown-formatted results."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _search_books_impl
 
         mock_service = MagicMock()
         mock_service.search.return_value = [
@@ -483,85 +456,62 @@ class TestSearchBooksIntegration:
             )
         ]
 
-        original_service = tools._search_service
-        tools._search_service = mock_service
+        result = _search_books_impl("async python", search_service=mock_service)
 
-        try:
-            result = tools._search_books_impl("async python")
-
-            assert "Python Cookbook" in result
-            assert "Chapter 5" in result
-            assert "async" in result.lower()
-            assert "---" in result  # Separator
-        finally:
-            tools._search_service = original_service
+        assert "Python Cookbook" in result
+        assert "Chapter 5" in result
+        assert "async" in result.lower()
+        assert "---" in result  # Separator
 
     def test_search_books_no_results(self):
         """search_books with no matches should return helpful message."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _search_books_impl
 
         mock_service = MagicMock()
         mock_service.search.return_value = []
 
-        original_service = tools._search_service
-        tools._search_service = mock_service
+        result = _search_books_impl("nonexistent query", search_service=mock_service)
 
-        try:
-            result = tools._search_books_impl("nonexistent query")
-
-            assert "No results found" in result
-            assert "nonexistent query" in result
-        finally:
-            tools._search_service = original_service
+        assert "No results found" in result
+        assert "nonexistent query" in result
 
     def test_search_books_passes_filters(self):
         """search_books should pass all filters to SearchService."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _search_books_impl
 
         mock_service = MagicMock()
         mock_service.search.return_value = []
 
-        original_service = tools._search_service
-        tools._search_service = mock_service
+        _search_books_impl(
+            query="test",
+            book_id="abc123",
+            content_type="code",
+            top_k=5,
+            mode="semantic",
+            search_service=mock_service,
+        )
 
-        try:
-            tools._search_books_impl(
-                query="test",
-                book_id="abc123",
-                content_type="code",
-                top_k=5,
-                mode="semantic",
-            )
-
-            mock_service.search.assert_called_once_with(
-                query="test",
-                top_k=5,
-                book_id="abc123",
-                content_type="code",
-                mode="semantic",
-                section=None,
-                context_window=0,
-            )
-        finally:
-            tools._search_service = original_service
+        mock_service.search.assert_called_once_with(
+            query="test",
+            top_k=5,
+            book_id="abc123",
+            content_type="code",
+            mode="semantic",
+            section=None,
+            context_window=0,
+        )
 
     def test_search_books_handles_exception(self):
         """search_books should return error message on exception."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _search_books_impl
 
         mock_service = MagicMock()
         mock_service.search.side_effect = Exception("Database connection failed")
 
-        original_service = tools._search_service
-        tools._search_service = mock_service
+        result = _search_books_impl("test query", search_service=mock_service)
 
-        try:
-            result = tools._search_books_impl("test query")
-
-            assert "Search failed" in result
-            assert "Database connection failed" in result
-        finally:
-            tools._search_service = original_service
+        assert "Search failed" in result
+        assert "Database connection failed" in result
 
 
 class TestUpdateBookMetadataIntegration:
@@ -615,113 +565,89 @@ class TestUpdateBookMetadataIntegration:
 
     def test_update_title(self, temp_db):
         """update_book_metadata should update title and return book info."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _update_book_metadata_impl
+        from mnemo.storage import BookRepository, ChunkRepository
 
-        original_conn = tools._db_connection
-        tools._db_connection = temp_db["conn"]
+        book_repo = BookRepository(temp_db["conn"])
+        chunk_repo = ChunkRepository(temp_db["conn"])
+        result = _update_book_metadata_impl("abc123", book_repo, chunk_repo, title="Updated Title")
 
-        try:
-            result = tools._update_book_metadata_impl("abc123", title="Updated Title")
-
-            assert "Updated Title" in result
-        finally:
-            tools._db_connection = original_conn
+        assert "Updated Title" in result
 
     def test_update_authors(self, temp_db):
         """update_book_metadata should update authors."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _update_book_metadata_impl
+        from mnemo.storage import BookRepository, ChunkRepository
 
-        original_conn = tools._db_connection
-        tools._db_connection = temp_db["conn"]
+        book_repo = BookRepository(temp_db["conn"])
+        chunk_repo = ChunkRepository(temp_db["conn"])
+        result = _update_book_metadata_impl("abc123", book_repo, chunk_repo, authors=["New Author"])
 
-        try:
-            result = tools._update_book_metadata_impl("abc123", authors=["New Author"])
-
-            assert "New Author" in result
-        finally:
-            tools._db_connection = original_conn
+        assert "New Author" in result
 
     def test_update_reflected_in_get_book_info(self, temp_db):
         """After update, get_book_info should reflect new values."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _get_book_info_impl, _update_book_metadata_impl
+        from mnemo.storage import BookRepository, ChunkRepository
 
-        original_conn = tools._db_connection
-        tools._db_connection = temp_db["conn"]
+        book_repo = BookRepository(temp_db["conn"])
+        chunk_repo = ChunkRepository(temp_db["conn"])
+        _update_book_metadata_impl("abc123", book_repo, chunk_repo, title="Reflected Title")
+        result = _get_book_info_impl("abc123", book_repo, chunk_repo)
 
-        try:
-            tools._update_book_metadata_impl("abc123", title="Reflected Title")
-            result = tools._get_book_info_impl("abc123")
-
-            assert "Reflected Title" in result
-        finally:
-            tools._db_connection = original_conn
+        assert "Reflected Title" in result
 
     def test_update_nonexistent_book(self, temp_db):
         """update_book_metadata for nonexistent book should return not found."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _update_book_metadata_impl
+        from mnemo.storage import BookRepository, ChunkRepository
 
-        original_conn = tools._db_connection
-        tools._db_connection = temp_db["conn"]
+        book_repo = BookRepository(temp_db["conn"])
+        chunk_repo = ChunkRepository(temp_db["conn"])
+        result = _update_book_metadata_impl("xyz789", book_repo, chunk_repo, title="New")
 
-        try:
-            result = tools._update_book_metadata_impl("xyz789", title="New")
-
-            assert "not found" in result.lower()
-        finally:
-            tools._db_connection = original_conn
+        assert "not found" in result.lower()
 
     def test_update_clears_search_cache(self, temp_db):
         """After update, SearchService.invalidate_cache should be called."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _update_book_metadata_impl
+        from mnemo.storage import BookRepository, ChunkRepository
 
-        original_conn = tools._db_connection
-        original_service = tools._search_service
-
-        tools._db_connection = temp_db["conn"]
+        book_repo = BookRepository(temp_db["conn"])
+        chunk_repo = ChunkRepository(temp_db["conn"])
 
         # Set up a mock search service with a populated cache
         mock_service = MagicMock()
-        tools._search_service = mock_service
 
-        try:
-            tools._update_book_metadata_impl("abc123", title="New Title")
+        _update_book_metadata_impl(
+            "abc123", book_repo, chunk_repo, mock_service, title="New Title"
+        )
 
-            mock_service.invalidate_cache.assert_called()
-        finally:
-            tools._db_connection = original_conn
-            tools._search_service = original_service
+        mock_service.invalidate_cache.assert_called()
 
     def test_update_isbn_empty_string_clears(self, temp_db):
         """Empty string for isbn should clear it (show 'Not available')."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _get_book_info_impl, _update_book_metadata_impl
+        from mnemo.storage import BookRepository, ChunkRepository
 
-        original_conn = tools._db_connection
-        tools._db_connection = temp_db["conn"]
+        book_repo = BookRepository(temp_db["conn"])
+        chunk_repo = ChunkRepository(temp_db["conn"])
+        _update_book_metadata_impl("abc123", book_repo, chunk_repo, isbn="")
+        result = _get_book_info_impl("abc123", book_repo, chunk_repo)
 
-        try:
-            tools._update_book_metadata_impl("abc123", isbn="")
-            result = tools._get_book_info_impl("abc123")
-
-            assert "Not available" in result
-        finally:
-            tools._db_connection = original_conn
+        assert "Not available" in result
 
     def test_update_valid_isbn_normalized(self, temp_db):
         """Valid ISBN with hyphens should be stored normalized (digits only)."""
-        from mnemo.mcp import tools
-        from mnemo.storage import BookRepository
+        from mnemo.mcp.tools import _update_book_metadata_impl
+        from mnemo.storage import BookRepository, ChunkRepository
 
-        original_conn = tools._db_connection
-        tools._db_connection = temp_db["conn"]
-
-        try:
-            tools._update_book_metadata_impl("abc123", isbn="978-0-13-468599-1")
-            # Verify stored as normalized (no hyphens)
-            book_repo = BookRepository(temp_db["conn"])
-            book = book_repo.get("abc123")
-            assert book.isbn == "9780134685991"
-        finally:
-            tools._db_connection = original_conn
+        book_repo = BookRepository(temp_db["conn"])
+        chunk_repo = ChunkRepository(temp_db["conn"])
+        _update_book_metadata_impl("abc123", book_repo, chunk_repo, isbn="978-0-13-468599-1")
+        # Verify stored as normalized (no hyphens)
+        book = book_repo.get("abc123")
+        assert book.isbn == "9780134685991"
 
 
 class TestRemoveBookValidation:
@@ -800,98 +726,77 @@ class TestRemoveBookIntegration:
 
     def test_remove_book_success(self, temp_db):
         """Remove existing book returns confirmation with book details."""
-        from unittest.mock import patch
+        from mnemo.mcp.tools import _remove_book_impl
+        from mnemo.storage import BookRepository, ChunkRepository
 
-        from mnemo.mcp import tools
+        book_repo = BookRepository(temp_db["conn"])
+        chunk_repo = ChunkRepository(temp_db["conn"])
 
-        original_conn = tools._db_connection
-        tools._db_connection = temp_db["conn"]
+        with patch("mnemo.ingest.remove_book") as mock_pipeline:
+            mock_pipeline.return_value = True
+            result = _remove_book_impl("abc123", book_repo, chunk_repo)
 
-        try:
-            with patch("mnemo.ingest.remove_book") as mock_pipeline:
-                mock_pipeline.return_value = True
-                result = tools._remove_book_impl("abc123")
-
-            assert "Removed" in result
-            assert "Test Python Book" in result
-            assert "John Doe" in result
-            assert "3 chunks deleted" in result
-        finally:
-            tools._db_connection = original_conn
+        assert "Removed" in result
+        assert "Test Python Book" in result
+        assert "John Doe" in result
+        assert "3 chunks deleted" in result
 
     def test_remove_book_not_found(self, temp_db):
         """Remove nonexistent book returns not-found error."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _remove_book_impl
+        from mnemo.storage import BookRepository, ChunkRepository
 
-        original_conn = tools._db_connection
-        tools._db_connection = temp_db["conn"]
+        book_repo = BookRepository(temp_db["conn"])
+        chunk_repo = ChunkRepository(temp_db["conn"])
+        result = _remove_book_impl("xyz789", book_repo, chunk_repo)
 
-        try:
-            result = tools._remove_book_impl("xyz789")
-
-            assert "Error" in result
-            assert "not found" in result.lower()
-        finally:
-            tools._db_connection = original_conn
+        assert "Error" in result
+        assert "not found" in result.lower()
 
     def test_remove_book_clears_search_cache(self, temp_db):
         """After removal, SearchService.invalidate_cache should be called."""
-        from unittest.mock import patch
+        from mnemo.mcp.tools import _remove_book_impl
+        from mnemo.storage import BookRepository, ChunkRepository
 
-        from mnemo.mcp import tools
-
-        original_conn = tools._db_connection
-        original_service = tools._search_service
-
-        tools._db_connection = temp_db["conn"]
+        book_repo = BookRepository(temp_db["conn"])
+        chunk_repo = ChunkRepository(temp_db["conn"])
 
         # Set up a mock search service with a populated cache
         mock_service = MagicMock()
-        tools._search_service = mock_service
 
-        try:
-            with patch("mnemo.ingest.remove_book") as mock_pipeline:
-                mock_pipeline.return_value = True
-                tools._remove_book_impl("abc123")
+        with patch("mnemo.ingest.remove_book") as mock_pipeline:
+            mock_pipeline.return_value = True
+            _remove_book_impl("abc123", book_repo, chunk_repo, mock_service)
 
-            mock_service.invalidate_cache.assert_called()
-        finally:
-            tools._db_connection = original_conn
-            tools._search_service = original_service
+        mock_service.invalidate_cache.assert_called()
 
     def test_remove_book_delegates_to_pipeline(self, temp_db):
         """remove_book should delegate to ingest.remove_book with correct book_id."""
-        from unittest.mock import patch
+        from mnemo.mcp.tools import _remove_book_impl
+        from mnemo.storage import BookRepository, ChunkRepository
 
-        from mnemo.mcp import tools
+        book_repo = BookRepository(temp_db["conn"])
+        chunk_repo = ChunkRepository(temp_db["conn"])
 
-        original_conn = tools._db_connection
-        tools._db_connection = temp_db["conn"]
+        with patch("mnemo.ingest.remove_book") as mock_pipeline:
+            mock_pipeline.return_value = True
+            _remove_book_impl("abc123", book_repo, chunk_repo)
 
-        try:
-            with patch("mnemo.ingest.remove_book") as mock_pipeline:
-                mock_pipeline.return_value = True
-                tools._remove_book_impl("abc123")
-
-            mock_pipeline.assert_called_once_with("abc123")
-        finally:
-            tools._db_connection = original_conn
+        mock_pipeline.assert_called_once_with("abc123")
 
     def test_remove_book_pipeline_exception(self, temp_db):
         """When pipeline_remove raises, remove_book returns error."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _remove_book_impl
+        from mnemo.storage import BookRepository, ChunkRepository
 
-        original_conn = tools._db_connection
-        tools._db_connection = temp_db["conn"]
+        book_repo = BookRepository(temp_db["conn"])
+        chunk_repo = ChunkRepository(temp_db["conn"])
 
-        try:
-            with patch("mnemo.ingest.remove_book", side_effect=Exception("ChromaDB down")):
-                result = tools._remove_book_impl("abc123")
+        with patch("mnemo.ingest.remove_book", side_effect=Exception("ChromaDB down")):
+            result = _remove_book_impl("abc123", book_repo, chunk_repo)
 
-            assert "Error" in result
-            assert "ChromaDB down" in result
-        finally:
-            tools._db_connection = original_conn
+        assert "Error" in result
+        assert "ChromaDB down" in result
 
 
 class TestAddBookValidation:
@@ -964,7 +869,7 @@ class TestAddBookIntegration:
 
     def test_add_book_success(self, tmp_path, temp_db):
         """Successful add returns book details and chunk count."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _add_book_impl
 
         epub_file = tmp_path / "book.epub"
         epub_file.write_bytes(b"fake epub content")
@@ -976,16 +881,16 @@ class TestAddBookIntegration:
 
         with (
             patch(
-                "mnemo.mcp.tools.get_connection",
+                "mnemo.mcp.tools_books.get_connection",
                 side_effect=self._make_conn_factory(temp_db),
             ),
-            patch("mnemo.mcp.tools.init_db"),
+            patch("mnemo.mcp.tools_books.init_db"),
             patch(
                 "mnemo.ingest.ingest_book",
                 return_value=(mock_result_book, 42),
             ),
         ):
-            result = tools._add_book_impl(str(epub_file), False, mock_pre_parsed)
+            result = _add_book_impl(str(epub_file), False, mock_pre_parsed)
 
         assert "Added" in result
         assert "Test Book" in result
@@ -993,7 +898,7 @@ class TestAddBookIntegration:
 
     def test_add_book_duplicate_detected(self, tmp_path, temp_db):
         """Duplicate book (same hash) returns error with existing book info."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _add_book_impl
         from mnemo.storage import BookRepository
 
         epub_file = tmp_path / "book.epub"
@@ -1010,12 +915,12 @@ class TestAddBookIntegration:
 
         with (
             patch(
-                "mnemo.mcp.tools.get_connection",
+                "mnemo.mcp.tools_books.get_connection",
                 side_effect=self._make_conn_factory(temp_db),
             ),
-            patch("mnemo.mcp.tools.init_db"),
+            patch("mnemo.mcp.tools_books.init_db"),
         ):
-            result = tools._add_book_impl(str(epub_file), False, mock_pre_parsed)
+            result = _add_book_impl(str(epub_file), False, mock_pre_parsed)
 
         assert "Error" in result
         assert "already exists" in result.lower()
@@ -1025,7 +930,7 @@ class TestAddBookIntegration:
 
     def test_add_book_force_reindex(self, tmp_path, temp_db):
         """force=True allows re-indexing of duplicate book."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _add_book_impl
         from mnemo.storage import BookRepository
 
         epub_file = tmp_path / "book.epub"
@@ -1045,23 +950,23 @@ class TestAddBookIntegration:
 
         with (
             patch(
-                "mnemo.mcp.tools.get_connection",
+                "mnemo.mcp.tools_books.get_connection",
                 side_effect=self._make_conn_factory(temp_db),
             ),
-            patch("mnemo.mcp.tools.init_db"),
+            patch("mnemo.mcp.tools_books.init_db"),
             patch(
                 "mnemo.ingest.ingest_book",
                 return_value=(mock_result_book, 42),
             ),
         ):
-            result = tools._add_book_impl(str(epub_file), True, mock_pre_parsed)
+            result = _add_book_impl(str(epub_file), True, mock_pre_parsed)
 
         assert "Added" in result
         assert "Error" not in result
 
     def test_add_book_clears_search_cache(self, tmp_path, temp_db):
         """Successful add calls invalidate_cache on the search service."""
-        from mnemo.mcp import tools
+        import mnemo.mcp.tools_books as tools_books_mod
 
         epub_file = tmp_path / "book.epub"
         epub_file.write_bytes(b"fake epub content")
@@ -1071,33 +976,35 @@ class TestAddBookIntegration:
             id="aaa123", file_hash="e" * 64, title="New Book", authors=["Author"]
         )
 
-        original_service = tools._search_service
+        original_service = tools_books_mod._search_service
 
-        # Set up mock search service
+        # Set up mock search service on the domain module
         mock_service = MagicMock()
-        tools._search_service = mock_service
+        tools_books_mod._search_service = mock_service
 
         try:
             with (
                 patch(
-                    "mnemo.mcp.tools.get_connection",
+                    "mnemo.mcp.tools_books.get_connection",
                     side_effect=self._make_conn_factory(temp_db),
                 ),
-                patch("mnemo.mcp.tools.init_db"),
+                patch("mnemo.mcp.tools_books.init_db"),
                 patch(
                     "mnemo.ingest.ingest_book",
                     return_value=(mock_result_book, 10),
                 ),
             ):
-                tools._add_book_impl(str(epub_file), False, mock_pre_parsed)
+                from mnemo.mcp.tools import _add_book_impl
+
+                _add_book_impl(str(epub_file), False, mock_pre_parsed)
 
             mock_service.invalidate_cache.assert_called()
         finally:
-            tools._search_service = original_service
+            tools_books_mod._search_service = original_service
 
     def test_add_book_cleans_up_on_failure(self, tmp_path, temp_db):
         """Failed ingestion cleans up partial data."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _add_book_impl
         from mnemo.storage import BookRepository
 
         epub_file = tmp_path / "book.epub"
@@ -1116,17 +1023,17 @@ class TestAddBookIntegration:
 
         with (
             patch(
-                "mnemo.mcp.tools.get_connection",
+                "mnemo.mcp.tools_books.get_connection",
                 side_effect=self._make_conn_factory(temp_db),
             ),
-            patch("mnemo.mcp.tools.init_db"),
+            patch("mnemo.mcp.tools_books.init_db"),
             patch(
                 "mnemo.ingest.ingest_book",
                 side_effect=ingest_side_effect,
             ),
             patch("mnemo.ingest.remove_book") as mock_remove,
         ):
-            result = tools._add_book_impl(str(epub_file), False, mock_pre_parsed)
+            result = _add_book_impl(str(epub_file), False, mock_pre_parsed)
 
         assert "Error" in result
         assert "Embedding failed" in result
@@ -1149,7 +1056,13 @@ class TestLifecycle:
 
     def test_full_lifecycle(self, tmp_path, temp_db):
         """Full lifecycle: add, search, update, verify, remove, verify gone."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import (
+            _add_book_impl,
+            _get_book_info_impl,
+            _remove_book_impl,
+            _search_books_impl,
+            _update_book_metadata_impl,
+        )
         from mnemo.storage import BookRepository, ChunkRepository
 
         # Prepare a fake EPUB file
@@ -1173,97 +1086,89 @@ class TestLifecycle:
         mock_pre_parsed.file_hash = lifecycle_book.file_hash
         mock_pre_parsed.title = lifecycle_book.title
 
-        # --- Setup: wire tools to temp DB ---
-        original_conn = tools._db_connection
-        original_service = tools._search_service
-        tools._db_connection = temp_db["conn"]
-        tools._search_service = None  # Reset so it gets replaced below
+        # --- Step 1: Add book ---
+        # Mock ingest_book to insert the book into our temp DB and return it
+        def mock_ingest(path, embed=True, force=False, chunker_config=None):
+            book_repo = BookRepository(temp_db["conn"])
+            book_repo.add(lifecycle_book)
+            # Also add chunks so search and get_book_info work
+            chunk_repo = ChunkRepository(temp_db["conn"])
+            chunks = [
+                Chunk(
+                    id=f"lc-chunk-{i}",
+                    book_id="aaa001",
+                    content=f"Lifecycle content about Python decorators part {i}",
+                    content_type=ContentType.TEXT,
+                    token_count=10,
+                    section_path=["Chapter 1", f"Section {i}"],
+                    sections=["Chapter 1"],
+                    language=None,
+                    sequence=i,
+                )
+                for i in range(3)
+            ]
+            chunk_repo.add_many(chunks)
+            return lifecycle_book, 3
 
-        try:
-            # --- Step 1: Add book ---
-            # Mock ingest_book to insert the book into our temp DB and return it
-            def mock_ingest(path, embed=True, force=False, chunker_config=None):
-                book_repo = BookRepository(temp_db["conn"])
-                book_repo.add(lifecycle_book)
-                # Also add chunks so search and get_book_info work
-                chunk_repo = ChunkRepository(temp_db["conn"])
-                chunks = [
-                    Chunk(
-                        id=f"lc-chunk-{i}",
-                        book_id="aaa001",
-                        content=f"Lifecycle content about Python decorators part {i}",
-                        content_type=ContentType.TEXT,
-                        token_count=10,
-                        section_path=["Chapter 1", f"Section {i}"],
-                        sections=["Chapter 1"],
-                        language=None,
-                        sequence=i,
-                    )
-                    for i in range(3)
-                ]
-                chunk_repo.add_many(chunks)
-                return lifecycle_book, 3
+        from mnemo.storage.database import get_connection as db_get_conn
 
-            from mnemo.storage.database import get_connection as db_get_conn
+        def conn_factory():
+            return db_get_conn(temp_db["path"])
 
-            def conn_factory():
-                return db_get_conn(temp_db["path"])
+        with (
+            patch("mnemo.mcp.tools_books.get_connection", side_effect=conn_factory),
+            patch("mnemo.mcp.tools_books.init_db"),
+            patch("mnemo.ingest.ingest_book", side_effect=mock_ingest),
+        ):
+            add_result = _add_book_impl(str(epub_file), False, mock_pre_parsed)
 
-            with (
-                patch("mnemo.mcp.tools.get_connection", side_effect=conn_factory),
-                patch("mnemo.mcp.tools.init_db"),
-                patch("mnemo.ingest.ingest_book", side_effect=mock_ingest),
-            ):
-                add_result = tools._add_book_impl(str(epub_file), False, mock_pre_parsed)
+        assert "Added" in add_result
+        assert "Lifecycle Test Book" in add_result
+        assert "3 chunks" in add_result
 
-            assert "Added" in add_result
-            assert "Lifecycle Test Book" in add_result
-            assert "3 chunks" in add_result
+        # --- Step 2: Search for content ---
+        # Use keyword search against the real FTS5 table (no embeddings needed)
+        from mnemo.search.service import SearchService
 
-            # --- Step 2: Search for content ---
-            # Use keyword search against the real FTS5 table (no embeddings needed)
-            from mnemo.search.service import SearchService
+        temp_search = SearchService(
+            db_path=temp_db["path"],
+            chroma_path=tmp_path / "chroma",
+        )
 
-            temp_search = SearchService(
-                db_path=temp_db["path"],
-                chroma_path=tmp_path / "chroma",
-            )
-            tools._search_service = temp_search
+        search_result = _search_books_impl(
+            "Python decorators", mode="keyword", search_service=temp_search
+        )
+        assert "decorators" in search_result.lower()
+        assert "aaa001" in search_result
 
-            search_result = tools._search_books_impl("Python decorators", mode="keyword")
-            assert "decorators" in search_result.lower()
-            assert "aaa001" in search_result
+        # --- Step 3: Update metadata ---
+        book_repo = BookRepository(temp_db["conn"])
+        chunk_repo = ChunkRepository(temp_db["conn"])
+        update_result = _update_book_metadata_impl(
+            "aaa001", book_repo, chunk_repo, title="Updated Lifecycle Book"
+        )
+        assert "Updated Lifecycle Book" in update_result
 
-            # --- Step 3: Update metadata ---
-            update_result = tools._update_book_metadata_impl(
-                "aaa001", title="Updated Lifecycle Book"
-            )
-            assert "Updated Lifecycle Book" in update_result
+        # --- Step 4: Verify metadata reflected in get_book_info ---
+        info_result = _get_book_info_impl("aaa001", book_repo, chunk_repo)
+        assert "Updated Lifecycle Book" in info_result
+        assert "Test Author" in info_result
 
-            # --- Step 4: Verify metadata reflected in get_book_info ---
-            info_result = tools._get_book_info_impl("aaa001")
-            assert "Updated Lifecycle Book" in info_result
-            assert "Test Author" in info_result
+        # --- Step 5: Remove book ---
+        # Mock remove_book to actually delete from our temp DB
+        def mock_remove(book_id):
+            book_repo = BookRepository(temp_db["conn"])
+            book_repo.delete(book_id)
 
-            # --- Step 5: Remove book ---
-            # Mock remove_book to actually delete from our temp DB
-            def mock_remove(book_id):
-                book_repo = BookRepository(temp_db["conn"])
-                book_repo.delete(book_id)
+        with patch("mnemo.ingest.remove_book", side_effect=mock_remove):
+            remove_result = _remove_book_impl("aaa001", book_repo, chunk_repo)
 
-            with patch("mnemo.ingest.remove_book", side_effect=mock_remove):
-                remove_result = tools._remove_book_impl("aaa001")
+        assert "Removed" in remove_result
+        assert "Updated Lifecycle Book" in remove_result
 
-            assert "Removed" in remove_result
-            assert "Updated Lifecycle Book" in remove_result
-
-            # --- Step 6: Verify removal ---
-            gone_result = tools._get_book_info_impl("aaa001")
-            assert "not found" in gone_result.lower()
-
-        finally:
-            tools._db_connection = original_conn
-            tools._search_service = original_service
+        # --- Step 6: Verify removal ---
+        gone_result = _get_book_info_impl("aaa001", book_repo, chunk_repo)
+        assert "not found" in gone_result.lower()
 
 
 class TestAddBookAsync:
@@ -1272,12 +1177,12 @@ class TestAddBookAsync:
     @pytest.mark.asyncio
     async def test_add_book_file_not_found_no_thread(self):
         """File-not-found returns error without entering thread."""
-        from mnemo.mcp.tools import add_book
+        from mnemo.mcp.tools_books import add_book
 
         ctx = AsyncMock()
         add_book_fn = add_book.fn  # Unwrap FastMCP FunctionTool
 
-        with patch("mnemo.mcp.tools._add_book_impl") as mock_impl:
+        with patch("mnemo.mcp.tools_books._add_book_impl") as mock_impl:
             result = await add_book_fn("/nonexistent/book.epub", False, ctx=ctx)
 
         assert "Error" in result
@@ -1287,7 +1192,7 @@ class TestAddBookAsync:
     @pytest.mark.asyncio
     async def test_add_book_timeout_returns_error(self, tmp_path):
         """Timeout returns error message."""
-        from mnemo.mcp.tools import add_book
+        from mnemo.mcp.tools_books import add_book
 
         epub_file = tmp_path / "slow.epub"
         epub_file.write_bytes(b"fake epub")
@@ -1302,10 +1207,10 @@ class TestAddBookAsync:
 
         with (
             patch("mnemo.epub.metadata.extract_metadata", return_value=mock_pre),
-            patch("mnemo.mcp.tools.asyncio.to_thread", lambda *a, **kw: "stub"),
-            patch("mnemo.mcp.tools.asyncio.wait_for", new=fake_wait_for_timeout),
-            patch("mnemo.mcp.tools.init_db"),
-            patch("mnemo.mcp.tools.get_connection") as mock_get_conn,
+            patch("mnemo.mcp.tools_books.asyncio.to_thread", lambda *a, **kw: "stub"),
+            patch("mnemo.mcp.tools_books.asyncio.wait_for", new=fake_wait_for_timeout),
+            patch("mnemo.mcp.tools_books.init_db"),
+            patch("mnemo.mcp.tools_books.get_connection") as mock_get_conn,
         ):
             mock_repo = MagicMock()
             mock_repo.get_by_hash.return_value = None
@@ -1318,7 +1223,7 @@ class TestAddBookAsync:
     @pytest.mark.asyncio
     async def test_add_book_calls_ctx_info(self, tmp_path):
         """add_book awaits ctx.info() with progress message."""
-        from mnemo.mcp.tools import add_book
+        from mnemo.mcp.tools_books import add_book
 
         epub_file = tmp_path / "info.epub"
         epub_file.write_bytes(b"fake epub")
@@ -1333,9 +1238,9 @@ class TestAddBookAsync:
 
         with (
             patch("mnemo.epub.metadata.extract_metadata", return_value=mock_pre),
-            patch("mnemo.mcp.tools._add_book_impl", return_value="Added: Test Book"),
-            patch("mnemo.mcp.tools.asyncio.to_thread", lambda *a, **kw: "stub"),
-            patch("mnemo.mcp.tools.asyncio.wait_for", new=fake_wait_for),
+            patch("mnemo.mcp.tools_books._add_book_impl", return_value="Added: Test Book"),
+            patch("mnemo.mcp.tools_books.asyncio.to_thread", lambda *a, **kw: "stub"),
+            patch("mnemo.mcp.tools_books.asyncio.wait_for", new=fake_wait_for),
         ):
             await add_book_fn(str(epub_file), False, ctx=ctx)
 
@@ -1346,7 +1251,7 @@ class TestAddBookAsync:
     @pytest.mark.asyncio
     async def test_add_book_timeout_cleanup_removes_partial(self, tmp_path):
         """On timeout, if partial book exists in DB, pipeline_remove is called."""
-        from mnemo.mcp.tools import add_book
+        from mnemo.mcp.tools_books import add_book
 
         epub_file = tmp_path / "partial.epub"
         epub_file.write_bytes(b"fake epub")
@@ -1369,11 +1274,11 @@ class TestAddBookAsync:
 
         with (
             patch("mnemo.epub.metadata.extract_metadata", return_value=mock_pre),
-            patch("mnemo.mcp.tools.asyncio.to_thread", lambda *a, **kw: "stub"),
-            patch("mnemo.mcp.tools.asyncio.wait_for", new=fake_wait_for_timeout),
-            patch("mnemo.mcp.tools.init_db"),
-            patch("mnemo.mcp.tools.get_connection", return_value=mock_conn),
-            patch("mnemo.mcp.tools.BookRepository", return_value=mock_repo),
+            patch("mnemo.mcp.tools_books.asyncio.to_thread", lambda *a, **kw: "stub"),
+            patch("mnemo.mcp.tools_books.asyncio.wait_for", new=fake_wait_for_timeout),
+            patch("mnemo.mcp.tools_books.init_db"),
+            patch("mnemo.mcp.tools_books.get_connection", return_value=mock_conn),
+            patch("mnemo.mcp.tools_books.BookRepository", return_value=mock_repo),
             patch("mnemo.ingest.remove_book") as mock_pipeline_remove,
         ):
             result = await add_book_fn(str(epub_file), False, ctx=ctx)
@@ -1433,22 +1338,18 @@ class TestGetBookChunks:
 
     def test_get_book_chunks_returns_formatted_content(self, temp_db):
         """get_book_chunks should return markdown with content, section, type, sequence."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _get_book_chunks_impl
+        from mnemo.storage import ChunkRepository
 
-        original_conn = tools._db_connection
-        tools._db_connection = temp_db["conn"]
+        chunk_repo = ChunkRepository(temp_db["conn"])
+        result = _get_book_chunks_impl("abc123", 0, 2, chunk_repo)
 
-        try:
-            result = tools._get_book_chunks_impl("abc123", 0, 2)
-
-            assert "Seq 0" in result
-            assert "Seq 1" in result
-            assert "Seq 2" in result
-            assert "chunk number 0" in result
-            assert "Chapter 1 > Section 0" in result
-            assert "text" in result.lower() or "TEXT" in result
-        finally:
-            tools._db_connection = original_conn
+        assert "Seq 0" in result
+        assert "Seq 1" in result
+        assert "Seq 2" in result
+        assert "chunk number 0" in result
+        assert "Chapter 1 > Section 0" in result
+        assert "text" in result.lower() or "TEXT" in result
 
     def test_get_book_chunks_invalid_book_id(self):
         """get_book_chunks with invalid book_id should return Error."""
@@ -1467,17 +1368,13 @@ class TestGetBookChunks:
 
     def test_get_book_chunks_no_chunks_found(self, temp_db):
         """get_book_chunks with valid book format but no chunks should return Error."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _get_book_chunks_impl
+        from mnemo.storage import ChunkRepository
 
-        original_conn = tools._db_connection
-        tools._db_connection = temp_db["conn"]
-
-        try:
-            result = tools._get_book_chunks_impl("zzz999", 0, 5)
-            assert result.startswith("Error:")
-            assert "No chunks" in result
-        finally:
-            tools._db_connection = original_conn
+        chunk_repo = ChunkRepository(temp_db["conn"])
+        result = _get_book_chunks_impl("zzz999", 0, 5, chunk_repo)
+        assert result.startswith("Error:")
+        assert "No chunks" in result
 
 
 class TestAddBookChunkParams:
@@ -1497,10 +1394,10 @@ class TestAddBookChunkParams:
         mock_book.file_hash = "a" * 64
 
         with (
-            patch("mnemo.mcp.tools.init_db"),
-            patch("mnemo.mcp.tools.get_connection") as mock_conn_fn,
+            patch("mnemo.mcp.tools_books.init_db"),
+            patch("mnemo.mcp.tools_books.get_connection") as mock_conn_fn,
             patch("mnemo.epub.metadata.extract_metadata", return_value=mock_book),
-            patch("mnemo.mcp.tools.BookRepository") as mock_repo_cls,
+            patch("mnemo.mcp.tools_books.BookRepository") as mock_repo_cls,
             patch("mnemo.ingest.ingest_book") as mock_ingest,
         ):
             mock_conn = MagicMock()
@@ -1560,10 +1457,10 @@ class TestAddBookChunkParams:
         mock_book.file_hash = "a" * 64
 
         with (
-            patch("mnemo.mcp.tools.init_db"),
-            patch("mnemo.mcp.tools.get_connection") as mock_conn_fn,
+            patch("mnemo.mcp.tools_books.init_db"),
+            patch("mnemo.mcp.tools_books.get_connection") as mock_conn_fn,
             patch("mnemo.epub.metadata.extract_metadata", return_value=mock_book),
-            patch("mnemo.mcp.tools.BookRepository") as mock_repo_cls,
+            patch("mnemo.mcp.tools_books.BookRepository") as mock_repo_cls,
             patch("mnemo.ingest.ingest_book") as mock_ingest,
         ):
             mock_conn = MagicMock()
@@ -1593,7 +1490,7 @@ class TestSearchBooksContextWindow:
 
     def test_search_books_context_window_zero_unchanged(self):
         """context_window=0 produces same format as before (no enrichment markers)."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _search_books_impl
 
         mock_service = MagicMock()
         mock_service.search.return_value = [
@@ -1609,24 +1506,18 @@ class TestSearchBooksContextWindow:
             )
         ]
 
-        original_service = tools._search_service
-        tools._search_service = mock_service
+        result = _search_books_impl("test", context_window=0, search_service=mock_service)
 
-        try:
-            result = tools._search_books_impl("test", context_window=0)
-
-            assert "Found 1 results:" in result
-            assert "MATCHED" not in result
-            assert "MATCH" not in result
-            assert "[context, seq" not in result
-            assert "Context \u2014" not in result
-            assert "Test Book" in result
-        finally:
-            tools._search_service = original_service
+        assert "Found 1 results:" in result
+        assert "MATCHED" not in result
+        assert "MATCH" not in result
+        assert "[context, seq" not in result
+        assert "Context \u2014" not in result
+        assert "Test Book" in result
 
     def test_search_books_context_window_formats_enriched(self):
         """context_window=1 output contains matched and context markers."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _search_books_impl
         from mnemo.models import Chunk, ContentType
 
         # Create mock chunks for the expanded result
@@ -1666,37 +1557,25 @@ class TestSearchBooksContextWindow:
         mock_service = MagicMock()
         mock_service.search.return_value = [expanded_result]
 
-        original_service = tools._search_service
-        tools._search_service = mock_service
+        result = _search_books_impl("test", context_window=1, search_service=mock_service)
 
-        try:
-            result = tools._search_books_impl("test", context_window=1)
-
-            assert "with context" in result
-            assert "MATCH \u2014 seq 1" in result
-            assert "Context \u2014 seq 0" in result
-            assert "Context \u2014 seq 2" in result
-            assert "---" in result
-        finally:
-            tools._search_service = original_service
+        assert "with context" in result
+        assert "MATCH \u2014 seq 1" in result
+        assert "Context \u2014 seq 0" in result
+        assert "Context \u2014 seq 2" in result
+        assert "---" in result
 
     def test_search_books_context_window_clamped(self):
         """context_window=5 is clamped to 3."""
-        from mnemo.mcp import tools
+        from mnemo.mcp.tools import _search_books_impl
 
         mock_service = MagicMock()
         mock_service.search.return_value = []
 
-        original_service = tools._search_service
-        tools._search_service = mock_service
+        _search_books_impl("test", context_window=5, search_service=mock_service)
 
-        try:
-            tools._search_books_impl("test", context_window=5)
-
-            call_kwargs = mock_service.search.call_args[1]
-            assert call_kwargs["context_window"] == 3
-        finally:
-            tools._search_service = original_service
+        call_kwargs = mock_service.search.call_args[1]
+        assert call_kwargs["context_window"] == 3
 
 
 class TestGetBookStructure:
@@ -1737,20 +1616,18 @@ class TestGetBookStructure:
 
     def test_nonexistent_book(self):
         """Valid book_id format but book not in DB returns error."""
-        from mnemo.mcp import tools
         from mnemo.mcp.tools import _get_book_structure_impl
 
         mock_book_repo = MagicMock()
         mock_book_repo.get.return_value = None
+        mock_chunk_repo = MagicMock()
 
-        with patch.object(tools, "_get_book_repo", return_value=mock_book_repo):
-            result = _get_book_structure_impl("abc123")
+        result = _get_book_structure_impl("abc123", mock_book_repo, mock_chunk_repo)
 
         assert result == "Error: Book not found: abc123"
 
     def test_book_with_no_sections(self):
         """Book with no structured chunks returns 'No sections found.'"""
-        from mnemo.mcp import tools
         from mnemo.mcp.tools import _get_book_structure_impl
 
         mock_book_repo = MagicMock()
@@ -1759,18 +1636,13 @@ class TestGetBookStructure:
         mock_chunk_repo = MagicMock()
         mock_chunk_repo.get_section_structure.return_value = []
 
-        with (
-            patch.object(tools, "_get_book_repo", return_value=mock_book_repo),
-            patch.object(tools, "_get_chunk_repo", return_value=mock_chunk_repo),
-        ):
-            result = _get_book_structure_impl("abc123")
+        result = _get_book_structure_impl("abc123", mock_book_repo, mock_chunk_repo)
 
         assert "Test Book" in result
         assert "No sections found." in result
 
     def test_book_with_sections_returns_indented_hierarchy(self):
         """Valid book with sections returns indented markdown hierarchy."""
-        from mnemo.mcp import tools
         from mnemo.mcp.tools import _get_book_structure_impl
 
         mock_book_repo = MagicMock()
@@ -1784,11 +1656,7 @@ class TestGetBookStructure:
             ["Part I", "Chapter 2"],
         ]
 
-        with (
-            patch.object(tools, "_get_book_repo", return_value=mock_book_repo),
-            patch.object(tools, "_get_chunk_repo", return_value=mock_chunk_repo),
-        ):
-            result = _get_book_structure_impl("abc123")
+        result = _get_book_structure_impl("abc123", mock_book_repo, mock_chunk_repo)
 
         assert "## Test Book" in result
         assert "- Part I" in result
@@ -1798,7 +1666,6 @@ class TestGetBookStructure:
 
     def test_book_structure_header_contains_title(self):
         """Output starts with '## {book.title}'."""
-        from mnemo.mcp import tools
         from mnemo.mcp.tools import _get_book_structure_impl
 
         mock_book_repo = MagicMock()
@@ -1807,11 +1674,7 @@ class TestGetBookStructure:
         mock_chunk_repo = MagicMock()
         mock_chunk_repo.get_section_structure.return_value = [["Chapter 1"]]
 
-        with (
-            patch.object(tools, "_get_book_repo", return_value=mock_book_repo),
-            patch.object(tools, "_get_chunk_repo", return_value=mock_chunk_repo),
-        ):
-            result = _get_book_structure_impl("abc123")
+        result = _get_book_structure_impl("abc123", mock_book_repo, mock_chunk_repo)
 
         assert result.startswith("## Learning Python")
 
@@ -1956,8 +1819,7 @@ class TestSmallCodeChunkAutoExpansion:
         mock_service = MagicMock()
         mock_service.search.return_value = [code_result]
 
-        with patch("mnemo.mcp.tools._get_search_service", return_value=mock_service):
-            result = _search_books_impl("test query")
+        result = _search_books_impl("test query", search_service=mock_service)
 
         # Should NOT call _expand_result_context
         mock_service._expand_result_context.assert_not_called()
@@ -1983,8 +1845,7 @@ class TestSmallCodeChunkAutoExpansion:
         mock_service = MagicMock()
         mock_service.search.return_value = [text_result]
 
-        with patch("mnemo.mcp.tools._get_search_service", return_value=mock_service):
-            _search_books_impl("test query")
+        _search_books_impl("test query", search_service=mock_service)
 
         mock_service._expand_result_context.assert_not_called()
 
@@ -2117,7 +1978,6 @@ class TestReindexAllBooks:
 
     def test_reindex_invalidates_search_cache(self):
         """Reindex clears the search service cache."""
-        from mnemo.mcp import tools
         from mnemo.mcp.tools import _reindex_all_books_impl
 
         mock_results = [
@@ -2130,21 +1990,16 @@ class TestReindexAllBooks:
             },
         ]
         mock_service = MagicMock()
-        original_service = tools._search_service
-        tools._search_service = mock_service
 
-        try:
-            with patch("mnemo.ingest.reindex_all_books", return_value=mock_results):
-                _reindex_all_books_impl()
+        with patch("mnemo.ingest.reindex_all_books", return_value=mock_results):
+            _reindex_all_books_impl(search_service=mock_service)
 
-            mock_service.invalidate_cache.assert_called()
-        finally:
-            tools._search_service = original_service
+        mock_service.invalidate_cache.assert_called()
 
     @pytest.mark.asyncio
     async def test_reindex_async_wrapper_delegates(self):
         """Async reindex_all_books delegates to _reindex_all_books_impl."""
-        from mnemo.mcp.tools import reindex_all_books
+        from mnemo.mcp.tools_books import reindex_all_books
 
         ctx = AsyncMock()
         reindex_fn = reindex_all_books.fn
@@ -2154,11 +2009,11 @@ class TestReindexAllBooks:
 
         with (
             patch(
-                "mnemo.mcp.tools._reindex_all_books_impl",
+                "mnemo.mcp.tools_books._reindex_all_books_impl",
                 return_value="Reindex complete: 1 succeeded, 0 skipped, 0 failed",
             ),
-            patch("mnemo.mcp.tools.asyncio.to_thread", lambda *a, **kw: "stub"),
-            patch("mnemo.mcp.tools.asyncio.wait_for", new=fake_wait_for),
+            patch("mnemo.mcp.tools_books.asyncio.to_thread", lambda *a, **kw: "stub"),
+            patch("mnemo.mcp.tools_books.asyncio.wait_for", new=fake_wait_for),
         ):
             result = await reindex_fn(ctx=ctx)
 
@@ -2167,7 +2022,7 @@ class TestReindexAllBooks:
     @pytest.mark.asyncio
     async def test_reindex_async_timeout(self):
         """Async reindex_all_books returns error on timeout."""
-        from mnemo.mcp.tools import reindex_all_books
+        from mnemo.mcp.tools_books import reindex_all_books
 
         ctx = AsyncMock()
         reindex_fn = reindex_all_books.fn
@@ -2176,8 +2031,8 @@ class TestReindexAllBooks:
             raise TimeoutError()
 
         with (
-            patch("mnemo.mcp.tools.asyncio.to_thread", lambda *a, **kw: "stub"),
-            patch("mnemo.mcp.tools.asyncio.wait_for", new=fake_timeout),
+            patch("mnemo.mcp.tools_books.asyncio.to_thread", lambda *a, **kw: "stub"),
+            patch("mnemo.mcp.tools_books.asyncio.wait_for", new=fake_timeout),
         ):
             result = await reindex_fn(ctx=ctx)
 

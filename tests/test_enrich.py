@@ -524,9 +524,9 @@ class TestEnrichBookImpl:
         result = _enrich_book_impl("abc")
         assert result.startswith("Error:")
 
-    @patch("mnemo.mcp.tools.get_connection")
-    @patch("mnemo.mcp.tools.init_db")
-    @patch("mnemo.mcp.tools.BookRepository")
+    @patch("mnemo.mcp.tools_metadata.get_connection")
+    @patch("mnemo.mcp.tools_metadata.init_db")
+    @patch("mnemo.mcp.tools_metadata.BookRepository")
     def test_book_not_found(
         self, mock_repo_cls: MagicMock, mock_init: MagicMock, mock_conn: MagicMock
     ) -> None:
@@ -537,9 +537,9 @@ class TestEnrichBookImpl:
         result = _enrich_book_impl("abc123")
         assert "not found" in result
 
-    @patch("mnemo.mcp.tools.get_connection")
-    @patch("mnemo.mcp.tools.init_db")
-    @patch("mnemo.mcp.tools.BookRepository")
+    @patch("mnemo.mcp.tools_metadata.get_connection")
+    @patch("mnemo.mcp.tools_metadata.init_db")
+    @patch("mnemo.mcp.tools_metadata.BookRepository")
     @patch("mnemo.epub.enrich.enrich_book_metadata")
     def test_enrichment_with_result(
         self,
@@ -581,9 +581,9 @@ class TestEnrichBookImpl:
         assert "google" in result
         assert "apply=true" in result.lower() or "apply" in result.lower()
 
-    @patch("mnemo.mcp.tools.get_connection")
-    @patch("mnemo.mcp.tools.init_db")
-    @patch("mnemo.mcp.tools.BookRepository")
+    @patch("mnemo.mcp.tools_metadata.get_connection")
+    @patch("mnemo.mcp.tools_metadata.init_db")
+    @patch("mnemo.mcp.tools_metadata.BookRepository")
     @patch("mnemo.epub.enrich.enrich_book_metadata")
     def test_enrichment_apply(
         self,
@@ -621,9 +621,9 @@ class TestEnrichBookImpl:
         )
         assert "updated" in result.lower()
 
-    @patch("mnemo.mcp.tools.get_connection")
-    @patch("mnemo.mcp.tools.init_db")
-    @patch("mnemo.mcp.tools.BookRepository")
+    @patch("mnemo.mcp.tools_metadata.get_connection")
+    @patch("mnemo.mcp.tools_metadata.init_db")
+    @patch("mnemo.mcp.tools_metadata.BookRepository")
     @patch("mnemo.epub.enrich.enrich_book_metadata")
     def test_prompt_shown_when_metadata_differs_but_isbn_matches(
         self,
