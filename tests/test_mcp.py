@@ -619,9 +619,7 @@ class TestUpdateBookMetadataIntegration:
         # Set up a mock search service with a populated cache
         mock_service = MagicMock()
 
-        _update_book_metadata_impl(
-            "abc123", book_repo, chunk_repo, mock_service, title="New Title"
-        )
+        _update_book_metadata_impl("abc123", book_repo, chunk_repo, mock_service, title="New Title")
 
         mock_service.invalidate_cache.assert_called()
 

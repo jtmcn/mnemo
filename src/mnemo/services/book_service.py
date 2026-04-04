@@ -1,4 +1,5 @@
 """Shared book operations used by both CLI and MCP layers."""
+
 from pathlib import Path
 
 from mnemo.models import Book
