@@ -72,7 +72,7 @@
   4. All existing tests pass unchanged
 **Plans:** 1/1 plans complete
 Plans:
-- [ ] 14-01-PLAN.md — Declare deps, document env vars, configurable logging
+- [ ] 19-01-PLAN.md — CI workflow, integration marker, coverage gate, README badge
 
 ### Phase 15: Schema Migration Framework
 **Goal**: Schema changes are versioned and applied automatically in order, replacing fragile try/except pattern
@@ -146,7 +146,7 @@ Plans:
   4. README.md displays a CI status badge showing current build status
 **Plans:** 1 plan
 Plans:
-- [ ] 14-01-PLAN.md — Declare deps, document env vars, configurable logging
+- [ ] 19-01-PLAN.md — CI workflow, integration marker, coverage gate, README badge
 
 ## Progress
 
