@@ -44,22 +44,21 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 - ✓ New `get_book_structure` MCP tool for browsing section hierarchy — v1.3
 - ✓ Context window results visually delineate match vs surrounding chunks — v1.3
 
+- ✓ Explicit dependency declarations (typer, rich) in pyproject.toml — v1.4
+- ✓ Environment variable documentation via .env.example — v1.4
+- ✓ Configurable log level via MNEMO_LOG_LEVEL — v1.4
+- ✓ Versioned schema migrations replacing try/except ALTER TABLE — v1.4
+- ✓ Full backup & restore for SQLite + ChromaDB vectors — v1.4
+- ✓ content.py split into focused private modules (_models, _classify, _extract) — v1.4
+- ✓ MCP tools split by domain (search, books, metadata) with service layer — v1.4
+- ✓ Dependency injection for all MCP tool implementations — v1.4
+- ✓ GitHub Actions CI pipeline with lint + test jobs — v1.4
+- ✓ Coverage enforcement at 80% threshold — v1.4
+- ✓ CI status badge in README — v1.4
+
 ### Active
 
-#### Current Milestone: v1.4 Tech Debt Cleanup
-
-**Goal:** Harden the codebase by addressing structural tech debt, missing dependencies, data safety gaps, and CI/quality gates.
-
-**Target features:**
-- ~~Split large files (tools.py, content.py)~~ ✓ Phase 17 (content.py), Phase 18 (tools.py) — and extract shared CLI/MCP logic into service layer
-- ~~Refactor MCP module from global singletons to dependency injection~~ ✓ Phase 18
-- ~~Add schema version tracking with numbered migration scripts~~ ✓ Phase 15
-- Declare missing dependencies (typer, rich) in pyproject.toml
-- Add .env.example documenting required environment variables
-- Configurable log levels without code changes
-- ~~Full backup/export covering SQLite database and ChromaDB vectors~~ ✓ Phase 16
-- ~~GitHub Actions CI pipeline with automated testing~~ ✓ Phase 19
-- ~~pytest-cov minimum coverage threshold enforcement~~ ✓ Phase 19
+(No active milestone — planning next)
 
 ### Out of Scope
 
@@ -87,11 +86,11 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 
 ## Context
 
-**Shipped v1.3** with 5,360 LOC Python source, 525 tests passing. Phase 18 complete — mcp/tools.py split into domain modules (tools_search, tools_books, tools_metadata, formatters), service layer extracted (services/book_service.py), dependency injection applied to all _impl functions.
-**Tech stack:** Python 3.11+, uv, ChromaDB (cosine), SQLite/FTS5, Databricks GTE-large-en, FastMCP 2.0, Typer, Rich.
+**Shipped v1.4** with 7,628 LOC Python source, 525 tests passing (83.24% coverage). All structural tech debt addressed — modules decomposed, dependency injection applied, schema migrations versioned, backup/restore implemented, CI pipeline active.
+**Tech stack:** Python 3.11+, uv, ChromaDB (cosine), SQLite/FTS5, Databricks GTE-large-en, FastMCP 2.0, Typer, Rich, GitHub Actions CI.
 **MCP tools:** 10 total — search_books, list_available_books, get_book_info, get_book_chunks, get_book_structure, update_book_metadata, remove_book, add_book, enrich_book, reindex_all_books.
-**Known items:** Code chunking heuristics need tuning with real data; MNEMO_BOOKS_DIR path restriction not yet implemented; semantic chunking deferred (mixed benchmarks); FRONT_MATTER_STEMS heuristic may need publisher-specific additions.
-**Tech debt:** `_format_enriched_results` omits closing `---` after final result (cosmetic).
+**Known items:** Code chunking heuristics need tuning with real data; MNEMO_BOOKS_DIR path restriction not yet implemented; semantic chunking deferred (mixed benchmarks); FRONT_MATTER_STEMS heuristic may need publisher-specific additions; 78 pre-existing mypy errors (CI non-blocking).
+**Tech debt:** mypy `continue-on-error` in CI (78 errors); `book_service.list_all_books` dead export; `tests/test_backup.py` missing tar `filter=` arg.
 
 ## Constraints
 
@@ -132,6 +131,14 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 | get_book_structure from SQLite only | No EPUB re-parsing, reflects indexed data | ✓ Good — consistent with search results |
 | FRONT_MATTER_STEMS heuristic | Exact + prefix/suffix filename matching | ✓ Good — covers major publishers, extensible |
 | MATCH/Context labels with --- separators | Visual chunk delineation in enriched results | ✓ Good — immediately readable in Claude Desktop |
+| Versioned schema migrations | Numbered scripts replace try/except ALTER TABLE | ✓ Good — safe, ordered, auditable |
+| sqlite3.Connection.backup() for snapshots | WAL-consolidated DB copy without locking | ✓ Good — atomic, no WAL file in backup |
+| Flat tar archive members | No directory prefix in backup archives | ✓ Good — simple extraction, no path confusion |
+| Private module prefix (_models, _classify, _extract) | Signals internal API boundaries within epub package | ✓ Good — clear public vs internal boundary |
+| Re-export shim for backward compat | content.py re-exports from private modules | ✓ Good — zero caller changes needed |
+| Parallel CI jobs (lint + test) | Independent failure signals, faster feedback | ✓ Good — lint failure doesn't block test results |
+| 80% coverage threshold | Enforced via --cov-fail-under in CI | ✓ Good — prevents coverage regression |
+| mypy continue-on-error | 78 pre-existing errors, non-blocking for initial CI | ⚠️ Revisit — fix errors then enforce strictly |
 
 ## Evolution
 
@@ -151,4 +158,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-05 after Phase 19 (CI & Quality Gates) complete — final phase of v1.4*
+*Last updated: 2026-04-05 after v1.4 milestone*

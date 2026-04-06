@@ -6,7 +6,7 @@
 - ✅ **v1.1 Book Management** — Phases 5-7 (shipped 2026-02-17) — [Archive](milestones/v1.1-ROADMAP.md)
 - ✅ **v1.2 RAG Improvements** — Phases 8-9 (shipped 2026-03-10) — [Archive](milestones/v1.2-ROADMAP.md)
 - ✅ **v1.3 Quality & Polish** — Phases 10-13 (shipped 2026-03-16) — [Archive](milestones/v1.3-ROADMAP.md)
-- 🚧 **v1.4 Tech Debt Cleanup** — Phases 14-19 (in progress)
+- ✅ **v1.4 Tech Debt Cleanup** — Phases 14-19 (shipped 2026-04-05) — [Archive](milestones/v1.4-ROADMAP.md)
 
 ## Phases
 
@@ -47,106 +47,17 @@
 
 </details>
 
-### 🚧 v1.4 Tech Debt Cleanup (In Progress)
+<details>
+<summary>✅ v1.4 Tech Debt Cleanup (Phases 14-19) — SHIPPED 2026-04-05</summary>
 
-**Milestone Goal:** Harden the codebase by addressing structural tech debt, missing dependencies, data safety gaps, and CI/quality gates. No new user-facing features — all 367+ tests must pass throughout.
+- [x] Phase 14: Dependencies & Configuration (1/1 plan) — completed 2026-03-29
+- [x] Phase 15: Schema Migration Framework (1/1 plan) — completed 2026-03-29
+- [x] Phase 16: Backup & Restore (1/1 plan) — completed 2026-03-30
+- [x] Phase 17: EPUB Content Split (1/1 plan) — completed 2026-03-31
+- [x] Phase 18: MCP & Service Layer Refactor (2/2 plans) — completed 2026-04-01
+- [x] Phase 19: CI & Quality Gates (1/1 plan) — completed 2026-04-06
 
-- [x] **Phase 14: Dependencies & Configuration** - Declare missing deps, document env vars, add configurable logging (completed 2026-03-29)
-- [x] **Phase 15: Schema Migration Framework** - Replace try/except ALTER TABLE with versioned migration scripts (completed 2026-03-29)
-- [x] **Phase 16: Backup & Restore** - Full export/import of SQLite database and ChromaDB vectors (completed 2026-03-30)
-- [x] **Phase 17: EPUB Content Split** - Split content.py into focused modules under 400 lines each (completed 2026-03-31)
-- [x] **Phase 18: MCP & Service Layer Refactor** - Split tools.py, extract service layer, inject dependencies (completed 2026-04-01)
-- [x] **Phase 19: CI & Quality Gates** - GitHub Actions pipeline with linting, testing, and coverage enforcement (completed 2026-04-06)
-
-## Phase Details
-
-### Phase 14: Dependencies & Configuration
-**Goal**: Project dependencies are explicit and configuration is documented and runtime-tunable
-**Depends on**: Nothing (first v1.4 phase — quick wins to build momentum)
-**Requirements**: CONF-01, CONF-02, CONF-03
-**Risk**: Low — additive changes only, no behavior modifications
-**Success Criteria** (what must be TRUE):
-  1. `uv pip install mnemo` in a clean venv pulls typer and rich without relying on transitive dependencies
-  2. A new contributor can configure all required environment variables by copying `.env.example`
-  3. Setting `MNEMO_LOG_LEVEL=DEBUG` produces verbose output without any code changes
-  4. All existing tests pass unchanged
-**Plans:** 1/1 plans complete
-Plans:
-- [x] 19-01-PLAN.md — CI workflow, integration marker, coverage gate, README badge
-
-### Phase 15: Schema Migration Framework
-**Goal**: Schema changes are versioned and applied automatically in order, replacing fragile try/except pattern
-**Depends on**: Phase 14
-**Requirements**: DATA-04, DATA-05
-**Risk**: Medium — touches database initialization path; must not corrupt existing databases
-**Success Criteria** (what must be TRUE):
-  1. SQLite database contains a `schema_version` table tracking the current version number
-  2. Each historical schema change is captured as a numbered migration script
-  3. Opening an older database automatically applies pending migrations in order
-  4. A fresh database initializes to the latest schema version without running incremental migrations
-  5. All existing tests pass unchanged
-**Plans:** 1/1 plans complete
-Plans:
-- [x] 15-01-PLAN.md — Migration framework with schema_version table and numbered migrations
-
-### Phase 16: Backup & Restore
-**Goal**: Users can fully back up and restore their library (SQLite + ChromaDB) without re-ingesting EPUBs
-**Depends on**: Phase 15 (schema versioning needed so backups include version metadata)
-**Requirements**: DATA-01, DATA-02, DATA-03
-**Risk**: Medium — must handle ChromaDB's internal storage format correctly
-**Success Criteria** (what must be TRUE):
-  1. `mnemo backup` (or `mnemo export --full`) produces an archive containing the SQLite database and ChromaDB vector data
-  2. `mnemo restore` (or `mnemo import`) restores the archive to a working state where search returns results
-  3. A round-trip backup-then-restore on a library with books produces identical search results
-  4. All existing tests pass unchanged
-**Plans:** 1/1 plans complete
-Plans:
-- [x] 16-01-PLAN.md — Backup & restore: archive creation, CLI commands, round-trip verification
-
-
-### Phase 17: EPUB Content Split
-**Goal**: epub/content.py is decomposed into focused modules, each under ~400 lines, with no behavior changes
-**Depends on**: Phase 14 (no real dependency, but sequenced here to keep the big refactor later)
-**Requirements**: STRC-02
-**Risk**: Low — internal restructuring only, public API preserved
-**Success Criteria** (what must be TRUE):
-  1. No single file in `epub/` exceeds ~400 lines
-  2. Content classification, extraction, and utility logic live in separate modules
-  3. All imports from `epub.content` continue to work (re-exports from new modules if needed)
-  4. All existing tests pass unchanged
-**Plans:** 1/1 plans complete
-Plans:
-- [x] 17-01-PLAN.md — Split content.py into _models, _classify, _extract submodules with re-export shim
-
-### Phase 18: MCP & Service Layer Refactor
-**Goal**: MCP tools are organized by domain, shared CLI/MCP logic lives in a service layer, and global singletons are replaced with dependency injection
-**Depends on**: Phase 17 (content split reduces merge conflicts; service layer may reference epub modules)
-**Requirements**: STRC-01, STRC-03, STRC-04, STRC-05
-**Risk**: High — largest refactor; touches both entry points (CLI + MCP) and their shared logic
-**Success Criteria** (what must be TRUE):
-  1. No single file in `mcp/` exceeds ~400 lines; tools are split by domain (search, book management, metadata)
-  2. MCP tool functions receive db connection and search service as parameters — no module-level global singletons
-  3. CLI commands and MCP tools both delegate to the same service layer functions for validation and business logic
-  4. Adding a new operation requires implementing it once in the service layer, not twice in CLI and MCP
-  5. All 367+ existing tests pass with no behavior changes
-**Plans:** 2/2 plans complete
-Plans:
-- [x] 18-01-PLAN.md — Split tools.py into domain modules, create service layer and formatters
-- [x] 18-02-PLAN.md — DI refactor on impl functions, CLI service layer wiring, test updates
-
-### Phase 19: CI & Quality Gates
-**Goal**: Every push and PR is automatically validated by a CI pipeline that enforces testing, linting, and coverage standards
-**Depends on**: Phase 18 (CI should validate the final codebase structure; all refactoring complete)
-**Requirements**: CICD-01, CICD-02, CICD-03, CICD-04
-**Risk**: Low — additive (new workflow files), no production code changes
-**Success Criteria** (what must be TRUE):
-  1. Pushing to main or opening a PR triggers a GitHub Actions workflow that runs the full test suite
-  2. The CI workflow fails if ruff or mypy report errors
-  3. The CI workflow fails if pytest-cov reports coverage below the configured threshold
-  4. README.md displays a CI status badge showing current build status
-**Plans:** 1/1 plans complete
-Plans:
-- [ ] 19-01-PLAN.md — CI workflow, integration marker, coverage gate, README badge
+</details>
 
 ## Progress
 
@@ -165,12 +76,12 @@ Plans:
 | 11. Search Filter & MCP Tool | v1.3 | 1/1 | Complete | 2026-03-14 |
 | 12. Output Formatting | v1.3 | 1/1 | Complete | 2026-03-14 |
 | 13. Audit Gap Closure | v1.3 | 1/1 | Complete | 2026-03-15 |
-| 14. Dependencies & Configuration | v1.4 | 0/1 | Complete    | 2026-03-29 |
-| 15. Schema Migration Framework | v1.4 | 1/1 | Complete    | 2026-03-29 |
-| 16. Backup & Restore | v1.4 | 1/1 | Complete    | 2026-03-30 |
-| 17. EPUB Content Split | v1.4 | 1/1 | Complete    | 2026-03-31 |
-| 18. MCP & Service Layer Refactor | v1.4 | 2/2 | Complete    | 2026-04-01 |
-| 19. CI & Quality Gates | v1.4 | 1/1 | Complete    | 2026-04-06 |
+| 14. Dependencies & Configuration | v1.4 | 1/1 | Complete | 2026-03-29 |
+| 15. Schema Migration Framework | v1.4 | 1/1 | Complete | 2026-03-29 |
+| 16. Backup & Restore | v1.4 | 1/1 | Complete | 2026-03-30 |
+| 17. EPUB Content Split | v1.4 | 1/1 | Complete | 2026-03-31 |
+| 18. MCP & Service Layer Refactor | v1.4 | 2/2 | Complete | 2026-04-01 |
+| 19. CI & Quality Gates | v1.4 | 1/1 | Complete | 2026-04-06 |
 
 ---
 *Roadmap created: 2026-01-19*
@@ -178,4 +89,4 @@ Plans:
 *v1.1 shipped: 2026-02-17*
 *v1.2 shipped: 2026-03-10*
 *v1.3 shipped: 2026-03-16*
-*v1.4 roadmap added: 2026-03-26*
+*v1.4 shipped: 2026-04-05*

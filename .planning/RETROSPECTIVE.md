@@ -87,6 +87,55 @@
 
 ---
 
+## Milestone: v1.4 — Tech Debt Cleanup
+
+**Shipped:** 2026-04-05
+**Phases:** 6 | **Plans:** 7
+
+### What Was Built
+- Explicit dependency declarations (typer, rich) and configurable MNEMO_LOG_LEVEL
+- Versioned schema migration framework with numbered scripts and auto-detection of legacy DBs
+- Full backup & restore for SQLite + ChromaDB vectors via CLI commands
+- content.py decomposed into _models, _classify, _extract private modules with re-export shim
+- MCP tools split into domain modules with service layer and dependency injection
+- GitHub Actions CI pipeline with parallel lint/test jobs, 80% coverage enforcement, CI badge
+
+### What Worked
+- TDD continued to shine — backup/restore implemented red-green-refactor with round-trip verification
+- Re-export shim pattern (content.py, tools.py) enabled major refactors with zero caller changes
+- Dependency injection with Optional[None] defaults kept validation-only tests simple
+- Research phases correctly identified risks (ChromaDB export format, migration ordering)
+- Parallel CI jobs (lint + test) give independent failure signals
+- Phase sequencing was well-ordered — each phase built cleanly on the last
+
+### What Was Inefficient
+- mypy had 78 pre-existing errors requiring `continue-on-error` — ideally addressed before CI was added
+- Nyquist VALIDATION.md still draft/missing across all 6 phases — persistent process gap
+- SUMMARY.md one-liner extraction broken — summaries lack clean single-line accomplishment fields
+- Phase 14 ROADMAP plan count showed 0/1 despite completion (cosmetic roadmap sync issue)
+- `book_service.list_all_books` shipped as dead code — not caught during execution, only by audit
+
+### Patterns Established
+- Private module prefix (_models, _classify, _extract) for internal API boundaries
+- Re-export shim for backward compatibility during module splits
+- _impl functions with Optional deps (default None) for DI + easy test setup
+- sqlite3.Connection.backup() for WAL-consolidated snapshots
+- Flat tar archive members (no directory prefix) for simple extraction
+- Marker-based test exclusion (`@pytest.mark.integration`) for CI vs local
+
+### Key Lessons
+1. Refactors that preserve public APIs via re-export shims are virtually risk-free — callers never break
+2. Schema migration framework should exist from v1.0 — retrofitting version inference from column presence is fragile
+3. mypy adoption is better done incrementally (per-file) than all-at-once — 78 errors is a wall
+4. Dead code detection needs active tooling or review during execution, not just post-hoc audit
+5. TDD for backup/restore was critical — round-trip tests caught ChromaDB export edge cases immediately
+
+### Cost Observations
+- Sessions: ~8
+- Notable: Longest milestone (21 days) but most phases (6) and largest structural impact — no new user-facing features but dramatically improved maintainability
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -97,18 +146,21 @@
 | v1.1 Book Management | 3 | 5 | 7 days | Added MCP lifecycle tools, first audit |
 | v1.2 RAG Improvements | 2 | 5 | 3 days | Advanced RAG, zero new deps |
 | v1.3 Quality & Polish | 4 | 5 | 4 days | Parser fixes, search UX, audit gap closure |
+| v1.4 Tech Debt Cleanup | 6 | 7 | 21 days | Module decomposition, DI, migrations, backup, CI |
 
 ### Cumulative Quality
 
-| Milestone | Source LOC | Test LOC | MCP Tools | Requirements |
-|-----------|-----------|----------|-----------|-------------|
-| v1.0 | 4,097 | 4,197 | 3 | 33 |
-| v1.1 | 4,458 | 5,053 | 6 | 19 |
-| v1.2 | 5,135 | 6,583 | 7 | 18 |
-| v1.3 | 5,360 | ~7,800 | 8 | 6 |
+| Milestone | Source LOC | Test LOC | MCP Tools | Requirements | Coverage |
+|-----------|-----------|----------|-----------|-------------|----------|
+| v1.0 | 4,097 | 4,197 | 3 | 33 | — |
+| v1.1 | 4,458 | 5,053 | 6 | 19 | — |
+| v1.2 | 5,135 | 6,583 | 7 | 18 | — |
+| v1.3 | 5,360 | ~7,800 | 8 | 6 | — |
+| v1.4 | 7,628 | ~10,000 | 10 | 17 | 83.24% |
 
 ### Top Lessons (Verified Across Milestones)
 
 1. Test-first approach consistently catches edge cases and validates requirements
 2. Zero or minimal new dependencies accelerates delivery and reduces risk
 3. Simple patterns (over-fetch, clamping, lazy init) outperform complex abstractions at personal scale
+4. Re-export shims make large refactors safe — verified across content.py (v1.4) and tools.py (v1.4) splits

@@ -1,5 +1,41 @@
 # Project Milestones: Mnemo
 
+## v1.4 Tech Debt Cleanup (Shipped: 2026-04-06)
+
+**Delivered:** Hardened codebase by addressing structural tech debt — dependency management, schema migrations, backup/restore, module decomposition, dependency injection, and CI pipeline.
+
+**Phases completed:** 14-19 (7 plans total)
+
+**Key accomplishments:**
+
+- Declared missing dependencies (typer, rich) and added configurable logging via `MNEMO_LOG_LEVEL`
+- Versioned schema migrations replacing fragile try/except ALTER TABLE with numbered migration scripts
+- Full backup & restore for SQLite database and ChromaDB vectors via `mnemo backup` / `mnemo restore`
+- Split content.py into focused private modules (_models, _classify, _extract) with re-export shim
+- Refactored MCP tools into domain modules with service layer and dependency injection
+- GitHub Actions CI pipeline with parallel lint/test jobs, 80% coverage threshold, and CI badge
+
+**Stats:**
+
+- 53 files modified (7,312 insertions, 2,445 deletions)
+- 7,628 lines Python source
+- 6 phases, 7 plans, 90 commits
+- 21 days from milestone start to ship (2026-03-16 → 2026-04-05)
+- 16/17 requirements satisfied (CICD-02 partial — mypy continue-on-error)
+- 525 tests passing, 83.24% coverage
+
+**Git range:** v1.3..HEAD
+
+**Known Gaps:**
+
+- CICD-02 partial: mypy has 78 pre-existing errors; CI uses `continue-on-error: true`
+- `services/book_service.list_all_books` exported but never imported (dead code)
+- `tests/test_backup.py` uses `tar.extractall()` without `filter=` (Python 3.14 deprecation warning)
+
+**What's next:** Planning next milestone
+
+---
+
 ## v1.3 Quality & Polish (Shipped: 2026-03-16)
 
 **Delivered:** Parser quality fixes and search UX polish — clean EPUB text extraction, hierarchy-aware section filtering, structure browsing tool, and enriched result formatting.
