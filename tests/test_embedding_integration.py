@@ -7,6 +7,8 @@ import pytest
 
 from mnemo.ingest import embed_book, ingest_book, remove_book
 
+pytestmark = pytest.mark.integration
+
 # Path to test fixture
 SAMPLE_EPUB = Path(__file__).parent / "fixtures" / "sample.epub"
 
