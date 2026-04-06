@@ -58,8 +58,8 @@ If the MCP search doesn't work, nothing else matters. Everything exists to serve
 - Add .env.example documenting required environment variables
 - Configurable log levels without code changes
 - ~~Full backup/export covering SQLite database and ChromaDB vectors~~ ✓ Phase 16
-- GitHub Actions CI pipeline with automated testing
-- pytest-cov minimum coverage threshold enforcement
+- ~~GitHub Actions CI pipeline with automated testing~~ ✓ Phase 19
+- ~~pytest-cov minimum coverage threshold enforcement~~ ✓ Phase 19
 
 ### Out of Scope
 
@@ -151,4 +151,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-31 after Phase 18 (MCP Service Layer Refactor) complete*
+*Last updated: 2026-04-05 after Phase 19 (CI & Quality Gates) complete — final phase of v1.4*
