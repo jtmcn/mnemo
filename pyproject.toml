@@ -57,6 +57,9 @@ asyncio_mode = "auto"
 filterwarnings = [
     "ignore::bs4.XMLParsedAsHTMLWarning",
 ]
+markers = [
+    "integration: marks tests requiring external credentials (deselect with '-m not integration')",
+]
 
 [tool.ruff]
 line-length = 100
