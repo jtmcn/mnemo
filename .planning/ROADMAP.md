@@ -56,7 +56,7 @@
 - [x] **Phase 16: Backup & Restore** - Full export/import of SQLite database and ChromaDB vectors (completed 2026-03-30)
 - [x] **Phase 17: EPUB Content Split** - Split content.py into focused modules under 400 lines each (completed 2026-03-31)
 - [x] **Phase 18: MCP & Service Layer Refactor** - Split tools.py, extract service layer, inject dependencies (completed 2026-04-01)
-- [ ] **Phase 19: CI & Quality Gates** - GitHub Actions pipeline with linting, testing, and coverage enforcement
+- [x] **Phase 19: CI & Quality Gates** - GitHub Actions pipeline with linting, testing, and coverage enforcement (completed 2026-04-06)
 
 ## Phase Details
 
@@ -72,7 +72,7 @@
   4. All existing tests pass unchanged
 **Plans:** 1/1 plans complete
 Plans:
-- [ ] 19-01-PLAN.md — CI workflow, integration marker, coverage gate, README badge
+- [x] 19-01-PLAN.md — CI workflow, integration marker, coverage gate, README badge
 
 ### Phase 15: Schema Migration Framework
 **Goal**: Schema changes are versioned and applied automatically in order, replacing fragile try/except pattern
@@ -144,7 +144,7 @@ Plans:
   2. The CI workflow fails if ruff or mypy report errors
   3. The CI workflow fails if pytest-cov reports coverage below the configured threshold
   4. README.md displays a CI status badge showing current build status
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 Plans:
 - [ ] 19-01-PLAN.md — CI workflow, integration marker, coverage gate, README badge
 
@@ -170,7 +170,7 @@ Plans:
 | 16. Backup & Restore | v1.4 | 1/1 | Complete    | 2026-03-30 |
 | 17. EPUB Content Split | v1.4 | 1/1 | Complete    | 2026-03-31 |
 | 18. MCP & Service Layer Refactor | v1.4 | 2/2 | Complete    | 2026-04-01 |
-| 19. CI & Quality Gates | v1.4 | 0/? | Not started | - |
+| 19. CI & Quality Gates | v1.4 | 1/1 | Complete   | 2026-04-06 |
 
 ---
 *Roadmap created: 2026-01-19*

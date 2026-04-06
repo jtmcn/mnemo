@@ -4,14 +4,14 @@ milestone: v1.4
 milestone_name: Tech Debt Cleanup
 current_phase: 19
 status: executing
-stopped_at: Phase 19 context gathered
-last_updated: "2026-04-04T23:52:14.124Z"
+stopped_at: Completed 19-01-PLAN.md
+last_updated: "2026-04-06T03:58:15.362Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 6
-  completed_phases: 5
-  total_plans: 6
-  completed_plans: 6
+  completed_phases: 6
+  total_plans: 7
+  completed_plans: 7
   percent: 0
 ---
 
@@ -61,6 +61,7 @@ Progress: [░░░░░░░░░░] 0% (v1.4)
 | Phase 17 P01 | 3 | 2 tasks | 5 files |
 | Phase 18 P01 | 6 | 2 tasks | 8 files |
 | Phase 18 P02 | 65 | 2 tasks | 9 files |
+| Phase 19 P01 | 102 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -79,6 +80,9 @@ See PROJECT.md for full decision log (28 decisions with outcomes).
 - [Phase 18]: _impl dep parameters default to None so validation-only tests work without mocks
 - [Phase 18]: _add_book_impl keeps internal DB connection for thread-safety in asyncio.to_thread
 - [Phase 18]: Re-export shim (tools.py) also exports asyncio and storage helpers for test patching compatibility
+- [Phase 19]: Two parallel CI jobs (lint + test) for independent failure signals using astral-sh/setup-uv@v6 with caching
+- [Phase 19]: Integration tests excluded from CI via pytestmark + -m 'not integration' with registered pytest marker
+- [Phase 19]: 80% coverage threshold enforced via --cov-fail-under=80; current coverage is 83.24%
 
 ### Pending Todos
 
@@ -90,9 +94,9 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-04T23:52:14.121Z
-Stopped at: Phase 19 context gathered
-Resume file: .planning/phases/19-ci-quality-gates/19-CONTEXT.md
+Last session: 2026-04-06T03:58:15.360Z
+Stopped at: Completed 19-01-PLAN.md
+Resume file: None
 
 ---
 *State initialized: 2026-01-19*

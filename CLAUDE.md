@@ -7,4 +7,4 @@
   - PATCH (x.y.Z): bug fixes, minor changes
   - MINOR (x.Y.0): new features, backward-compatible
   - MAJOR (X.0.0): breaking changes
-- Current version: 1.8.0
+- Current version: 1.8.1

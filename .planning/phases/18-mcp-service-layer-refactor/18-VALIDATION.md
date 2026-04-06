@@ -41,7 +41,7 @@ created: 2026-03-31
 | 18-01-01 | 01 | 1 | STRC-01 | structural | `wc -l src/mnemo/mcp/*.py` | N/A | ⬜ pending |
 | 18-01-02 | 01 | 1 | STRC-03 | structural + unit | `grep -n "_get_book_repo\|_get_chunk_repo\|_get_search_service" src/mnemo/mcp/tools_*.py` | N/A | ⬜ pending |
 | 18-02-01 | 02 | 2 | STRC-04 | unit | `python -m pytest tests/test_mcp.py tests/test_cli.py -x -q` | ✅ | ⬜ pending |
-| 18-03-01 | 03 | 3 | STRC-05 | regression | `python -m pytest -x -q` | ✅ | ⬜ pending |
+| 18-02-02 | 02 | 2 | STRC-05 | regression | `python -m pytest -x -q` | ✅ | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 

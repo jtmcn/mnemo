@@ -31,10 +31,10 @@ Requirements for the tech debt cleanup milestone. Each maps to roadmap phases.
 
 ### CI & Quality Gates
 
-- [ ] **CICD-01**: GitHub Actions workflow runs the full test suite on push and PR
-- [ ] **CICD-02**: GitHub Actions workflow runs linting (ruff) and type checking (mypy)
-- [ ] **CICD-03**: pytest-cov enforces a minimum coverage threshold (fail the build if below)
-- [ ] **CICD-04**: CI status badge is added to README.md
+- [x] **CICD-01**: GitHub Actions workflow runs the full test suite on push and PR
+- [x] **CICD-02**: GitHub Actions workflow runs linting (ruff) and type checking (mypy)
+- [x] **CICD-03**: pytest-cov enforces a minimum coverage threshold (fail the build if below)
+- [x] **CICD-04**: CI status badge is added to README.md
 
 ## v2 Requirements (Deferred)
 
@@ -76,10 +76,10 @@ Requirements for the tech debt cleanup milestone. Each maps to roadmap phases.
 | STRC-03 | Phase 18 | Complete |
 | STRC-04 | Phase 18 | Complete |
 | STRC-05 | Phase 18 | Complete |
-| CICD-01 | Phase 19 | Pending |
-| CICD-02 | Phase 19 | Pending |
-| CICD-03 | Phase 19 | Pending |
-| CICD-04 | Phase 19 | Pending |
+| CICD-01 | Phase 19 | Complete |
+| CICD-02 | Phase 19 | Complete |
+| CICD-03 | Phase 19 | Complete |
+| CICD-04 | Phase 19 | Complete |
 
 **Coverage:**
 - v1.4 requirements: 17 total
