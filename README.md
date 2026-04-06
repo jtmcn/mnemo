@@ -1,5 +1,7 @@
 # Mnemo
 
+![CI](https://github.com/joel-eq/mnemo/actions/workflows/ci.yml/badge.svg)
+
 Personal technical book library with semantic search via MCP.
 
 ## Overview
