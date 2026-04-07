@@ -165,25 +165,25 @@ class TestSchemaVersion:
         conn.close()
 
     def test_fresh_db_at_latest_version(self, db_path: Path):
-        """Fresh database should be stamped at version 4 after init_db."""
+        """Fresh database should be stamped at version 5 after init_db."""
         import sqlite3
 
         init_db(db_path)
         conn = sqlite3.connect(db_path)
         row = conn.execute("SELECT version FROM schema_version").fetchone()
         assert row is not None
-        assert row[0] == 4
+        assert row[0] == 5
         conn.close()
 
     def test_versioned_db_idempotent(self, db_path: Path):
-        """Calling init_db twice should leave schema_version = 4 with exactly one row."""
+        """Calling init_db twice should leave schema_version = 5 with exactly one row."""
         import sqlite3
 
         init_db(db_path)
         init_db(db_path)
         conn = sqlite3.connect(db_path)
         version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
-        assert version == 4
+        assert version == 5
         count = conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0]
         assert count == 1
         conn.close()
@@ -204,7 +204,7 @@ class TestSchemaVersion:
                 default_language TEXT,
                 structure_source TEXT NOT NULL,
                 added_at TEXT NOT NULL,
-                epub_path TEXT,
+                file_path TEXT,
                 publisher TEXT,
                 year TEXT,
                 description TEXT
@@ -221,7 +221,7 @@ class TestSchemaVersion:
         init_db(db_path)
         conn = sqlite3.connect(db_path)
         version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
-        assert version == 4
+        assert version == 5
         conn.close()
 
     def test_partial_legacy_db_migrated(self, db_path: Path):
@@ -270,12 +270,77 @@ class TestSchemaVersion:
         init_db(db_path)
         conn = sqlite3.connect(db_path)
         columns = {row[1] for row in conn.execute("PRAGMA table_info(books)")}
-        assert "epub_path" in columns
+        assert "file_path" in columns
         assert "publisher" in columns
         assert "year" in columns
         assert "description" in columns
         version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
-        assert version == 4
+        assert version == 5
+        conn.close()
+
+    def test_migration_005_copies_epub_path_to_file_path(self, db_path: Path):
+        """Migration 005 should copy epub_path data to file_path column."""
+        import sqlite3
+
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(db_path)
+        # Create a DB at version 4 (has epub_path, publisher, year, description, but no file_path)
+        conn.execute("""
+            CREATE TABLE books (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                authors TEXT NOT NULL,
+                isbn TEXT,
+                file_hash TEXT UNIQUE NOT NULL,
+                default_language TEXT,
+                structure_source TEXT NOT NULL,
+                added_at TEXT NOT NULL,
+                epub_path TEXT,
+                publisher TEXT,
+                year TEXT,
+                description TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE chunks (
+                id TEXT PRIMARY KEY,
+                book_id TEXT NOT NULL,
+                content TEXT NOT NULL,
+                content_type TEXT NOT NULL,
+                token_count INTEGER NOT NULL,
+                section_path TEXT NOT NULL,
+                sections TEXT NOT NULL,
+                language TEXT,
+                sequence INTEGER NOT NULL,
+                prev_chunk_id TEXT,
+                next_chunk_id TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE VIRTUAL TABLE chunks_fts USING fts5(
+                content, content=chunks, content_rowid=rowid
+            )
+        """)
+        conn.execute("CREATE TABLE schema_version (version INTEGER NOT NULL)")
+        conn.execute("INSERT INTO schema_version (version) VALUES (4)")
+        conn.execute(
+            "INSERT INTO books"
+            " (id, title, authors, file_hash, structure_source, added_at, epub_path)"
+            " VALUES ('abc123', 'Test', '[\"Author\"]',"
+            " 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',"
+            " 'toc', '2026-01-01', '/path/to/book.epub')"
+        )
+        conn.commit()
+        conn.close()
+
+        # Run init_db which applies migration 005
+        init_db(db_path)
+
+        conn = sqlite3.connect(db_path)
+        row = conn.execute("SELECT file_path FROM books WHERE id = 'abc123'").fetchone()
+        assert row[0] == "/path/to/book.epub"
+        version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
+        assert version == 5
         conn.close()
 
 
@@ -842,23 +907,23 @@ class TestFTSSearch:
         chunk_repo.search_fts("foo(bar)")
 
 
-class TestEpubPath:
-    """Tests for epub_path storage and retrieval."""
+class TestFilePath:
+    """Tests for file_path storage and retrieval."""
 
-    def test_book_model_accepts_epub_path(self):
-        """Book model should accept optional epub_path field."""
+    def test_book_model_accepts_file_path(self):
+        """Book model should accept optional file_path field."""
         book = Book(
             id="abc123",
             title="Test Book",
             authors=["Author"],
             file_hash="a" * 64,
             structure_source="toc",
-            epub_path="/path/to/book.epub",
+            file_path="/path/to/book.epub",
         )
-        assert book.epub_path == "/path/to/book.epub"
+        assert book.file_path == "/path/to/book.epub"
 
-    def test_book_model_epub_path_defaults_none(self):
-        """Book model epub_path should default to None."""
+    def test_book_model_file_path_defaults_none(self):
+        """Book model file_path should default to None."""
         book = Book(
             id="abc123",
             title="Test Book",
@@ -866,21 +931,21 @@ class TestEpubPath:
             file_hash="a" * 64,
             structure_source="toc",
         )
-        assert book.epub_path is None
+        assert book.file_path is None
 
-    def test_init_db_creates_epub_path_column(self, db_path: Path):
-        """init_db should create books table with epub_path column."""
+    def test_init_db_creates_file_path_column(self, db_path: Path):
+        """init_db should create books table with file_path column."""
         init_db(db_path)
         conn = get_connection(db_path)
         # Check column exists
         columns = conn.execute("PRAGMA table_info(books)").fetchall()
         column_names = [c["name"] for c in columns]
-        assert "epub_path" in column_names
+        assert "file_path" in column_names
         conn.close()
 
-    def test_existing_db_without_epub_path_gets_migrated(self, db_path: Path):
-        """Existing database without epub_path column should get it after init_db."""
-        # Create old-style DB without epub_path
+    def test_existing_db_without_file_path_gets_migrated(self, db_path: Path):
+        """Existing database without file_path column should get it after init_db."""
+        # Create old-style DB without file_path
         import sqlite3
 
         db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -900,31 +965,31 @@ class TestEpubPath:
         conn.commit()
         conn.close()
 
-        # Now run init_db -- should add epub_path via migration
+        # Now run init_db -- should add file_path via migration
         init_db(db_path)
         conn = get_connection(db_path)
         columns = conn.execute("PRAGMA table_info(books)").fetchall()
         column_names = [c["name"] for c in columns]
-        assert "epub_path" in column_names
+        assert "file_path" in column_names
         conn.close()
 
-    def test_book_repo_stores_epub_path(self, book_repo: BookRepository):
-        """BookRepository.add should store epub_path when provided."""
+    def test_book_repo_stores_file_path(self, book_repo: BookRepository):
+        """BookRepository.add should store file_path when provided."""
         book = Book(
             id="abc123",
             title="Test Book",
             authors=["Author"],
             file_hash="a" * 64,
             structure_source="toc",
-            epub_path="/absolute/path/to/book.epub",
+            file_path="/absolute/path/to/book.epub",
         )
         book_repo.add(book)
         retrieved = book_repo.get("abc123")
         assert retrieved is not None
-        assert retrieved.epub_path == "/absolute/path/to/book.epub"
+        assert retrieved.file_path == "/absolute/path/to/book.epub"
 
-    def test_book_repo_stores_none_epub_path(self, book_repo: BookRepository):
-        """BookRepository.add should store None epub_path."""
+    def test_book_repo_stores_none_file_path(self, book_repo: BookRepository):
+        """BookRepository.add should store None file_path."""
         book = Book(
             id="abc123",
             title="Test Book",
@@ -935,10 +1000,10 @@ class TestEpubPath:
         book_repo.add(book)
         retrieved = book_repo.get("abc123")
         assert retrieved is not None
-        assert retrieved.epub_path is None
+        assert retrieved.file_path is None
 
-    def test_get_book_info_shows_epub_path(self):
-        """get_book_info should show epub_path when present."""
+    def test_get_book_info_shows_file_path(self):
+        """get_book_info should show file_path when present."""
         from mnemo.mcp.tools import _get_book_info_impl
 
         book = Book(
@@ -947,7 +1012,7 @@ class TestEpubPath:
             authors=["Author"],
             file_hash="a" * 64,
             structure_source="toc",
-            epub_path="/path/to/test.epub",
+            file_path="/path/to/test.epub",
         )
 
         mock_book_repo = MagicMock()
@@ -957,7 +1022,7 @@ class TestEpubPath:
 
         result = _get_book_info_impl("abc123", mock_book_repo, mock_chunk_repo)
 
-        assert "EPUB Path" in result
+        assert "File Path" in result
         assert "/path/to/test.epub" in result
 
 

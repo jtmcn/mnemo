@@ -65,10 +65,10 @@ def _add_book_impl(
     """Add book implementation - see add_book for docs.
 
     Args:
-        file_path: Path to EPUB file
+        file_path: Path to book file (.epub, .docx)
         force: If True, re-index even if duplicate exists
-        pre_parsed: Pre-extracted Book metadata (from extract_metadata).
-            When called from async wrapper, metadata is extracted before the thread.
+        pre_parsed: Pre-extracted Book metadata (from extract_metadata for EPUB,
+            or None for other formats where metadata comes from the full parse).
         chunk_min_tokens: Minimum tokens per chunk (default 400, min 100)
         chunk_max_tokens: Maximum tokens per chunk (default 800, max 2000)
 
@@ -98,18 +98,39 @@ def _add_book_impl(
     if not path.exists():
         return f"Error: File not found: {file_path}"
 
-    # Validate .epub extension
-    if path.suffix.lower() != ".epub":
-        return f"Error: Not an EPUB file: {file_path} (expected .epub extension)"
+    # Validate file extension
+    from mnemo.parsing import SUPPORTED_FORMATS
+
+    if path.suffix.lower() not in SUPPORTED_FORMATS:
+        return (
+            f"Error: Unsupported format: {path.suffix} "
+            f"(supported: {', '.join(sorted(SUPPORTED_FORMATS))})"
+        )
 
     # Extract metadata if not provided (direct call without async wrapper)
     if pre_parsed is None:
-        from mnemo.epub.metadata import extract_metadata
+        if path.suffix.lower() == ".epub":
+            from mnemo.epub.metadata import extract_metadata
 
-        try:
-            pre_parsed = extract_metadata(path)
-        except Exception as e:
-            return f"Error: Failed to read EPUB: {e}"
+            try:
+                pre_parsed = extract_metadata(path)
+            except Exception as e:
+                return f"Error: Failed to read file: {e}"
+        else:
+            # For non-EPUB formats, compute file_hash for duplicate check.
+            # Full metadata comes from parse_book() during ingestion.
+            import hashlib
+
+            from mnemo.models import Book
+
+            file_bytes = path.read_bytes()
+            file_hash = hashlib.sha256(file_bytes).hexdigest()
+            pre_parsed = Book(
+                id=Book.generate_id(file_bytes, path.stem),
+                title=path.stem,
+                file_hash=file_hash,
+                structure_source="inferred",
+            )
 
     # Get own DB connection (thread safe — not shared with async caller)
     init_db()
@@ -286,14 +307,15 @@ async def add_book(
     chunk_max_tokens: int | None = None,
     ctx: Context = CurrentContext(),  # noqa: B008
 ) -> str:
-    """Add an EPUB book to your library.
+    """Add a book to your library.
 
-    Parses the EPUB, chunks the content, generates embeddings, and makes the
-    book searchable. May take 1-5 minutes for large books due to embedding
-    generation. Detects duplicates by file hash; use force=true to re-index.
+    Parses the book, chunks the content, generates embeddings, and makes it
+    searchable. Supports EPUB and DOCX formats. May take 1-5 minutes for
+    large books due to embedding generation. Detects duplicates by file hash;
+    use force=true to re-index.
 
     Args:
-        file_path: Absolute path to the EPUB file
+        file_path: Absolute path to the book file (.epub, .docx)
         force: If true, re-indexes even if the book already exists
         chunk_min_tokens: Minimum tokens per chunk (default 400, min 100)
         chunk_max_tokens: Maximum tokens per chunk (default 800, max 2000)
@@ -308,15 +330,36 @@ async def add_book(
     path = Path(file_path)
     if not path.exists():
         return f"Error: File not found: {file_path}"
-    if path.suffix.lower() != ".epub":
-        return f"Error: Not an EPUB file: {file_path} (expected .epub extension)"
 
-    from mnemo.epub.metadata import extract_metadata
+    from mnemo.parsing import SUPPORTED_FORMATS
 
-    try:
-        pre_parsed = extract_metadata(path)
-    except Exception as e:
-        return f"Error: Failed to read EPUB: {e}"
+    if path.suffix.lower() not in SUPPORTED_FORMATS:
+        return (
+            f"Error: Unsupported format: {path.suffix} "
+            f"(supported: {', '.join(sorted(SUPPORTED_FORMATS))})"
+        )
+
+    # Pre-parse metadata for duplicate detection and timeout cleanup
+    if path.suffix.lower() == ".epub":
+        from mnemo.epub.metadata import extract_metadata
+
+        try:
+            pre_parsed = extract_metadata(path)
+        except Exception as e:
+            return f"Error: Failed to read file: {e}"
+    else:
+        import hashlib
+
+        from mnemo.models import Book
+
+        file_bytes = path.read_bytes()
+        file_hash = hashlib.sha256(file_bytes).hexdigest()
+        pre_parsed = Book(
+            id=Book.generate_id(file_bytes, path.stem),
+            title=path.stem,
+            file_hash=file_hash,
+            structure_source="inferred",
+        )
 
     try:
         result = await asyncio.wait_for(
@@ -391,9 +434,9 @@ async def reindex_all_books(
 ) -> str:
     """Re-index all books in the library.
 
-    Re-parses every EPUB, re-chunks content, and regenerates embeddings.
+    Re-parses every book, re-chunks content, and regenerates embeddings.
     Use this after upgrading mnemo to pick up improved chunking or embedding
-    changes. Books whose EPUB files are missing on disk are skipped.
+    changes. Books whose source files are missing on disk are skipped.
     This is a long-running operation (may take several minutes).
 
     Returns:

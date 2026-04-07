@@ -1,4 +1,4 @@
-"""End-to-end EPUB ingestion pipeline.
+"""End-to-end book ingestion pipeline.
 
 Wires together the parser, chunker, storage, and optionally embedding
 components to provide a simple API for adding and removing books.
@@ -10,8 +10,8 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from mnemo.chunking import Chunker, ChunkerConfig
-from mnemo.epub import EPUBParser
 from mnemo.models import Book, is_boilerplate_section
+from mnemo.parsing import parse_book
 from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_db
 
 logger = __import__("logging").getLogger(__name__)
@@ -111,20 +111,20 @@ def embed_book(
 
 
 def ingest_book(
-    epub_path: Path,
+    book_path: Path,
     db_path: Path | None = None,
     chunker_config: ChunkerConfig | None = None,
     force: bool = False,
     embed: bool = False,
     chroma_path: Path | None = None,
 ) -> tuple[Book, int]:
-    """Ingest an EPUB file into the database.
+    """Ingest a book file into the database.
 
-    Parses the EPUB, chunks the content, stores in SQLite, and optionally
+    Parses the book, chunks the content, stores in SQLite, and optionally
     generates embeddings for vector search.
 
     Args:
-        epub_path: Path to EPUB file
+        book_path: Path to book file (.epub, .docx)
         db_path: Database path (default: ~/.mnemo/mnemo.db)
         chunker_config: Chunking configuration
         force: If True, re-ingest even if duplicate detected
@@ -135,13 +135,13 @@ def ingest_book(
         Tuple of (Book, chunk_count)
 
     Raises:
-        FileNotFoundError: EPUB doesn't exist
+        FileNotFoundError: File doesn't exist
         ValueError: Duplicate book (unless force=True) or embedding fails
     """
     # 1. Validate input
-    epub_path = Path(epub_path)
-    if not epub_path.exists():
-        raise FileNotFoundError(f"EPUB not found: {epub_path}")
+    book_path = Path(book_path)
+    if not book_path.exists():
+        raise FileNotFoundError(f"File not found: {book_path}")
 
     # 2. Initialize database
     init_db(db_path)
@@ -149,12 +149,11 @@ def ingest_book(
     book_repo = BookRepository(conn)
     chunk_repo = ChunkRepository(conn)
 
-    # 3. Parse EPUB
-    parser = EPUBParser()
-    book, content_blocks = parser.parse(epub_path)
+    # 3. Parse book (dispatches to format-specific parser)
+    book, content_blocks = parse_book(book_path)
 
-    # 3b. Store resolved absolute epub_path
-    book = book.model_copy(update={"epub_path": str(epub_path.resolve())})
+    # 3b. Store resolved absolute file_path
+    book = book.model_copy(update={"file_path": str(book_path.resolve())})
 
     # 4. Check for duplicate
     existing = book_repo.get_by_hash(book.file_hash)
@@ -201,7 +200,7 @@ def reindex_all_books(
 ) -> list[dict]:
     """Re-ingest all books in the library.
 
-    Iterates over all indexed books, validates their EPUB paths still exist,
+    Iterates over all indexed books, validates their file paths still exist,
     and re-ingests each with force=True. Useful when the chunking or embedding
     pipeline has been updated.
 
@@ -223,22 +222,22 @@ def reindex_all_books(
     results: list[dict] = []
 
     for book in books:
-        epub_path = book.epub_path
-        if not epub_path or not Path(epub_path).exists():
+        book_file = book.file_path
+        if not book_file or not Path(book_file).exists():
             results.append(
                 {
                     "book_id": book.id,
                     "title": book.title,
                     "status": "skipped",
                     "chunks": 0,
-                    "error": "EPUB file not found" if epub_path else "No EPUB path stored",
+                    "error": "Source file not found" if book_file else "No file path stored",
                 }
             )
             continue
 
         try:
             _, chunk_count = ingest_book(
-                Path(epub_path),
+                Path(book_file),
                 db_path=db_path,
                 chroma_path=chroma_path,
                 chunker_config=chunker_config,

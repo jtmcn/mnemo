@@ -3,13 +3,8 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 
-from mnemo.models import ContentType
-
-if TYPE_CHECKING:
-    pass
+from mnemo.parsing.models import ContentBlock  # noqa: F401 — re-export for backward compat
 
 # Maps filename stems to human-readable front-matter section labels.
 # Used by _infer_front_matter_label to assign descriptive labels to spine items
@@ -35,28 +30,6 @@ FRONT_MATTER_STEMS: dict[str, str] = {
     "halftitle": "Half Title",
     "half-title": "Half Title",
 }
-
-
-@dataclass
-class ContentBlock:
-    """Intermediate representation of parsed EPUB content.
-
-    Represents a single block of content extracted from an EPUB document,
-    with metadata about its type, location, and source.
-
-    Attributes:
-        content: The text content of the block
-        content_type: Classification of the content (TEXT, CODE, etc.)
-        section_path: Hierarchical path to this content (e.g., ["Chapter 1", "Section 1.1"])
-        language: Programming language for code blocks (e.g., "python")
-        source_file: EPUB item href where this content was found
-    """
-
-    content: str
-    content_type: ContentType = ContentType.TEXT
-    section_path: list[str] = field(default_factory=list)
-    language: str | None = None
-    source_file: str = ""
 
 
 # Publisher-specific code block CSS classes
