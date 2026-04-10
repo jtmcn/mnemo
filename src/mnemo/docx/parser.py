@@ -28,6 +28,15 @@ _CODE_STYLES = {
 # Heading style pattern
 _HEADING_PATTERN = re.compile(r"^Heading (\d+)$", re.IGNORECASE)
 
+# Amendment box pattern: "[OBDRR046: Replace ... upon system implementation of NPRR1188:]"
+# Also handles multi-ID: "[OBDRR046 and OBDRR052: ... NPRR1188; or ... NPRR1246, respectively:]"
+_AMENDMENT_PATTERN = re.compile(
+    r"^\[(?P<id>(?:OBD|NPRR)\w+(?:\s+and\s+(?:OBD|NPRR)\w+)*):\s*(?P<instruction>.+?)"
+    r"(?:\s+upon\s+.*?implementation\s+of\s+(?P<trigger>(?:NPRR|OBD)\w+(?:;\s*or\s+.*?(?:NPRR|OBD)\w+)*))"
+    r"[^]]*:\]\s*(?P<body>.+)$",
+    re.DOTALL,
+)
+
 
 class DocxParser:
     """Parser for DOCX files via python-docx."""
@@ -177,15 +186,25 @@ class DocxParser:
             elif tag == "tbl":
                 _flush_text()
                 table = DocxTable(child, doc)
-                table_text = self._table_to_text(table)
-                if table_text.strip():
+                amendment = self._try_parse_amendment(table)
+                if amendment is not None:
                     blocks.append(
                         ContentBlock(
-                            content=table_text,
-                            content_type=ContentType.TABLE,
+                            content=amendment,
+                            content_type=ContentType.TEXT,
                             section_path=list(section_stack),
                         )
                     )
+                else:
+                    table_text = self._table_to_text(table)
+                    if table_text.strip():
+                        blocks.append(
+                            ContentBlock(
+                                content=table_text,
+                                content_type=ContentType.TABLE,
+                                section_path=list(section_stack),
+                            )
+                        )
 
         # Flush any remaining text
         _flush_text()
@@ -225,6 +244,40 @@ class DocxParser:
             return "sql"
 
         return None
+
+    def _try_parse_amendment(self, table: DocxTable) -> str | None:
+        """Detect single-cell amendment boxes and format them as annotated text.
+
+        ERCOT-style documents use single-cell tables as bordered callout boxes
+        for pending amendments, e.g. "[OBDRR046: Replace paragraph a above
+        with the following upon system implementation of NPRR1188:]".
+
+        Returns formatted amendment text, or None if this is a regular table.
+        """
+        # Only match single-column tables
+        if len(table.columns) != 1:
+            return None
+
+        # Combine all cell text (some amendment boxes span multiple rows)
+        full_text = "\n".join(cell.text.strip() for row in table.rows for cell in row.cells)
+        if not full_text:
+            return None
+
+        match = _AMENDMENT_PATTERN.match(full_text)
+        if not match:
+            return None
+
+        amendment_id = match.group("id")
+        instruction = match.group("instruction").strip()
+        trigger = match.group("trigger")
+        body = match.group("body").strip()
+
+        header = f"[PENDING AMENDMENT — {amendment_id}"
+        if trigger:
+            header += f", effective upon {trigger}"
+        header += "]"
+
+        return f"{header}\n{instruction.rstrip('.')}:\n{body}"
 
     def _table_to_text(self, table: DocxTable) -> str:
         """Convert a DOCX table to pipe-delimited text."""

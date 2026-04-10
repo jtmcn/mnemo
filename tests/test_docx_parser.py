@@ -128,6 +128,76 @@ class TestDocxContent:
         assert blocks[0].content == "Real content"
 
 
+class TestDocxAmendmentBoxes:
+    """Tests for amendment box detection in single-cell tables."""
+
+    def test_amendment_box_parsed_as_text(self, parser: DocxParser, tmp_path: Path) -> None:
+        from docx import Document
+
+        doc = Document()
+        doc.core_properties.title = "Amendment Doc"
+        doc.add_heading("Section 1", level=1)
+        doc.add_paragraph("Original paragraph text.")
+
+        # Add a single-cell table mimicking an ERCOT amendment box
+        table = doc.add_table(rows=1, cols=1)
+        table.cell(0, 0).text = (
+            "[OBDRR046:  Replace the paragraph above with the following "
+            "upon system implementation of NPRR1188:]\n"
+            "Amended paragraph text with CLR additions."
+        )
+
+        path = tmp_path / "amendment.docx"
+        doc.save(path)
+
+        _, blocks = parser.parse(path)
+        table_blocks = [b for b in blocks if b.content_type == ContentType.TABLE]
+        assert len(table_blocks) == 0, "Amendment box should not be a table"
+
+        amendment_blocks = [b for b in blocks if "PENDING AMENDMENT" in b.content]
+        assert len(amendment_blocks) == 1
+        assert "OBDRR046" in amendment_blocks[0].content
+        assert "NPRR1188" in amendment_blocks[0].content
+        assert "Amended paragraph text" in amendment_blocks[0].content
+        assert amendment_blocks[0].content_type == ContentType.TEXT
+
+    def test_regular_table_not_affected(self, parser: DocxParser, tmp_path: Path) -> None:
+        from docx import Document
+
+        doc = Document()
+        doc.core_properties.title = "Table Doc"
+        table = doc.add_table(rows=2, cols=2)
+        table.cell(0, 0).text = "A"
+        table.cell(0, 1).text = "B"
+        table.cell(1, 0).text = "1"
+        table.cell(1, 1).text = "2"
+
+        path = tmp_path / "regular_table.docx"
+        doc.save(path)
+
+        _, blocks = parser.parse(path)
+        table_blocks = [b for b in blocks if b.content_type == ContentType.TABLE]
+        assert len(table_blocks) == 1
+
+    def test_single_cell_non_amendment_stays_table(
+        self, parser: DocxParser, tmp_path: Path
+    ) -> None:
+        from docx import Document
+
+        doc = Document()
+        doc.core_properties.title = "Note Doc"
+        table = doc.add_table(rows=1, cols=1)
+        table.cell(0, 0).text = "This is just a note in a box."
+
+        path = tmp_path / "note.docx"
+        doc.save(path)
+
+        _, blocks = parser.parse(path)
+        table_blocks = [b for b in blocks if b.content_type == ContentType.TABLE]
+        assert len(table_blocks) == 1
+        assert "PENDING AMENDMENT" not in table_blocks[0].content
+
+
 class TestDocxLanguageDetection:
     """Tests for code language detection."""
 
