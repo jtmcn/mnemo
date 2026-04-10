@@ -30,18 +30,38 @@ _HEADING_PATTERN = re.compile(r"^Heading (\d+)$", re.IGNORECASE)
 
 # Amendment box pattern: "[OBDRR046: Replace ... upon system implementation of NPRR1188:]"
 # Also handles multi-ID: "[OBDRR046 and OBDRR052: ... NPRR1188; or ... NPRR1246, respectively:]"
-_AMENDMENT_PATTERN = re.compile(
+# Patterns must define named groups: id, instruction, trigger (optional), body
+_ERCOT_AMENDMENT_PATTERN = re.compile(
     r"^\[(?P<id>(?:OBD|NPRR)\w+(?:\s+and\s+(?:OBD|NPRR)\w+)*):\s*(?P<instruction>.+?)"
     r"(?:\s+upon\s+.*?implementation\s+of\s+(?P<trigger>(?:NPRR|OBD)\w+(?:;\s*or\s+.*?(?:NPRR|OBD)\w+)*))"
     r"[^]]*:\]\s*(?P<body>.+)$",
     re.DOTALL,
 )
 
+DEFAULT_AMENDMENT_PATTERNS: list[re.Pattern[str]] = [_ERCOT_AMENDMENT_PATTERN]
+
 
 class DocxParser:
-    """Parser for DOCX files via python-docx."""
+    """Parser for DOCX files via python-docx.
+
+    Args:
+        amendment_patterns: List of compiled regexes to detect amendment callout
+            boxes in single-cell tables. Each pattern must define named groups:
+            ``id``, ``instruction``, ``body``, and optionally ``trigger``.
+            Defaults to ERCOT-style patterns (OBDRR/NPRR). Pass an empty list
+            to disable amendment detection entirely.
+    """
 
     SUPPORTED_EXTENSIONS = {".docx"}
+
+    def __init__(
+        self,
+        amendment_patterns: list[re.Pattern[str]] | None = None,
+    ) -> None:
+        if amendment_patterns is None:
+            self._amendment_patterns = DEFAULT_AMENDMENT_PATTERNS
+        else:
+            self._amendment_patterns = amendment_patterns
 
     def parse(self, file_path: Path | str) -> tuple[Book, list[ContentBlock]]:
         """Parse a DOCX file into Book metadata and ContentBlocks.
@@ -263,13 +283,20 @@ class DocxParser:
         if not full_text:
             return None
 
-        match = _AMENDMENT_PATTERN.match(full_text)
+        match = None
+        for pattern in self._amendment_patterns:
+            match = pattern.match(full_text)
+            if match:
+                break
         if not match:
             return None
 
         amendment_id = match.group("id")
         instruction = match.group("instruction").strip()
-        trigger = match.group("trigger")
+        try:
+            trigger = match.group("trigger")
+        except IndexError:
+            trigger = None
         body = match.group("body").strip()
 
         header = f"[PENDING AMENDMENT — {amendment_id}"

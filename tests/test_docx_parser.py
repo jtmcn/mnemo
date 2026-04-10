@@ -198,6 +198,59 @@ class TestDocxAmendmentBoxes:
         assert "PENDING AMENDMENT" not in table_blocks[0].content
 
 
+class TestDocxAmendmentConfig:
+    """Tests for configurable amendment pattern detection."""
+
+    def test_disabled_with_empty_list(self, tmp_path: Path) -> None:
+        """Passing empty list disables amendment detection entirely."""
+        from docx import Document
+
+        doc = Document()
+        doc.core_properties.title = "No Amendments"
+        table = doc.add_table(rows=1, cols=1)
+        table.cell(0, 0).text = (
+            "[OBDRR046:  Replace the paragraph above with the following "
+            "upon system implementation of NPRR1188:]\n"
+            "Amended text."
+        )
+        path = tmp_path / "disabled.docx"
+        doc.save(path)
+
+        parser = DocxParser(amendment_patterns=[])
+        _, blocks = parser.parse(path)
+
+        # Should remain as TABLE since detection is disabled
+        table_blocks = [b for b in blocks if b.content_type == ContentType.TABLE]
+        assert len(table_blocks) == 1
+        assert "PENDING AMENDMENT" not in table_blocks[0].content
+
+    def test_custom_pattern(self, tmp_path: Path) -> None:
+        """Custom pattern matches non-ERCOT amendment boxes."""
+        import re
+
+        from docx import Document
+
+        custom_pattern = re.compile(
+            r"^\[(?P<id>REV-\d+):\s*(?P<instruction>.+?):\]\s*(?P<body>.+)$",
+            re.DOTALL,
+        )
+
+        doc = Document()
+        doc.core_properties.title = "Custom Amendments"
+        table = doc.add_table(rows=1, cols=1)
+        table.cell(0, 0).text = "[REV-42: Replace section 3:]\nNew section 3 content."
+        path = tmp_path / "custom.docx"
+        doc.save(path)
+
+        parser = DocxParser(amendment_patterns=[custom_pattern])
+        _, blocks = parser.parse(path)
+
+        amendment_blocks = [b for b in blocks if "PENDING AMENDMENT" in b.content]
+        assert len(amendment_blocks) == 1
+        assert "REV-42" in amendment_blocks[0].content
+        assert "New section 3 content" in amendment_blocks[0].content
+
+
 class TestDocxLanguageDetection:
     """Tests for code language detection."""
 
