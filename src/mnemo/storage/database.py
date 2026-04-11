@@ -26,7 +26,6 @@ CREATE TABLE IF NOT EXISTS books (
     default_language TEXT,
     structure_source TEXT NOT NULL, -- 'toc' or 'inferred'
     added_at TEXT NOT NULL,         -- ISO timestamp
-    epub_path TEXT,                  -- legacy: kept for backward compat
     publisher TEXT,
     year TEXT,
     description TEXT,

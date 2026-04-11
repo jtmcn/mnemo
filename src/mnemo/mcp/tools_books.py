@@ -109,28 +109,12 @@ def _add_book_impl(
 
     # Extract metadata if not provided (direct call without async wrapper)
     if pre_parsed is None:
-        if path.suffix.lower() == ".epub":
-            from mnemo.epub.metadata import extract_metadata
+        from mnemo.parsing import pre_parse_metadata
 
-            try:
-                pre_parsed = extract_metadata(path)
-            except Exception as e:
-                return f"Error: Failed to read file: {e}"
-        else:
-            # For non-EPUB formats, compute file_hash for duplicate check.
-            # Full metadata comes from parse_book() during ingestion.
-            import hashlib
-
-            from mnemo.models import Book
-
-            file_bytes = path.read_bytes()
-            file_hash = hashlib.sha256(file_bytes).hexdigest()
-            pre_parsed = Book(
-                id=Book.generate_id(file_bytes, path.stem),
-                title=path.stem,
-                file_hash=file_hash,
-                structure_source="inferred",
-            )
+        try:
+            pre_parsed = pre_parse_metadata(path)
+        except Exception as e:
+            return f"Error: Failed to read file: {e}"
 
     # Get own DB connection (thread safe — not shared with async caller)
     init_db()
@@ -340,26 +324,12 @@ async def add_book(
         )
 
     # Pre-parse metadata for duplicate detection and timeout cleanup
-    if path.suffix.lower() == ".epub":
-        from mnemo.epub.metadata import extract_metadata
+    from mnemo.parsing import pre_parse_metadata
 
-        try:
-            pre_parsed = extract_metadata(path)
-        except Exception as e:
-            return f"Error: Failed to read file: {e}"
-    else:
-        import hashlib
-
-        from mnemo.models import Book
-
-        file_bytes = path.read_bytes()
-        file_hash = hashlib.sha256(file_bytes).hexdigest()
-        pre_parsed = Book(
-            id=Book.generate_id(file_bytes, path.stem),
-            title=path.stem,
-            file_hash=file_hash,
-            structure_source="inferred",
-        )
+    try:
+        pre_parsed = pre_parse_metadata(path)
+    except Exception as e:
+        return f"Error: Failed to read file: {e}"
 
     try:
         result = await asyncio.wait_for(

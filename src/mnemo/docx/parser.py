@@ -248,7 +248,12 @@ class DocxParser:
         return False
 
     def _detect_language(self, style_name: str, text: str) -> str | None:
-        """Attempt to detect programming language from style or content."""
+        """Attempt to detect programming language from style or content.
+
+        Only called on paragraphs already classified as code blocks by
+        _is_code_style() (monospace font or known code style name), so
+        the simple text heuristics below have minimal false-positive risk.
+        """
         # Some styles encode the language
         style_lower = style_name.lower()
         for lang in ("python", "javascript", "java", "go", "rust", "sql", "shell", "bash"):
@@ -293,10 +298,7 @@ class DocxParser:
 
         amendment_id = match.group("id")
         instruction = match.group("instruction").strip()
-        try:
-            trigger = match.group("trigger")
-        except IndexError:
-            trigger = None
+        trigger = match.group("trigger") if "trigger" in match.groupdict() else None
         body = match.group("body").strip()
 
         header = f"[PENDING AMENDMENT — {amendment_id}"
