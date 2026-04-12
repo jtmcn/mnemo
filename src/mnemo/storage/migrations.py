@@ -35,7 +35,11 @@ def _migration_004_add_description(conn: sqlite3.Connection) -> None:
 
 
 def _migration_005_add_file_path(conn: sqlite3.Connection) -> None:
-    """Add file_path column and migrate data from epub_path."""
+    """Add file_path column and migrate data from epub_path.
+
+    The old epub_path column is intentionally left in place — SQLite before
+    3.35 doesn't support DROP COLUMN, and leaving it avoids a table rebuild.
+    """
     conn.execute("ALTER TABLE books ADD COLUMN file_path TEXT")
     conn.execute("UPDATE books SET file_path = epub_path WHERE epub_path IS NOT NULL")
 
