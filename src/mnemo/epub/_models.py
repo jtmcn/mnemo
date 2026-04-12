@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import re
 
-from mnemo.parsing.models import ContentBlock  # noqa: F401 — re-export for backward compat
-
 # Maps filename stems to human-readable front-matter section labels.
 # Used by _infer_front_matter_label to assign descriptive labels to spine items
 # that are absent from the EPUB's NAV/NCX table of contents.

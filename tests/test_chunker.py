@@ -6,8 +6,8 @@ special focus on code block preservation.
 
 from mnemo.chunking.chunker import Chunker, ChunkerConfig
 from mnemo.chunking.tokenizer import count_tokens, split_by_tokens
-from mnemo.epub.content import ContentBlock
 from mnemo.models import ContentType
+from mnemo.parsing.models import ContentBlock
 
 # =============================================================================
 # Token Counting Tests
