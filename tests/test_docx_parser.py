@@ -127,6 +127,29 @@ class TestDocxContent:
         assert len(blocks) == 1
         assert blocks[0].content == "Real content"
 
+    def test_table_escapes_pipe_in_cells(self, parser: DocxParser, tmp_path: Path) -> None:
+        """Pipe characters in cell text should be escaped to avoid ambiguity."""
+        from docx import Document
+
+        doc = Document()
+        doc.core_properties.title = "Pipe Doc"
+        table = doc.add_table(rows=2, cols=2)
+        table.cell(0, 0).text = "Name"
+        table.cell(0, 1).text = "Formula"
+        table.cell(1, 0).text = "OR gate"
+        table.cell(1, 1).text = "A | B"
+
+        path = tmp_path / "pipes.docx"
+        doc.save(path)
+
+        _, blocks = parser.parse(path)
+        table_blocks = [b for b in blocks if b.content_type == ContentType.TABLE]
+        assert len(table_blocks) == 1
+        # The pipe in "A | B" should be escaped
+        assert r"A \| B" in table_blocks[0].content
+        # Header separator should still use unescaped pipes
+        assert "| --- | --- |" in table_blocks[0].content
+
 
 class TestDocxAmendmentBoxes:
     """Tests for amendment box detection in single-cell tables."""

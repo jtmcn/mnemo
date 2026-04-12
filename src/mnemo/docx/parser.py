@@ -312,7 +312,7 @@ class DocxParser:
         """Convert a DOCX table to pipe-delimited text."""
         rows: list[str] = []
         for row in table.rows:
-            cells = [cell.text.strip() for cell in row.cells]
+            cells = [cell.text.strip().replace("|", r"\|") for cell in row.cells]
             rows.append("| " + " | ".join(cells) + " |")
             # Add separator after first row (header)
             if len(rows) == 1:
