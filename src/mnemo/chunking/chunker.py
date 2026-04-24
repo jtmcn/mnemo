@@ -10,8 +10,8 @@ import uuid
 from dataclasses import dataclass
 
 from mnemo.chunking.tokenizer import count_tokens, split_by_tokens
-from mnemo.epub.content import ContentBlock
 from mnemo.models import Chunk, ContentType
+from mnemo.parsing.models import ContentBlock
 
 
 @dataclass

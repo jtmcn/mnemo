@@ -27,10 +27,10 @@ class TestHelp:
         assert "export" in result.stdout
 
     def test_add_help(self) -> None:
-        """Add command help shows EPUB info."""
+        """Add command help shows format info."""
         result = runner.invoke(app, ["add", "--help"])
         assert result.exit_code == 0
-        assert "EPUB" in result.stdout
+        assert ".epub" in result.stdout or ".docx" in result.stdout
 
     def test_list_help(self) -> None:
         """List command help shows description."""
@@ -122,9 +122,9 @@ class TestExport:
     def test_export_writes_paths(self, mock_repo_cls, mock_init, mock_conn, tmp_path) -> None:
         """Export writes one EPUB path per line."""
         mock_book_1 = MagicMock()
-        mock_book_1.epub_path = "/books/one.epub"
+        mock_book_1.file_path = "/books/one.epub"
         mock_book_2 = MagicMock()
-        mock_book_2.epub_path = "/books/two.epub"
+        mock_book_2.file_path = "/books/two.epub"
         mock_repo_cls.return_value.list_all.return_value = [mock_book_1, mock_book_2]
 
         out = tmp_path / "export.txt"
@@ -141,11 +141,11 @@ class TestExport:
     def test_export_skips_books_without_path(
         self, mock_repo_cls, mock_init, mock_conn, tmp_path
     ) -> None:
-        """Export skips books that have no epub_path."""
+        """Export skips books that have no file_path."""
         mock_book = MagicMock()
-        mock_book.epub_path = "/books/one.epub"
+        mock_book.file_path = "/books/one.epub"
         mock_no_path = MagicMock()
-        mock_no_path.epub_path = None
+        mock_no_path.file_path = None
         mock_repo_cls.return_value.list_all.return_value = [mock_book, mock_no_path]
 
         out = tmp_path / "export.txt"
@@ -175,7 +175,7 @@ class TestExport:
     def test_export_default_filename(self, mock_repo_cls, mock_init, mock_conn) -> None:
         """Export defaults to book-paths.txt."""
         mock_book = MagicMock()
-        mock_book.epub_path = "/books/one.epub"
+        mock_book.file_path = "/books/one.epub"
         mock_repo_cls.return_value.list_all.return_value = [mock_book]
 
         result = runner.invoke(app, ["export"])

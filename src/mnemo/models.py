@@ -98,7 +98,7 @@ class Book(BaseModel):
     default_language: str | None = None
     structure_source: Literal["toc", "inferred"] = "toc"
     added_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    epub_path: str | None = None
+    file_path: str | None = None
     publisher: str | None = None
     year: str | None = None
     description: str | None = None

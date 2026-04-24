@@ -18,9 +18,9 @@ from mnemo.epub._classify import (
 from mnemo.epub._models import (
     FRONT_MATTER_STEMS,
     MATHML_ELEMENTS,
-    ContentBlock,
 )
 from mnemo.models import ContentType
+from mnemo.parsing.models import ContentBlock
 
 # EPUB content is XHTML but lxml HTML parser handles real-world EPUBs better
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)

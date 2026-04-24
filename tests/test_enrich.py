@@ -560,7 +560,7 @@ class TestEnrichBookImpl:
             default_language=None,
             structure_source="toc",
             added_at="2024-01-01T00:00:00",
-            epub_path=None,
+            file_path=None,
         )
         mock_repo_cls.return_value.get.return_value = mock_book
         mock_enrich.return_value = EnrichmentResult(
@@ -604,7 +604,7 @@ class TestEnrichBookImpl:
             default_language=None,
             structure_source="toc",
             added_at="2024-01-01T00:00:00",
-            epub_path=None,
+            file_path=None,
         )
         mock_repo_cls.return_value.get.return_value = mock_book
         mock_enrich.return_value = EnrichmentResult(
@@ -645,7 +645,7 @@ class TestEnrichBookImpl:
             default_language=None,
             structure_source="toc",
             added_at="2024-01-01T00:00:00",
-            epub_path=None,
+            file_path=None,
         )
         mock_repo_cls.return_value.get.return_value = mock_book
         mock_enrich.return_value = EnrichmentResult(

@@ -8,9 +8,10 @@ import pytest
 from bs4 import BeautifulSoup, Tag
 
 from mnemo.epub import EPUBParser
-from mnemo.epub.content import ContentBlock, _extract_math
+from mnemo.epub.content import _extract_math
 from mnemo.epub.metadata import extract_metadata, normalize_isbn, normalize_isbn_lenient
 from mnemo.models import Book, ContentType
+from mnemo.parsing.models import ContentBlock
 from tests.fixtures.epub_factory import (
     create_epub_with_code,
     create_epub_with_front_matter,

@@ -119,7 +119,7 @@ def _get_book_info_impl(
                 f"**Chunks:** {chunk_count}",
                 f"**Added:** {book.added_at.strftime('%Y-%m-%d %H:%M')}",
                 f"**Structure:** {book.structure_source}",
-                f"**EPUB Path:** {book.epub_path or 'Not available'}",
+                f"**File Path:** {book.file_path or 'Not available'}",
             ]
         )
 
