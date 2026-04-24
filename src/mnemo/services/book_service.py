@@ -3,15 +3,18 @@
 from pathlib import Path
 
 from mnemo.models import Book
+from mnemo.parsing import SUPPORTED_FORMATS
 from mnemo.storage import BookRepository
 
 
-def validate_epub_path(path: Path) -> str | None:
-    """Validate an EPUB file path. Returns error message or None if valid."""
+def validate_book_path(path: Path) -> str | None:
+    """Validate a book file path. Returns error message or None if valid."""
     if not path.exists():
         return f"File not found: {path}"
-    if path.suffix.lower() != ".epub":
-        return f"Not an EPUB file: {path} (expected .epub extension)"
+    if path.suffix.lower() not in SUPPORTED_FORMATS:
+        return (
+            f"Unsupported format: {path.suffix} (supported: {', '.join(sorted(SUPPORTED_FORMATS))})"
+        )
     return None
 
 

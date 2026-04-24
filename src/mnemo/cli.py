@@ -1,7 +1,7 @@
 """Command-line interface for Mnemo.
 
 Provides commands to manage the book library and MCP server:
-- add: Add EPUB files to the library
+- add: Add book files (.epub, .docx) to the library
 - remove: Remove a book by ID
 - list: List all indexed books
 - search: Search books for content
@@ -46,7 +46,7 @@ def add(
     paths: Annotated[
         list[Path],
         typer.Argument(
-            help="EPUB file(s) to add",
+            help="Book file(s) to add (.epub, .docx)",
             exists=False,  # We validate manually for better error messages
             readable=False,  # Avoid os.access() which fails on macOS TCC-protected dirs
         ),
@@ -64,20 +64,20 @@ def add(
         typer.Option("--force", "-f", help="Re-index without prompting if book exists"),
     ] = False,
 ) -> None:
-    """Add EPUB file(s) to the library.
+    """Add book file(s) to the library.
 
-    Parses the EPUB, chunks content, generates embeddings, and stores
-    everything for search. Multiple files can be added in one command.
+    Parses the book, chunks content, generates embeddings, and stores
+    everything for search. Supports .epub and .docx files.
     """
     from mnemo.ingest import ingest_book
-    from mnemo.services.book_service import find_duplicate, validate_epub_path
+    from mnemo.services.book_service import find_duplicate, validate_book_path
     from mnemo.storage import BookRepository, get_connection, init_db
 
     results = []
 
     for path in paths:
         # Validate path using service layer
-        error = validate_epub_path(path)
+        error = validate_book_path(path)
         if error:
             if json_output:
                 print(json.dumps({"error": error}))
@@ -239,10 +239,10 @@ def export(
     books = book_repo.list_all()
     conn.close()
 
-    paths = [book.epub_path for book in books if book.epub_path]
+    paths = [book.file_path for book in books if book.file_path]
 
     if not paths:
-        console.print("[yellow]No books with EPUB paths to export.[/yellow]")
+        console.print("[yellow]No books with file paths to export.[/yellow]")
         raise typer.Exit(1)
 
     output.write_text("\n".join(paths) + "\n")
@@ -344,9 +344,9 @@ def reindex(
 ) -> None:
     """Re-index all books in the library.
 
-    Re-parses EPUBs, re-chunks content, and regenerates embeddings for every
+    Re-parses books, re-chunks content, and regenerates embeddings for every
     book. Useful after upgrading mnemo's chunking or embedding pipeline.
-    Books whose EPUB files are missing are skipped.
+    Books whose source files are missing are skipped.
     """
     from mnemo.ingest import reindex_all_books
     from mnemo.storage import BookRepository, get_connection, init_db

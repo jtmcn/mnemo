@@ -34,15 +34,26 @@ def _migration_004_add_description(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE books ADD COLUMN description TEXT")
 
 
+def _migration_005_add_file_path(conn: sqlite3.Connection) -> None:
+    """Add file_path column and migrate data from epub_path.
+
+    The old epub_path column is intentionally left in place — SQLite before
+    3.35 doesn't support DROP COLUMN, and leaving it avoids a table rebuild.
+    """
+    conn.execute("ALTER TABLE books ADD COLUMN file_path TEXT")
+    conn.execute("UPDATE books SET file_path = epub_path WHERE epub_path IS NOT NULL")
+
+
 # Ordered list of (version_number, migration_function)
 MIGRATIONS: list[tuple[int, Callable[[sqlite3.Connection], None]]] = [
     (1, _migration_001_add_epub_path),
     (2, _migration_002_add_publisher),
     (3, _migration_003_add_year),
     (4, _migration_004_add_description),
+    (5, _migration_005_add_file_path),
 ]
 
-LATEST_VERSION: int = MIGRATIONS[-1][0]  # 4
+LATEST_VERSION: int = MIGRATIONS[-1][0]  # 5
 
 # --- Version helpers ---
 
@@ -66,12 +77,14 @@ def _is_fresh_database(conn: sqlite3.Connection) -> bool:
     """Return True if database was just created (no book rows, all columns present)."""
     count = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
     cols = {row[1] for row in conn.execute("PRAGMA table_info(books)")}
-    return count == 0 and "description" in cols
+    return count == 0 and "file_path" in cols
 
 
 def _infer_legacy_version(conn: sqlite3.Connection) -> int:
     """Infer migration level of a legacy (pre-versioning) database by checking columns."""
     cols = {row[1] for row in conn.execute("PRAGMA table_info(books)")}
+    if "file_path" in cols:
+        return 5
     if "description" in cols:
         return 4
     if "year" in cols:

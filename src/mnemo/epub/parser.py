@@ -17,9 +17,10 @@ from ebooklib import epub
 # EPUB content is XHTML but lxml HTML parser handles real-world EPUBs better
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
-from mnemo.epub.content import ContentBlock, extract_content  # noqa: E402
+from mnemo.epub.content import extract_content  # noqa: E402
 from mnemo.epub.metadata import extract_metadata  # noqa: E402
 from mnemo.models import Book  # noqa: E402
+from mnemo.parsing.models import ContentBlock  # noqa: E402
 
 if TYPE_CHECKING:
     from ebooklib.epub import EpubBook
