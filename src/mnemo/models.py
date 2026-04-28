@@ -102,6 +102,7 @@ class Book(BaseModel):
     publisher: str | None = None
     year: str | None = None
     description: str | None = None
+    collection: str | None = None
 
     @staticmethod
     def generate_id(content_bytes: bytes, title: str, author: str | None = None) -> str:

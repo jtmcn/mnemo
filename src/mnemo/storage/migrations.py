@@ -44,6 +44,11 @@ def _migration_005_add_file_path(conn: sqlite3.Connection) -> None:
     conn.execute("UPDATE books SET file_path = epub_path WHERE epub_path IS NOT NULL")
 
 
+def _migration_006_add_collection(conn: sqlite3.Connection) -> None:
+    """Add collection column to books table for grouping related documents."""
+    conn.execute("ALTER TABLE books ADD COLUMN collection TEXT")
+
+
 # Ordered list of (version_number, migration_function)
 MIGRATIONS: list[tuple[int, Callable[[sqlite3.Connection], None]]] = [
     (1, _migration_001_add_epub_path),
@@ -51,9 +56,10 @@ MIGRATIONS: list[tuple[int, Callable[[sqlite3.Connection], None]]] = [
     (3, _migration_003_add_year),
     (4, _migration_004_add_description),
     (5, _migration_005_add_file_path),
+    (6, _migration_006_add_collection),
 ]
 
-LATEST_VERSION: int = MIGRATIONS[-1][0]  # 5
+LATEST_VERSION: int = MIGRATIONS[-1][0]  # 6
 
 # --- Version helpers ---
 
@@ -77,12 +83,14 @@ def _is_fresh_database(conn: sqlite3.Connection) -> bool:
     """Return True if database was just created (no book rows, all columns present)."""
     count = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
     cols = {row[1] for row in conn.execute("PRAGMA table_info(books)")}
-    return count == 0 and "file_path" in cols
+    return count == 0 and "collection" in cols
 
 
 def _infer_legacy_version(conn: sqlite3.Connection) -> int:
     """Infer migration level of a legacy (pre-versioning) database by checking columns."""
     cols = {row[1] for row in conn.execute("PRAGMA table_info(books)")}
+    if "collection" in cols:
+        return 6
     if "file_path" in cols:
         return 5
     if "description" in cols:

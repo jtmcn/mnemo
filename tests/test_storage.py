@@ -165,25 +165,25 @@ class TestSchemaVersion:
         conn.close()
 
     def test_fresh_db_at_latest_version(self, db_path: Path):
-        """Fresh database should be stamped at version 5 after init_db."""
+        """Fresh database should be stamped at version 6 after init_db."""
         import sqlite3
 
         init_db(db_path)
         conn = sqlite3.connect(db_path)
         row = conn.execute("SELECT version FROM schema_version").fetchone()
         assert row is not None
-        assert row[0] == 5
+        assert row[0] == 6
         conn.close()
 
     def test_versioned_db_idempotent(self, db_path: Path):
-        """Calling init_db twice should leave schema_version = 5 with exactly one row."""
+        """Calling init_db twice should leave schema_version = 6 with exactly one row."""
         import sqlite3
 
         init_db(db_path)
         init_db(db_path)
         conn = sqlite3.connect(db_path)
         version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
-        assert version == 5
+        assert version == 6
         count = conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0]
         assert count == 1
         conn.close()
@@ -221,7 +221,7 @@ class TestSchemaVersion:
         init_db(db_path)
         conn = sqlite3.connect(db_path)
         version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
-        assert version == 5
+        assert version == 6
         conn.close()
 
     def test_partial_legacy_db_migrated(self, db_path: Path):
@@ -274,8 +274,9 @@ class TestSchemaVersion:
         assert "publisher" in columns
         assert "year" in columns
         assert "description" in columns
+        assert "collection" in columns
         version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
-        assert version == 5
+        assert version == 6
         conn.close()
 
     def test_migration_005_copies_epub_path_to_file_path(self, db_path: Path):
@@ -340,7 +341,50 @@ class TestSchemaVersion:
         row = conn.execute("SELECT file_path FROM books WHERE id = 'abc123'").fetchone()
         assert row[0] == "/path/to/book.epub"
         version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
-        assert version == 5
+        assert version == 6
+        conn.close()
+
+
+class TestMigration006Collection:
+    """Tests for migration 006: collection column."""
+
+    def test_migration_006_adds_collection_column(self, db_path: Path):
+        """migration 006 adds collection TEXT column to books."""
+        init_db(db_path)
+        conn = get_connection(db_path)
+
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(books)")}
+        assert "collection" in cols
+
+        conn.close()
+
+    def test_fresh_db_has_collection_column(self, db_path: Path):
+        """Fresh database includes collection in CREATE TABLE."""
+        init_db(db_path)
+        conn = get_connection(db_path)
+
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(books)")}
+        assert "collection" in cols
+
+        conn.close()
+
+    def test_collection_column_is_nullable(self, db_path: Path):
+        """collection column allows NULL values."""
+        init_db(db_path)
+        conn = get_connection(db_path)
+
+        # Insert a book without collection
+        conn.execute(
+            """INSERT INTO books (id, title, authors, isbn, file_hash,
+               default_language, structure_source, added_at)
+               VALUES ('aaa111', 'Test', '[]', NULL, ?, NULL, 'toc', '2024-01-01T00:00:00')""",
+            ("a" * 64,),
+        )
+        conn.commit()
+
+        row = conn.execute("SELECT collection FROM books WHERE id = 'aaa111'").fetchone()
+        assert row[0] is None
+
         conn.close()
 
 
