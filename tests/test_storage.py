@@ -1337,3 +1337,112 @@ class TestChunkRepositoryGetSectionStructure:
         book_repo.add(sample_book)
         result = chunk_repo.get_section_structure(sample_book.id)
         assert result == []
+
+
+class TestBookRepositoryCollection:
+    """Tests for BookRepository collection field support."""
+
+    def test_add_book_with_collection(self, book_repo, conn):
+        """add() persists collection field."""
+        book = Book(
+            id="c01123",
+            title="Protocol Section 1",
+            authors=["ERCOT"],
+            file_hash="b" * 64,
+            structure_source="toc",
+            collection="ERCOT Nodal Protocols",
+        )
+        book_repo.add(book)
+
+        row = conn.execute("SELECT collection FROM books WHERE id = 'c01123'").fetchone()
+        assert row["collection"] == "ERCOT Nodal Protocols"
+
+    def test_add_book_without_collection(self, book_repo, conn):
+        """add() stores NULL when collection not provided."""
+        book = Book(
+            id="bbc123",
+            title="Standalone Book",
+            authors=[],
+            file_hash="c" * 64,
+            structure_source="toc",
+        )
+        book_repo.add(book)
+
+        row = conn.execute("SELECT collection FROM books WHERE id = 'bbc123'").fetchone()
+        assert row["collection"] is None
+
+    def test_get_returns_collection(self, book_repo):
+        """get() returns Book with collection field populated."""
+        book = Book(
+            id="c01456",
+            title="Protocol Section 2",
+            authors=["ERCOT"],
+            file_hash="d" * 64,
+            structure_source="toc",
+            collection="ERCOT Nodal Protocols",
+        )
+        book_repo.add(book)
+
+        retrieved = book_repo.get("c01456")
+        assert retrieved.collection == "ERCOT Nodal Protocols"
+
+    def test_update_collection(self, book_repo, sample_book):
+        """update() can set collection on an existing book."""
+        book_repo.add(sample_book)
+
+        updated = book_repo.update(sample_book.id, collection="My Collection")
+        assert updated.collection == "My Collection"
+
+    def test_update_collection_to_none(self, book_repo):
+        """update() can clear collection by setting empty string."""
+        book = Book(
+            id="c1e123",
+            title="Clearable",
+            authors=[],
+            file_hash="e" * 64,
+            structure_source="toc",
+            collection="Old Collection",
+        )
+        book_repo.add(book)
+
+        updated = book_repo.update("c1e123", collection="")
+        assert updated.collection is None
+
+    def test_list_by_collection(self, book_repo):
+        """list_by_collection returns only books in the specified collection."""
+        book_a = Book(
+            id="1bc111",
+            title="A",
+            authors=[],
+            file_hash="f" * 64,
+            structure_source="toc",
+            collection="Group A",
+        )
+        book_b = Book(
+            id="1bc222",
+            title="B",
+            authors=[],
+            file_hash="0" * 64,
+            structure_source="toc",
+            collection="Group A",
+        )
+        book_c = Book(
+            id="1bc333",
+            title="C",
+            authors=[],
+            file_hash="1" * 64,
+            structure_source="toc",
+            collection="Group B",
+        )
+        book_repo.add(book_a)
+        book_repo.add(book_b)
+        book_repo.add(book_c)
+
+        result = book_repo.list_by_collection("Group A")
+        ids = [b.id for b in result]
+        assert set(ids) == {"1bc111", "1bc222"}
+
+    def test_list_by_collection_empty(self, book_repo):
+        """list_by_collection returns empty list for unknown collection."""
+        result = book_repo.list_by_collection("Nonexistent")
+        assert result == []
