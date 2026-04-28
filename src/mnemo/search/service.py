@@ -110,6 +110,7 @@ class SearchService:
         mode: Literal["hybrid", "semantic", "keyword"] = "hybrid",
         section: str | None = None,
         context_window: int = 0,
+        collection: str | None = None,
     ) -> list[SearchResult] | list[dict]:
         """Search books with optional filters and mode selection.
 
@@ -125,6 +126,9 @@ class SearchService:
             context_window: Number of neighboring chunks to include around each
                 match (default 0 = no expansion). Expansion stops at section
                 boundaries and overlapping windows are deduplicated.
+            collection: Optional collection name to filter results to books in
+                that collection (exact match). Use list_available_books to see
+                collection names.
 
         Returns:
             If context_window == 0: list of SearchResult (unchanged behavior).
@@ -155,6 +159,17 @@ class SearchService:
         # Initialize backends on first use
         self._ensure_initialized()
 
+        # Resolve collection to book ID set for post-filtering
+        collection_book_ids: set[str] | None = None
+        if collection:
+            assert self._book_repo is not None
+            collection_books = self._book_repo.list_by_collection(collection)
+            collection_book_ids = {b.id for b in collection_books}
+            if not collection_book_ids:
+                return []
+            # Over-fetch to compensate for post-filter reduction
+            fetch_k = max(fetch_k, top_k * 5)
+
         # Execute search based on mode
         if mode == "keyword":
             results = self._keyword_search(query, fetch_k, book_id, content_type_enum)
@@ -175,6 +190,10 @@ class SearchService:
                 if r.section_path
                 and _section_matches(section_norm, normalize_unicode(" > ".join(r.section_path)))
             ]
+
+        # Apply collection post-filter
+        if collection_book_ids is not None:
+            results = [r for r in results if r.book_id in collection_book_ids]
 
         # Cross-book diversity re-ranking (only when not filtering to a single book)
         if not book_id:
