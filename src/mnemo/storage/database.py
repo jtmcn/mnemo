@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS books (
     publisher TEXT,
     year TEXT,
     description TEXT,
+    collection TEXT,                 -- optional group label (e.g. "ERCOT Nodal Protocols")
     file_path TEXT                   -- absolute path to source file
 );
 
