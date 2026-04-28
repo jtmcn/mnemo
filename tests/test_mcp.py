@@ -216,6 +216,88 @@ class TestUpdateBookMetadataValidation:
         assert "ISBN" in result
 
 
+class TestUpdateBookMetadataCollection:
+    """Tests for collection parameter in update_book_metadata."""
+
+    def test_update_collection(self):
+        """update_book_metadata can set collection on a book."""
+        from mnemo.mcp.tools import _update_book_metadata_impl
+
+        book_repo = MagicMock()
+        chunk_repo = MagicMock()
+        updated_book = Book(
+            id="abc123",
+            title="Test",
+            authors=[],
+            file_hash="a" * 64,
+            structure_source="toc",
+            collection="My Collection",
+        )
+        book_repo.update.return_value = updated_book
+        book_repo.get.return_value = updated_book
+        chunk_repo.count_by_book.return_value = 10
+
+        result = _update_book_metadata_impl(
+            "abc123",
+            book_repo,
+            chunk_repo,
+            collection="My Collection",
+        )
+        assert "My Collection" in result
+        book_repo.update.assert_called_once()
+        assert book_repo.update.call_args.kwargs["collection"] == "My Collection"
+        assert book_repo.update.call_args.kwargs["book_id"] == "abc123"
+
+    def test_update_collection_only_is_valid(self):
+        """Passing only collection (no title/authors/isbn) is accepted."""
+        from mnemo.mcp.tools import _update_book_metadata_impl
+
+        book_repo = MagicMock()
+        chunk_repo = MagicMock()
+        updated_book = Book(
+            id="abc123",
+            title="Test",
+            authors=[],
+            file_hash="a" * 64,
+            structure_source="toc",
+            collection="ERCOT",
+        )
+        book_repo.update.return_value = updated_book
+        book_repo.get.return_value = updated_book
+        chunk_repo.count_by_book.return_value = 5
+
+        result = _update_book_metadata_impl("abc123", book_repo, chunk_repo, collection="ERCOT")
+        assert "Error" not in result
+
+
+class TestSearchBooksCollection:
+    """Tests for collection parameter in search_books."""
+
+    def test_search_books_passes_collection_to_service(self):
+        """search_books forwards collection param to SearchService."""
+        from mnemo.mcp.tools import _search_books_impl
+
+        mock_service = MagicMock()
+        mock_service.search.return_value = []
+
+        _search_books_impl("test query", collection="ERCOT", search_service=mock_service)
+
+        mock_service.search.assert_called_once()
+        assert mock_service.search.call_args.kwargs["collection"] == "ERCOT"
+
+    def test_search_books_without_collection(self):
+        """search_books passes collection=None when not specified."""
+        from mnemo.mcp.tools import _search_books_impl
+
+        mock_service = MagicMock()
+        mock_service.search.return_value = []
+
+        _search_books_impl("test query", search_service=mock_service)
+
+        # collection should be None (not passed or explicitly None)
+        assert mock_service.search.call_args.kwargs.get("collection") is None
+
+
 class TestOutputFormatting:
     """Tests for result formatting functions."""
 
@@ -499,6 +581,7 @@ class TestSearchBooksIntegration:
             mode="semantic",
             section=None,
             context_window=0,
+            collection=None,
         )
 
     def test_search_books_handles_exception(self):
