@@ -165,25 +165,25 @@ class TestSchemaVersion:
         conn.close()
 
     def test_fresh_db_at_latest_version(self, db_path: Path):
-        """Fresh database should be stamped at version 5 after init_db."""
+        """Fresh database should be stamped at version 6 after init_db."""
         import sqlite3
 
         init_db(db_path)
         conn = sqlite3.connect(db_path)
         row = conn.execute("SELECT version FROM schema_version").fetchone()
         assert row is not None
-        assert row[0] == 5
+        assert row[0] == 6
         conn.close()
 
     def test_versioned_db_idempotent(self, db_path: Path):
-        """Calling init_db twice should leave schema_version = 5 with exactly one row."""
+        """Calling init_db twice should leave schema_version = 6 with exactly one row."""
         import sqlite3
 
         init_db(db_path)
         init_db(db_path)
         conn = sqlite3.connect(db_path)
         version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
-        assert version == 5
+        assert version == 6
         count = conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0]
         assert count == 1
         conn.close()
@@ -221,7 +221,7 @@ class TestSchemaVersion:
         init_db(db_path)
         conn = sqlite3.connect(db_path)
         version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
-        assert version == 5
+        assert version == 6
         conn.close()
 
     def test_partial_legacy_db_migrated(self, db_path: Path):
@@ -274,8 +274,9 @@ class TestSchemaVersion:
         assert "publisher" in columns
         assert "year" in columns
         assert "description" in columns
+        assert "collection" in columns
         version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
-        assert version == 5
+        assert version == 6
         conn.close()
 
     def test_migration_005_copies_epub_path_to_file_path(self, db_path: Path):
@@ -340,7 +341,50 @@ class TestSchemaVersion:
         row = conn.execute("SELECT file_path FROM books WHERE id = 'abc123'").fetchone()
         assert row[0] == "/path/to/book.epub"
         version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
-        assert version == 5
+        assert version == 6
+        conn.close()
+
+
+class TestMigration006Collection:
+    """Tests for migration 006: collection column."""
+
+    def test_migration_006_adds_collection_column(self, db_path: Path):
+        """migration 006 adds collection TEXT column to books."""
+        init_db(db_path)
+        conn = get_connection(db_path)
+
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(books)")}
+        assert "collection" in cols
+
+        conn.close()
+
+    def test_fresh_db_has_collection_column(self, db_path: Path):
+        """Fresh database includes collection in CREATE TABLE."""
+        init_db(db_path)
+        conn = get_connection(db_path)
+
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(books)")}
+        assert "collection" in cols
+
+        conn.close()
+
+    def test_collection_column_is_nullable(self, db_path: Path):
+        """collection column allows NULL values."""
+        init_db(db_path)
+        conn = get_connection(db_path)
+
+        # Insert a book without collection
+        conn.execute(
+            """INSERT INTO books (id, title, authors, isbn, file_hash,
+               default_language, structure_source, added_at)
+               VALUES ('aaa111', 'Test', '[]', NULL, ?, NULL, 'toc', '2024-01-01T00:00:00')""",
+            ("a" * 64,),
+        )
+        conn.commit()
+
+        row = conn.execute("SELECT collection FROM books WHERE id = 'aaa111'").fetchone()
+        assert row[0] is None
+
         conn.close()
 
 
@@ -1292,4 +1336,113 @@ class TestChunkRepositoryGetSectionStructure:
         """Book with no chunks returns empty list."""
         book_repo.add(sample_book)
         result = chunk_repo.get_section_structure(sample_book.id)
+        assert result == []
+
+
+class TestBookRepositoryCollection:
+    """Tests for BookRepository collection field support."""
+
+    def test_add_book_with_collection(self, book_repo, conn):
+        """add() persists collection field."""
+        book = Book(
+            id="c01123",
+            title="Protocol Section 1",
+            authors=["ERCOT"],
+            file_hash="b" * 64,
+            structure_source="toc",
+            collection="ERCOT Nodal Protocols",
+        )
+        book_repo.add(book)
+
+        row = conn.execute("SELECT collection FROM books WHERE id = 'c01123'").fetchone()
+        assert row["collection"] == "ERCOT Nodal Protocols"
+
+    def test_add_book_without_collection(self, book_repo, conn):
+        """add() stores NULL when collection not provided."""
+        book = Book(
+            id="bbc123",
+            title="Standalone Book",
+            authors=[],
+            file_hash="c" * 64,
+            structure_source="toc",
+        )
+        book_repo.add(book)
+
+        row = conn.execute("SELECT collection FROM books WHERE id = 'bbc123'").fetchone()
+        assert row["collection"] is None
+
+    def test_get_returns_collection(self, book_repo):
+        """get() returns Book with collection field populated."""
+        book = Book(
+            id="c01456",
+            title="Protocol Section 2",
+            authors=["ERCOT"],
+            file_hash="d" * 64,
+            structure_source="toc",
+            collection="ERCOT Nodal Protocols",
+        )
+        book_repo.add(book)
+
+        retrieved = book_repo.get("c01456")
+        assert retrieved.collection == "ERCOT Nodal Protocols"
+
+    def test_update_collection(self, book_repo, sample_book):
+        """update() can set collection on an existing book."""
+        book_repo.add(sample_book)
+
+        updated = book_repo.update(sample_book.id, collection="My Collection")
+        assert updated.collection == "My Collection"
+
+    def test_update_collection_to_none(self, book_repo):
+        """update() can clear collection by setting empty string."""
+        book = Book(
+            id="c1e123",
+            title="Clearable",
+            authors=[],
+            file_hash="e" * 64,
+            structure_source="toc",
+            collection="Old Collection",
+        )
+        book_repo.add(book)
+
+        updated = book_repo.update("c1e123", collection="")
+        assert updated.collection is None
+
+    def test_list_by_collection(self, book_repo):
+        """list_by_collection returns only books in the specified collection."""
+        book_a = Book(
+            id="1bc111",
+            title="A",
+            authors=[],
+            file_hash="f" * 64,
+            structure_source="toc",
+            collection="Group A",
+        )
+        book_b = Book(
+            id="1bc222",
+            title="B",
+            authors=[],
+            file_hash="0" * 64,
+            structure_source="toc",
+            collection="Group A",
+        )
+        book_c = Book(
+            id="1bc333",
+            title="C",
+            authors=[],
+            file_hash="1" * 64,
+            structure_source="toc",
+            collection="Group B",
+        )
+        book_repo.add(book_a)
+        book_repo.add(book_b)
+        book_repo.add(book_c)
+
+        result = book_repo.list_by_collection("Group A")
+        ids = [b.id for b in result]
+        assert set(ids) == {"1bc111", "1bc222"}
+
+    def test_list_by_collection_empty(self, book_repo):
+        """list_by_collection returns empty list for unknown collection."""
+        result = book_repo.list_by_collection("Nonexistent")
         assert result == []

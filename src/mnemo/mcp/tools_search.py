@@ -65,6 +65,7 @@ def _search_books_impl(
     section: str | None = None,
     context_window: int = 0,
     max_chars: int = 2000,
+    collection: str | None = None,
     *,
     search_service: SearchService | None = None,
 ) -> str:
@@ -89,6 +90,7 @@ def _search_books_impl(
             mode=mode,
             section=section,
             context_window=context_window,
+            collection=collection,
         )
 
         if not results:
@@ -227,6 +229,7 @@ def search_books(
     section: str | None = None,
     context_window: int = 0,
     max_chars: int = 2000,
+    collection: str | None = None,
 ) -> str:
     """Search your book library for relevant content.
 
@@ -250,6 +253,9 @@ def search_books(
             context. Larger windows produce more verbose output. Max 3.
         max_chars: Maximum characters per chunk in output (default 2000, max 10000).
             Truncated results include a hint to use get_book_chunks for full text.
+        collection: Optional collection name to search within (e.g.,
+            'ERCOT Nodal Protocols'). Restricts results to books in that
+            collection. Use list_available_books to see collection names.
 
     Returns:
         Markdown-formatted search results with source attribution,
@@ -264,6 +270,7 @@ def search_books(
         section,
         context_window,
         max_chars,
+        collection,
         search_service=_make_search_service(),
     )
 
