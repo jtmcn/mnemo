@@ -25,3 +25,6 @@ htmlcov/
 
 # Project data
 *.epub
+
+# Worktrees
+.worktrees/
