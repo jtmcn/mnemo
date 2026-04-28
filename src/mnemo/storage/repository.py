@@ -46,8 +46,8 @@ class BookRepository:
             """
             INSERT INTO books (id, title, authors, isbn, file_hash,
                              default_language, structure_source, added_at,
-                             file_path, publisher, year, description)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                             file_path, publisher, year, description, collection)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 book.id,
@@ -62,6 +62,7 @@ class BookRepository:
                 book.publisher,
                 book.year,
                 book.description,
+                book.collection,
             ),
         )
         self.conn.commit()
@@ -143,6 +144,21 @@ class BookRepository:
 
         return similar
 
+    def list_by_collection(self, collection: str) -> list[Book]:
+        """List all books belonging to a collection.
+
+        Args:
+            collection: Collection name (exact match, case-sensitive)
+
+        Returns:
+            List of books in the collection, ordered by added_at desc
+        """
+        rows = self.conn.execute(
+            "SELECT * FROM books WHERE collection = ? ORDER BY added_at DESC",
+            (collection,),
+        ).fetchall()
+        return [self._row_to_book(row) for row in rows]
+
     def update(
         self,
         book_id: str,
@@ -152,6 +168,7 @@ class BookRepository:
         publisher: str | None = None,
         year: str | None = None,
         description: str | None = None,
+        collection: str | None = None,
     ) -> Book | None:
         """Update a book's metadata fields.
 
@@ -166,6 +183,7 @@ class BookRepository:
             publisher: Publisher name (if provided)
             year: Publication year (if provided)
             description: Book description (if provided)
+            collection: Collection name (if provided); empty string clears it
 
         Returns:
             Updated Book instance, or None if book not found
@@ -196,6 +214,10 @@ class BookRepository:
         if description is not None:
             fields.append("description = ?")
             values.append(description)
+        if collection is not None:
+            fields.append("collection = ?")
+            # Empty string means "clear collection" (store as NULL)
+            values.append(collection if collection else None)
 
         if not fields:
             raise ValueError("At least one field must be provided")
@@ -228,6 +250,7 @@ class BookRepository:
             publisher=row["publisher"],
             year=row["year"],
             description=row["description"],
+            collection=row["collection"],
         )
 
 
