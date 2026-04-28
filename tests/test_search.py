@@ -2270,3 +2270,128 @@ class TestSemanticScoreFloor:
         results = service.search("test", mode="semantic")
         assert len(results) == 1
         assert results[0].score == pytest.approx(0.8)
+
+
+class TestSearchServiceCollection:
+    """Tests for collection-based search filtering."""
+
+    def test_search_with_collection_filters_results(self):
+        """search() with collection returns only results from that collection's books."""
+        from unittest.mock import MagicMock, patch
+
+        from mnemo.search.models import SearchResult
+        from mnemo.search.service import SearchService
+
+        service = SearchService.__new__(SearchService)
+        service._db_path = None
+        service._chroma_path = None
+        service._book_cache = {}
+
+        # Mock BookRepository to return 2 books in collection
+        mock_book_repo = MagicMock()
+        mock_book_repo.list_by_collection.return_value = [
+            MagicMock(id="aaa111"),
+            MagicMock(id="bbb222"),
+        ]
+        service._book_repo = mock_book_repo
+
+        # Mock chunk repo and vector store
+        mock_chunk_repo = MagicMock()
+        mock_chunk_repo.search_fts.return_value = []
+        service._chunk_repo = mock_chunk_repo
+
+        mock_vector_store = MagicMock()
+        mock_vector_store.query.return_value = []
+        service._vector_store = mock_vector_store
+
+        service._embedder = MagicMock()
+
+        # Provide results from 3 books: aaa111, bbb222, ccc333
+        fake_results = [
+            SearchResult(
+                chunk_id="c1",
+                book_id="aaa111",
+                book_title="A",
+                content="text",
+                content_type="text",
+                section_path=[],
+                score=0.9,
+                source="keyword",
+                sequence=0,
+            ),
+            SearchResult(
+                chunk_id="c2",
+                book_id="ccc333",
+                book_title="C",
+                content="text",
+                content_type="text",
+                section_path=[],
+                score=0.8,
+                source="keyword",
+                sequence=0,
+            ),
+            SearchResult(
+                chunk_id="c3",
+                book_id="bbb222",
+                book_title="B",
+                content="text",
+                content_type="text",
+                section_path=[],
+                score=0.7,
+                source="keyword",
+                sequence=0,
+            ),
+        ]
+
+        with (
+            patch.object(service, "_keyword_search", return_value=fake_results),
+            patch.object(service, "_ensure_initialized"),
+            patch.object(service, "_apply_quality_penalties", side_effect=lambda x: x),
+            patch.object(service, "_diversify_results", side_effect=lambda x, k: x),
+        ):
+            results = service.search("test", mode="keyword", collection="My Collection")
+
+        # ccc333 should be filtered out
+        assert len(results) == 2
+        assert {r.book_id for r in results} == {"aaa111", "bbb222"}
+
+    def test_search_without_collection_returns_all(self):
+        """search() without collection does not filter by book_id set."""
+        from unittest.mock import MagicMock, patch
+
+        from mnemo.search.models import SearchResult
+        from mnemo.search.service import SearchService
+
+        service = SearchService.__new__(SearchService)
+        service._db_path = None
+        service._chroma_path = None
+        service._book_cache = {}
+        service._book_repo = MagicMock()
+        service._chunk_repo = MagicMock()
+        service._vector_store = MagicMock()
+        service._embedder = MagicMock()
+
+        fake_results = [
+            SearchResult(
+                chunk_id="c1",
+                book_id="aaa111",
+                book_title="A",
+                content="text",
+                content_type="text",
+                section_path=[],
+                score=0.9,
+                source="keyword",
+                sequence=0,
+            ),
+        ]
+
+        with (
+            patch.object(service, "_keyword_search", return_value=fake_results),
+            patch.object(service, "_ensure_initialized"),
+            patch.object(service, "_apply_quality_penalties", side_effect=lambda x: x),
+            patch.object(service, "_diversify_results", side_effect=lambda x, k: x),
+        ):
+            results = service.search("test", mode="keyword")
+
+        assert len(results) == 1
+        service._book_repo.list_by_collection.assert_not_called()
