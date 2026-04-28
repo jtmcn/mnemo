@@ -61,11 +61,12 @@ def _list_available_books_impl(book_repo: BookRepository | None = None) -> str:
             return "No books indexed yet. Use `mnemo add <path>` to add books."
 
         lines = [
-            "| ID | Title | Authors | Description |",
-            "|---|---|---|---|",
+            "| ID | Title | Authors | Collection | Description |",
+            "|---|---|---|---|---|",
         ]
         for book in books:
             authors = ", ".join(book.authors) if book.authors else "Unknown"
+            coll = book.collection or ""
             desc = ""
             if book.description:
                 desc = (
@@ -73,7 +74,7 @@ def _list_available_books_impl(book_repo: BookRepository | None = None) -> str:
                     if len(book.description) > 80
                     else book.description
                 )
-            lines.append(f"| `{book.id}` | {book.title} | {authors} | {desc} |")
+            lines.append(f"| `{book.id}` | {book.title} | {authors} | {coll} | {desc} |")
 
         return "\n".join(lines)
 
@@ -113,6 +114,8 @@ def _get_book_info_impl(
             lines.append(f"**Publisher:** {book.publisher}")
         if book.year:
             lines.append(f"**Year:** {book.year}")
+        if book.collection:
+            lines.append(f"**Collection:** {book.collection}")
 
         lines.extend(
             [
@@ -143,11 +146,12 @@ def _update_book_metadata_impl(
     title: str | None = None,
     authors: list[str] | None = None,
     isbn: str | None = None,
+    collection: str | None = None,
 ) -> str:
     """Update book metadata implementation - see update_book_metadata for docs."""
     logger.info(
         f"update_book_metadata: book_id={book_id}, title={title!r}, "
-        f"authors={authors!r}, isbn={isbn!r}"
+        f"authors={authors!r}, isbn={isbn!r}, collection={collection!r}"
     )
 
     # Validate book_id
@@ -155,8 +159,8 @@ def _update_book_metadata_impl(
         return "Error: book_id must be a 6-character identifier"
 
     # Validate at least one field (before normalization so isbn="" counts)
-    if title is None and authors is None and isbn is None:
-        return "Error: At least one of title, authors, or isbn must be provided"
+    if title is None and authors is None and isbn is None and collection is None:
+        return "Error: At least one of title, authors, isbn, or collection must be provided"
 
     # Validate title not empty
     if title is not None and not title.strip():
@@ -174,7 +178,13 @@ def _update_book_metadata_impl(
         isbn = normalized
 
     try:
-        updated = book_repo.update(book_id=book_id, title=title, authors=authors, isbn=isbn)
+        updated = book_repo.update(
+            book_id=book_id,
+            title=title,
+            authors=authors,
+            isbn=isbn,
+            collection=collection,
+        )
 
         if updated is None:
             return f"Error: Book not found: {book_id}"
@@ -351,11 +361,13 @@ def update_book_metadata(
     title: str | None = None,
     authors: list[str] | None = None,
     isbn: str | None = None,
+    collection: str | None = None,
 ) -> str:
-    """Update a book's metadata (title, authors, or ISBN).
+    """Update a book's metadata (title, authors, ISBN, or collection).
 
     Changes are saved immediately and reflected in search results and book info
-    lookups. Pass isbn as an empty string to clear it. At least one field must
+    lookups. Pass isbn as an empty string to clear it. Pass collection as an
+    empty string to remove a book from its collection. At least one field must
     be provided.
 
     Args:
@@ -363,6 +375,7 @@ def update_book_metadata(
         title: New title for the book
         authors: New list of author names (replaces all existing authors)
         isbn: New ISBN for the book (empty string clears ISBN)
+        collection: Collection name to group related books (empty string removes from collection)
 
     Returns:
         Updated book details, or an error message starting with "Error:"
@@ -375,6 +388,7 @@ def update_book_metadata(
         title,
         authors,
         isbn,
+        collection,
     )
 
 
