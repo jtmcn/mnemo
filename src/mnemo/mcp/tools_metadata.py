@@ -317,9 +317,9 @@ def _enrich_book_impl(book_id: str, apply: bool = False) -> str:
 def list_available_books() -> str:
     """List all books in your library.
 
-    Shows all indexed books with their IDs, titles, authors, and date added.
-    Call this first to discover book IDs for filtering searches or looking up
-    details with get_book_info.
+    Shows all indexed books with their IDs, titles, authors, collection,
+    and a short description. Call this first to discover book IDs for
+    filtering searches or looking up details with get_book_info.
 
     Returns:
         Markdown table of available books, or a message if the library is empty

@@ -270,6 +270,34 @@ class TestUpdateBookMetadataCollection:
         assert "Error" not in result
 
 
+class TestSearchBooksCollection:
+    """Tests for collection parameter in search_books."""
+
+    def test_search_books_passes_collection_to_service(self):
+        """search_books forwards collection param to SearchService."""
+        from mnemo.mcp.tools import _search_books_impl
+
+        mock_service = MagicMock()
+        mock_service.search.return_value = []
+
+        _search_books_impl("test query", collection="ERCOT", search_service=mock_service)
+
+        mock_service.search.assert_called_once()
+        assert mock_service.search.call_args.kwargs["collection"] == "ERCOT"
+
+    def test_search_books_without_collection(self):
+        """search_books passes collection=None when not specified."""
+        from mnemo.mcp.tools import _search_books_impl
+
+        mock_service = MagicMock()
+        mock_service.search.return_value = []
+
+        _search_books_impl("test query", search_service=mock_service)
+
+        # collection should be None (not passed or explicitly None)
+        assert mock_service.search.call_args.kwargs.get("collection") is None
+
+
 class TestOutputFormatting:
     """Tests for result formatting functions."""
 
@@ -553,6 +581,7 @@ class TestSearchBooksIntegration:
             mode="semantic",
             section=None,
             context_window=0,
+            collection=None,
         )
 
     def test_search_books_handles_exception(self):
