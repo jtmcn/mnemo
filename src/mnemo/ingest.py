@@ -159,6 +159,8 @@ def ingest_book(
 
     # 3b. Store resolved absolute file_path and optional collection
     updates: dict[str, str] = {"file_path": str(book_path.resolve())}
+    # Empty string is treated as no collection at ingest (no existing value to clear).
+    # This differs from BookRepository.update where collection="" clears to NULL.
     if collection:
         updates["collection"] = collection
     book = book.model_copy(update=updates)

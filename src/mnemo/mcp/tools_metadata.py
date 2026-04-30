@@ -370,6 +370,9 @@ def update_book_metadata(
     empty string to remove a book from its collection. At least one field must
     be provided.
 
+    For new ingests, prefer passing `collection` directly to `add_book` instead
+    of ingesting first and then updating here.
+
     Args:
         book_id: 6-character book identifier (from list_available_books)
         title: New title for the book
