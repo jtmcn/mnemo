@@ -116,6 +116,82 @@ class TestIngestion:
         assert len(chunks_with_paths) > 0
 
 
+class TestIngestionCollection:
+    """Tests for ingest_book collection support."""
+
+    def test_ingest_persists_collection(self, sample_epub: Path, temp_db: Path):
+        """ingest_book(collection="X") persists collection on the new book."""
+        book, _ = ingest_book(sample_epub, temp_db, collection="ERCOT Nodal Protocols")
+
+        # Reload from DB to confirm persistence
+        from mnemo.storage import BookRepository
+
+        conn = get_connection(temp_db)
+        retrieved = BookRepository(conn).get(book.id)
+        conn.close()
+
+        assert retrieved.collection == "ERCOT Nodal Protocols"
+
+    def test_ingest_without_collection_stores_none(self, sample_epub: Path, temp_db: Path):
+        """ingest_book without collection results in NULL collection."""
+        book, _ = ingest_book(sample_epub, temp_db)
+
+        from mnemo.storage import BookRepository
+
+        conn = get_connection(temp_db)
+        retrieved = BookRepository(conn).get(book.id)
+        conn.close()
+
+        assert retrieved.collection is None
+
+    def test_ingest_empty_collection_treated_as_none(self, sample_epub: Path, temp_db: Path):
+        """ingest_book with collection='' stores NULL (empty == no collection)."""
+        book, _ = ingest_book(sample_epub, temp_db, collection="")
+
+        from mnemo.storage import BookRepository
+
+        conn = get_connection(temp_db)
+        retrieved = BookRepository(conn).get(book.id)
+        conn.close()
+
+        assert retrieved.collection is None
+
+    def test_ingest_duplicate_does_not_retag(self, sample_epub: Path, temp_db: Path):
+        """Duplicate ingest without force raises ValueError; existing collection preserved.
+
+        Locks in Approach A: duplicate detection short-circuits before any
+        collection mutation, so attempting to re-ingest with a different
+        collection does NOT change the existing book's collection.
+        """
+        ingest_book(sample_epub, temp_db, collection="Original")
+
+        with pytest.raises(ValueError, match="already indexed"):
+            ingest_book(sample_epub, temp_db, collection="Different")
+
+        # Verify the existing book still has its original collection
+        from mnemo.storage import BookRepository
+
+        conn = get_connection(temp_db)
+        books = BookRepository(conn).list_all()
+        conn.close()
+
+        assert len(books) == 1
+        assert books[0].collection == "Original"
+
+    def test_ingest_force_with_collection_replaces(self, sample_epub: Path, temp_db: Path):
+        """force=True with collection produces a fresh book carrying the new collection."""
+        ingest_book(sample_epub, temp_db, collection="Original")
+        book2, _ = ingest_book(sample_epub, temp_db, force=True, collection="Replaced")
+
+        from mnemo.storage import BookRepository
+
+        conn = get_connection(temp_db)
+        retrieved = BookRepository(conn).get(book2.id)
+        conn.close()
+
+        assert retrieved.collection == "Replaced"
+
+
 class TestReindexAllBooks:
     """Tests for reindex_all_books."""
 
