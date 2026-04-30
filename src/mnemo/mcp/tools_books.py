@@ -61,6 +61,7 @@ def _add_book_impl(
     pre_parsed: "Book | None" = None,
     chunk_min_tokens: int | None = None,
     chunk_max_tokens: int | None = None,
+    collection: str | None = None,
 ) -> str:
     """Add book implementation - see add_book for docs.
 
@@ -71,12 +72,13 @@ def _add_book_impl(
             or None for other formats where metadata comes from the full parse).
         chunk_min_tokens: Minimum tokens per chunk (default 400, min 100)
         chunk_max_tokens: Maximum tokens per chunk (default 800, max 2000)
+        collection: Optional collection name to tag the book with at ingest.
 
     Note: This function creates its own DB connection internally for thread safety.
     It does not accept a book_repo parameter because it runs in asyncio.to_thread
     and needs a thread-local connection.
     """
-    logger.info(f"add_book: file_path={file_path!r}, force={force}")
+    logger.info(f"add_book: file_path={file_path!r}, force={force}, collection={collection!r}")
 
     # Validate chunk size parameters
     from mnemo.chunking.chunker import ChunkerConfig
@@ -154,6 +156,7 @@ def _add_book_impl(
                 embed=True,
                 force=force,
                 chunker_config=chunker_config,
+                collection=collection,
             )
         except Exception as e:
             # Clean up partial data: if book was stored before embedding failed,
@@ -289,6 +292,7 @@ async def add_book(
     force: bool = False,
     chunk_min_tokens: int | None = None,
     chunk_max_tokens: int | None = None,
+    collection: str | None = None,
     ctx: Context = CurrentContext(),  # noqa: B008
 ) -> str:
     """Add a book to your library.
@@ -303,6 +307,10 @@ async def add_book(
         force: If true, re-indexes even if the book already exists
         chunk_min_tokens: Minimum tokens per chunk (default 400, min 100)
         chunk_max_tokens: Maximum tokens per chunk (default 800, max 2000)
+        collection: Optional collection name to group this book with related
+            ones (e.g., "ERCOT Nodal Protocols"). Only applied to fresh ingests;
+            for duplicates without force=True, the existing book's collection is
+            unchanged. Use update_book_metadata to retag an existing book.
 
     Returns:
         Book details (ID, title, authors, chunk count) on success,
@@ -340,6 +348,7 @@ async def add_book(
                 pre_parsed,
                 chunk_min_tokens,
                 chunk_max_tokens,
+                collection,
             ),
             timeout=300,  # 5 minutes
         )
