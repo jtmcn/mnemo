@@ -248,6 +248,20 @@ class TestReindexAllBooks:
         for i in range(len(chunks) - 1):
             assert chunks[i].sequence < chunks[i + 1].sequence
 
+    def test_reindex_preserves_collection(self, sample_epub: Path, temp_db: Path):
+        """Reindex preserves an existing book's collection through force re-ingest."""
+        from mnemo.storage import BookRepository
+
+        ingest_book(sample_epub, temp_db, collection="ERCOT Nodal Protocols")
+        reindex_all_books(db_path=temp_db, embed=False)
+
+        conn = get_connection(temp_db)
+        books = BookRepository(conn).list_all()
+        conn.close()
+
+        assert len(books) == 1
+        assert books[0].collection == "ERCOT Nodal Protocols"
+
 
 class TestFTS:
     """Tests for full-text search functionality."""
