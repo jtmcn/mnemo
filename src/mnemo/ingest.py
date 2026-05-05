@@ -253,6 +253,7 @@ def reindex_all_books(
                 chunker_config=chunker_config,
                 force=True,
                 embed=embed,
+                collection=book.collection,
             )
             results.append(
                 {
