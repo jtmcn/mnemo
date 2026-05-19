@@ -1121,6 +1121,87 @@ class TestAddBookIntegration:
         mock_remove.assert_called_once_with("bbb001")
 
 
+class TestAddBookCollection:
+    """Tests for collection parameter in MCP add_book."""
+
+    def test_add_book_forwards_collection_to_ingest(self, tmp_path):
+        """_add_book_impl(collection="X") calls ingest_book with collection="X"."""
+        from mnemo.mcp.tools import _add_book_impl
+
+        epub_file = tmp_path / "book.epub"
+        epub_file.write_bytes(b"fake epub content")
+
+        mock_pre_parsed = Book(
+            id="abc123",
+            title="Test Book",
+            authors=["Author"],
+            file_hash="d" * 64,
+            structure_source="toc",
+            added_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        mock_result_book = Book(
+            id="abc123",
+            title="Test Book",
+            authors=["Author"],
+            file_hash="d" * 64,
+            structure_source="toc",
+            collection="ERCOT",
+            added_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
+        with (
+            patch("mnemo.mcp.tools_books.init_db"),
+            patch("mnemo.mcp.tools_books.get_connection"),
+            patch("mnemo.ingest.ingest_book", return_value=(mock_result_book, 5)) as mock_ingest,
+        ):
+            mock_repo = MagicMock()
+            mock_repo.get_by_hash.return_value = None
+            mock_repo.find_similar_title.return_value = []
+            with patch("mnemo.mcp.tools_books.BookRepository", return_value=mock_repo):
+                _add_book_impl(str(epub_file), False, mock_pre_parsed, collection="ERCOT")
+
+        # Verify ingest_book received the collection kwarg
+        mock_ingest.assert_called_once()
+        assert mock_ingest.call_args.kwargs["collection"] == "ERCOT"
+
+    def test_add_book_default_collection_is_none(self, tmp_path):
+        """_add_book_impl without collection passes collection=None to ingest_book."""
+        from mnemo.mcp.tools import _add_book_impl
+
+        epub_file = tmp_path / "book.epub"
+        epub_file.write_bytes(b"fake epub content")
+
+        mock_pre_parsed = Book(
+            id="abc123",
+            title="Test Book",
+            authors=["Author"],
+            file_hash="e" * 64,
+            structure_source="toc",
+            added_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        mock_result_book = Book(
+            id="abc123",
+            title="Test Book",
+            authors=["Author"],
+            file_hash="e" * 64,
+            structure_source="toc",
+            added_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
+        with (
+            patch("mnemo.mcp.tools_books.init_db"),
+            patch("mnemo.mcp.tools_books.get_connection"),
+            patch("mnemo.ingest.ingest_book", return_value=(mock_result_book, 5)) as mock_ingest,
+        ):
+            mock_repo = MagicMock()
+            mock_repo.get_by_hash.return_value = None
+            mock_repo.find_similar_title.return_value = []
+            with patch("mnemo.mcp.tools_books.BookRepository", return_value=mock_repo):
+                _add_book_impl(str(epub_file), False, mock_pre_parsed)
+
+        assert mock_ingest.call_args.kwargs.get("collection") is None
+
+
 class TestLifecycle:
     """End-to-end lifecycle: add -> search -> update -> info -> remove."""
 
@@ -1169,7 +1250,7 @@ class TestLifecycle:
 
         # --- Step 1: Add book ---
         # Mock ingest_book to insert the book into our temp DB and return it
-        def mock_ingest(path, embed=True, force=False, chunker_config=None):
+        def mock_ingest(path, embed=True, force=False, chunker_config=None, collection=None):
             book_repo = BookRepository(temp_db["conn"])
             book_repo.add(lifecycle_book)
             # Also add chunks so search and get_book_info work
