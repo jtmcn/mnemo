@@ -95,6 +95,123 @@ class TestAdd:
         assert "not an epub" in result.stdout.lower() or "not found" in result.stdout.lower()
 
 
+class TestAddCollection:
+    """Tests for --collection flag on the add command."""
+
+    @patch("mnemo.ingest.ingest_book")
+    @patch("mnemo.services.book_service.find_duplicate", return_value=None)
+    @patch("mnemo.services.book_service.validate_book_path", return_value=None)
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    def test_add_with_collection_flag_forwards_to_ingest(
+        self,
+        mock_init,
+        mock_conn,
+        mock_validate,
+        mock_dup,
+        mock_ingest,
+        tmp_path,
+    ) -> None:
+        """`mnemo add file.docx --collection X` calls ingest_book with collection=X."""
+        from mnemo.models import Book
+
+        epub = tmp_path / "book.epub"
+        epub.write_bytes(b"fake content")
+
+        mock_book = Book(
+            id="abc123",
+            title="Test",
+            authors=[],
+            file_hash="a" * 64,
+            structure_source="toc",
+        )
+        mock_ingest.return_value = (mock_book, 5)
+
+        result = runner.invoke(
+            app,
+            ["add", str(epub), "--collection", "ERCOT Nodal Protocols", "--json"],
+        )
+
+        assert result.exit_code == 0
+        mock_ingest.assert_called_once()
+        assert mock_ingest.call_args.kwargs["collection"] == "ERCOT Nodal Protocols"
+
+    @patch("mnemo.ingest.ingest_book")
+    @patch("mnemo.services.book_service.find_duplicate", return_value=None)
+    @patch("mnemo.services.book_service.validate_book_path", return_value=None)
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    def test_add_multi_path_with_collection_applies_to_all(
+        self,
+        mock_init,
+        mock_conn,
+        mock_validate,
+        mock_dup,
+        mock_ingest,
+        tmp_path,
+    ) -> None:
+        """Same --collection value is forwarded for every path in a multi-path invocation."""
+        from mnemo.models import Book
+
+        epub1 = tmp_path / "a.epub"
+        epub2 = tmp_path / "b.epub"
+        epub1.write_bytes(b"content a")
+        epub2.write_bytes(b"content b")
+
+        mock_book = Book(
+            id="abc123",
+            title="Test",
+            authors=[],
+            file_hash="a" * 64,
+            structure_source="toc",
+        )
+        mock_ingest.return_value = (mock_book, 5)
+
+        result = runner.invoke(
+            app,
+            ["add", str(epub1), str(epub2), "--collection", "Group A", "--json"],
+        )
+
+        assert result.exit_code == 0
+        assert mock_ingest.call_count == 2
+        for call in mock_ingest.call_args_list:
+            assert call.kwargs["collection"] == "Group A"
+
+    @patch("mnemo.ingest.ingest_book")
+    @patch("mnemo.services.book_service.find_duplicate", return_value=None)
+    @patch("mnemo.services.book_service.validate_book_path", return_value=None)
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    def test_add_without_collection_passes_none(
+        self,
+        mock_init,
+        mock_conn,
+        mock_validate,
+        mock_dup,
+        mock_ingest,
+        tmp_path,
+    ) -> None:
+        """Omitting --collection results in collection=None reaching ingest_book."""
+        from mnemo.models import Book
+
+        epub = tmp_path / "book.epub"
+        epub.write_bytes(b"fake content")
+
+        mock_book = Book(
+            id="abc123",
+            title="Test",
+            authors=[],
+            file_hash="a" * 64,
+            structure_source="toc",
+        )
+        mock_ingest.return_value = (mock_book, 5)
+
+        result = runner.invoke(app, ["add", str(epub), "--json"])
+
+        assert result.exit_code == 0
+        assert mock_ingest.call_args.kwargs.get("collection") is None
+
+
 class TestRemove:
     """Tests for the remove command."""
 

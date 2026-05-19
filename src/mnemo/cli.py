@@ -63,6 +63,15 @@ def add(
         bool,
         typer.Option("--force", "-f", help="Re-index without prompting if book exists"),
     ] = False,
+    collection: Annotated[
+        str | None,
+        typer.Option(
+            "--collection",
+            help=(
+                "Tag these books with a collection name for grouping (e.g. 'ERCOT Nodal Protocols')"
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Add book file(s) to the library.
 
@@ -132,7 +141,12 @@ def add(
                 disable=json_output,
             ) as progress:
                 progress.add_task(description="Parsing and indexing...", total=None)
-                book, chunk_count = ingest_book(path, embed=True, force=should_force)
+                book, chunk_count = ingest_book(
+                    path,
+                    embed=True,
+                    force=should_force,
+                    collection=collection,
+                )
 
             result = {
                 "id": book.id,

@@ -117,6 +117,7 @@ def ingest_book(
     force: bool = False,
     embed: bool = False,
     chroma_path: Path | None = None,
+    collection: str | None = None,
 ) -> tuple[Book, int]:
     """Ingest a book file into the database.
 
@@ -130,6 +131,10 @@ def ingest_book(
         force: If True, re-ingest even if duplicate detected
         embed: If True, generate embeddings after storing chunks
         chroma_path: ChromaDB path for vectors (default: ~/.mnemo/chroma)
+        collection: Optional collection name to tag this book at ingest. Empty
+            string is treated the same as None (no collection). Only applied to
+            fresh ingests; for duplicates without force=True, the existing book's
+            collection is unchanged.
 
     Returns:
         Tuple of (Book, chunk_count)
@@ -152,8 +157,13 @@ def ingest_book(
     # 3. Parse book (dispatches to format-specific parser)
     book, content_blocks = parse_book(book_path)
 
-    # 3b. Store resolved absolute file_path
-    book = book.model_copy(update={"file_path": str(book_path.resolve())})
+    # 3b. Store resolved absolute file_path and optional collection
+    updates: dict[str, str] = {"file_path": str(book_path.resolve())}
+    # Empty string is treated as no collection at ingest (no existing value to clear).
+    # This differs from BookRepository.update where collection="" clears to NULL.
+    if collection:
+        updates["collection"] = collection
+    book = book.model_copy(update=updates)
 
     # 4. Check for duplicate
     existing = book_repo.get_by_hash(book.file_hash)
@@ -243,6 +253,7 @@ def reindex_all_books(
                 chunker_config=chunker_config,
                 force=True,
                 embed=embed,
+                collection=book.collection,
             )
             results.append(
                 {
