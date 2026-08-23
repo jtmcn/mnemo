@@ -8,6 +8,9 @@ Tests and external code that import from mnemo.mcp.tools continue to work.
 # Re-export asyncio for tests that patch mnemo.mcp.tools.asyncio
 import asyncio  # noqa: F401
 
+from mnemo.mcp._deps import make_book_repo as _get_book_repo  # noqa: F401
+from mnemo.mcp._deps import make_chunk_repo as _get_chunk_repo  # noqa: F401
+from mnemo.mcp._deps import make_search_service as _get_search_service  # noqa: F401
 from mnemo.mcp.formatters import (  # noqa: F401
     _format_enriched_results,
     _format_mixed_results,
@@ -32,11 +35,6 @@ from mnemo.mcp.tools_search import (  # noqa: F401
     _get_book_structure_impl,
     _search_books_impl,
 )
-from mnemo.mcp.tools_search import _make_book_repo as _get_book_repo  # noqa: F401
-from mnemo.mcp.tools_search import _make_chunk_repo as _get_chunk_repo  # noqa: F401
-
-# Re-export domain module factory functions (tests that patch these)
-from mnemo.mcp.tools_search import _make_search_service as _get_search_service  # noqa: F401
 
 # Re-export storage helpers used in add_book tests (tests patch these on this module)
 from mnemo.storage import BookRepository, get_connection, init_db  # noqa: F401

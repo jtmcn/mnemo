@@ -12,6 +12,7 @@ from fastmcp import Context
 from fastmcp.dependencies import CurrentContext
 from mcp.types import ToolAnnotations
 
+from mnemo.mcp._deps import make_book_repo, make_chunk_repo, make_search_service
 from mnemo.mcp.server import mcp
 from mnemo.search import SearchService
 from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_db
@@ -21,36 +22,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Lazy-initialized services (avoid import-time DB connections)
+# ponytail: kept as a permanently-None legacy guard so the invalidate-if-already-
+# instantiated checks below (and test_add_book_clears_search_cache's direct
+# patching of this attribute) keep working; real service access goes through
+# mnemo.mcp._deps now.
 _search_service: SearchService | None = None
-_db_connection = None
-
-
-def _make_search_service() -> SearchService:
-    """Get or create SearchService (lazy init)."""
-    global _search_service
-    if _search_service is None:
-        _search_service = SearchService()
-    return _search_service
-
-
-def _make_book_repo() -> BookRepository:
-    """Get BookRepository (lazy init)."""
-    global _db_connection
-    if _db_connection is None:
-        init_db()
-        _db_connection = get_connection()
-    return BookRepository(_db_connection)
-
-
-def _make_chunk_repo() -> ChunkRepository:
-    """Get ChunkRepository (lazy init)."""
-    global _db_connection
-    if _db_connection is None:
-        init_db()
-        _db_connection = get_connection()
-    return ChunkRepository(_db_connection)
-
 
 # Implementation functions (testable directly via DI)
 
@@ -395,9 +371,9 @@ def remove_book(book_id: str) -> str:
     """
     return _remove_book_impl(
         book_id,
-        _make_book_repo(),
-        _make_chunk_repo(),
-        _make_search_service() if _search_service is not None else None,
+        make_book_repo(),
+        make_chunk_repo(),
+        make_search_service() if _search_service is not None else None,
     )
 
 
@@ -428,7 +404,7 @@ async def reindex_all_books(
         result = await asyncio.wait_for(
             asyncio.to_thread(
                 _reindex_all_books_impl,
-                _make_search_service() if _search_service is not None else None,
+                make_search_service() if _search_service is not None else None,
             ),
             timeout=900,  # 15 minutes
         )
