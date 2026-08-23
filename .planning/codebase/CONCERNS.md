@@ -1,6 +1,6 @@
 # Concerns & Technical Debt
 
-**Analysis Date:** 2026-03-26
+**Analysis Date:** 2026-08-23
 
 ## Known Issues
 
@@ -10,17 +10,16 @@
 ## Technical Debt
 
 ### Large Files
-- `mcp/tools.py` (1233 lines) — All MCP tool implementations in a single file. Could benefit from splitting by domain (search tools, book management tools, etc.)
 - `epub/content.py` (764 lines) — Content classification and extraction logic is dense
 
 ### Global Mutable State
-- MCP module uses global singletons (`_search_service`, `_db_connection`) with lazy init. Works for single-process STDIO but would complicate testing or multi-instance scenarios
+- MCP lazy singletons (`_search_service`, `_db_connection`) now live in one place, `mcp/_deps.py`, with a `reset()` for tests. Still process-global — fine for single-process STDIO, would complicate multi-instance scenarios
 
-### Manual Schema Migrations
-- `storage/database.py` uses `ALTER TABLE ADD COLUMN` with `try/except` for idempotent migrations. No migration framework, no version tracking — works at current scale but fragile for complex schema changes
+### mypy Not Enforced
+- `[tool.mypy] strict = true` in `pyproject.toml`, but CI runs mypy with `continue-on-error: true`. 71 errors remain, dominated by bare `dict`/`list` annotations (`type-arg`) and missing third-party stubs (`import-untyped`)
 
 ### CLI/MCP Code Duplication
-- CLI commands and MCP tools implement similar logic (add book, search, list). The MCP tools call implementation functions directly, but there's overlap in validation and formatting logic
+- CLI commands and MCP tools implement similar logic (add book, search, list). `services/book_service.py` holds the one genuinely shared piece (`validate_book_path`); validation and formatting overlap remains
 
 ## Performance Concerns
 
@@ -50,16 +49,9 @@
 - Book IDs are 6-char hex (UUID prefix) — collision possible but unlikely at personal scale
 
 ### File Path Exposure
-- `books.epub_path` stores absolute filesystem paths — exposed via MCP tools and `--json` CLI output
+- `books.file_path` stores absolute filesystem paths — exposed via MCP tools and `--json` CLI output
 
 ## Missing Capabilities
-
-### No CI/CD
-- No GitHub Actions, no automated testing pipeline
-- Quality gate relies on `prek.toml` pre-commit hook running `make all`
-
-### No Coverage Enforcement
-- `pytest-cov` is a dependency but no minimum threshold is configured
 
 ### No Log Configuration
 - Logging level hardcoded; no way to adjust verbosity without code changes (except MCP stderr config)
@@ -79,9 +71,6 @@
 ### FastMCP Maturity
 - `fastmcp >=2.14,<3` — MCP ecosystem is young; breaking changes possible in v3
 
-### Missing Declared Dependencies
-- `typer` and `rich` are imported but not listed in `[project.dependencies]` in pyproject.toml (may be transitive via fastmcp or another dep)
-
 ---
 
-*Concerns analysis: 2026-03-26*
+*Concerns analysis: 2026-08-23*
