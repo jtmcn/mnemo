@@ -28,6 +28,8 @@ def _list_available_books_impl(book_repo: BookRepository | None = None) -> str:
     """List implementation - see list_available_books for docs."""
     logger.info("list_available_books called")
 
+    assert book_repo is not None, "book_repo is required"
+
     try:
         books = book_repo.list_all()
 
