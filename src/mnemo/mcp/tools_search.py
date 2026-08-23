@@ -4,7 +4,7 @@ Registers: search_books, get_book_structure, get_book_chunks
 """
 
 import logging
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 from mcp.types import ToolAnnotations
 
@@ -17,9 +17,6 @@ from mnemo.mcp.formatters import (
 from mnemo.mcp.server import mcp
 from mnemo.search import SearchService
 from mnemo.storage import BookRepository, ChunkRepository
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +50,7 @@ def _search_books_impl(
     assert search_service is not None, "search_service is required"
 
     try:
-        service = search_service
-        results = service.search(
+        results = search_service.search(
             query=query,
             top_k=top_k,
             book_id=book_id,
@@ -67,7 +63,7 @@ def _search_books_impl(
 
         if not results:
             if section:
-                suggestions = service.suggest_sections(section, book_id)
+                suggestions = search_service.suggest_sections(section, book_id)
                 if suggestions:
                     quoted = ", ".join(f'"{s}"' for s in suggestions)
                     return (
@@ -92,7 +88,7 @@ def _search_books_impl(
         if small_indices:
             expanded_map: dict[int, dict] = {}
             for i in small_indices:
-                expanded_map[i] = service._expand_result_context(results[i], window=1)
+                expanded_map[i] = search_service._expand_result_context(results[i], window=1)
             return _format_mixed_results(results, expanded_map, max_chars)
 
         return _format_search_results(results, max_chars)

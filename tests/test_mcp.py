@@ -1060,6 +1060,8 @@ class TestAddBookIntegration:
         original_service = tools_books_mod._search_service
 
         # Set up mock search service on the domain module
+        # Note: production code never populates this global (see
+        # .planning/codebase/CONCERNS.md "Search Cache Never Invalidated").
         mock_service = MagicMock()
         tools_books_mod._search_service = mock_service
 
