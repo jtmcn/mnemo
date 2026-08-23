@@ -289,8 +289,12 @@ class TestExport:
     @patch("mnemo.storage.get_connection")
     @patch("mnemo.storage.init_db")
     @patch("mnemo.storage.BookRepository")
-    def test_export_default_filename(self, mock_repo_cls, mock_init, mock_conn) -> None:
+    def test_export_default_filename(
+        self, mock_repo_cls, mock_init, mock_conn, tmp_path, monkeypatch
+    ) -> None:
         """Export defaults to book-paths.txt."""
+        # export writes to CWD; chdir so it lands in tmp, not the repo root
+        monkeypatch.chdir(tmp_path)
         mock_book = MagicMock()
         mock_book.file_path = "/books/one.epub"
         mock_repo_cls.return_value.list_all.return_value = [mock_book]
