@@ -50,6 +50,8 @@ def _search_books_impl(
     context_window = min(max(0, context_window), 3)  # Clamp to 0-3
     max_chars = min(max(100, max_chars), 10000)  # Clamp to 100-10000
 
+    assert search_service is not None, "search_service is required"
+
     try:
         service = search_service
         results = service.search(
@@ -111,6 +113,9 @@ def _get_book_structure_impl(
     if not book_id or len(book_id) != 6:
         return "Error: book_id must be a 6-character identifier"
 
+    assert book_repo is not None, "book_repo is required"
+    assert chunk_repo is not None, "chunk_repo is required"
+
     try:
         book = book_repo.get(book_id)
         if not book:
@@ -158,6 +163,8 @@ def _get_book_chunks_impl(
 
     if end_sequence < start_sequence:
         return "Error: end_sequence must be >= start_sequence"
+
+    assert chunk_repo is not None, "chunk_repo is required"
 
     try:
         chunks = chunk_repo.get_chunk_range(book_id, start_sequence, end_sequence)
