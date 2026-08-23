@@ -10,42 +10,16 @@ from fastmcp import Context
 from fastmcp.dependencies import CurrentContext
 from mcp.types import ToolAnnotations
 
+from mnemo.mcp._deps import make_book_repo, make_chunk_repo, make_search_service
 from mnemo.mcp.server import mcp
 from mnemo.search import SearchService
 from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_db
 
 logger = logging.getLogger(__name__)
 
-# Lazy-initialized services (avoid import-time DB connections)
+# ponytail: permanently-None legacy guard for the invalidate-if-already-
+# instantiated checks below; real service access goes through mnemo.mcp._deps now.
 _search_service: SearchService | None = None
-_db_connection = None
-
-
-def _make_search_service() -> SearchService:
-    """Get or create SearchService (lazy init)."""
-    global _search_service
-    if _search_service is None:
-        _search_service = SearchService()
-    return _search_service
-
-
-def _make_book_repo() -> BookRepository:
-    """Get BookRepository (lazy init)."""
-    global _db_connection
-    if _db_connection is None:
-        init_db()
-        _db_connection = get_connection()
-    return BookRepository(_db_connection)
-
-
-def _make_chunk_repo() -> ChunkRepository:
-    """Get ChunkRepository (lazy init)."""
-    global _db_connection
-    if _db_connection is None:
-        init_db()
-        _db_connection = get_connection()
-    return ChunkRepository(_db_connection)
-
 
 # Implementation functions (testable directly via DI)
 
@@ -324,7 +298,7 @@ def list_available_books() -> str:
     Returns:
         Markdown table of available books, or a message if the library is empty
     """
-    return _list_available_books_impl(_make_book_repo())
+    return _list_available_books_impl(make_book_repo())
 
 
 @mcp.tool(
@@ -347,7 +321,7 @@ def get_book_info(book_id: str) -> str:
     Returns:
         Markdown-formatted book details, or an error message starting with "Error:"
     """
-    return _get_book_info_impl(book_id, _make_book_repo(), _make_chunk_repo())
+    return _get_book_info_impl(book_id, make_book_repo(), make_chunk_repo())
 
 
 @mcp.tool(
@@ -385,9 +359,9 @@ def update_book_metadata(
     """
     return _update_book_metadata_impl(
         book_id,
-        _make_book_repo(),
-        _make_chunk_repo(),
-        _make_search_service() if _search_service is not None else None,
+        make_book_repo(),
+        make_chunk_repo(),
+        make_search_service() if _search_service is not None else None,
         title,
         authors,
         isbn,

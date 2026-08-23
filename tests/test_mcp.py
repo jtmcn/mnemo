@@ -2200,3 +2200,38 @@ class TestReindexAllBooks:
 
         assert "Error" in result
         assert "timed out" in result.lower()
+
+
+class TestSharedDeps:
+    """All MCP domain modules share one connection and one SearchService."""
+
+    def test_all_domain_modules_use_the_same_factory(self):
+        """tools_search, tools_books, and tools_metadata import from _deps."""
+        from mnemo.mcp import _deps, tools_books, tools_metadata, tools_search
+
+        assert tools_search.make_search_service is _deps.make_search_service
+        assert tools_books.make_book_repo is _deps.make_book_repo
+        assert tools_metadata.make_chunk_repo is _deps.make_chunk_repo
+
+    def test_repos_share_one_connection(self, tmp_path, monkeypatch):
+        """make_book_repo and make_chunk_repo hand out the same connection."""
+        from mnemo.mcp import _deps
+
+        monkeypatch.setattr("mnemo.mcp._deps.get_db_path", lambda: tmp_path / "mnemo.db")
+        _deps.reset()
+        try:
+            book_repo = _deps.make_book_repo()
+            chunk_repo = _deps.make_chunk_repo()
+            assert book_repo.conn is chunk_repo.conn
+        finally:
+            _deps.reset()
+
+    def test_search_service_is_a_singleton(self):
+        """make_search_service returns the same instance on repeat calls."""
+        from mnemo.mcp import _deps
+
+        _deps.reset()
+        try:
+            assert _deps.make_search_service() is _deps.make_search_service()
+        finally:
+            _deps.reset()
