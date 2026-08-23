@@ -6,7 +6,6 @@ Handles vector persistence with cosine distance metric and L2 normalization
 
 from __future__ import annotations
 
-import unicodedata
 from typing import TypedDict
 
 import chromadb
@@ -108,7 +107,6 @@ class VectorStore:
         n_results: int = 10,
         book_id: str | None = None,
         content_type: str | None = None,
-        section: str | None = None,
     ) -> list[QueryResult]:
         """Query by embedding vector with optional filters.
 
@@ -127,7 +125,7 @@ class VectorStore:
         normalized = self._normalize([query_embedding])
 
         # Build where clause for filtering
-        where = self._build_where(book_id, content_type, section)
+        where = self._build_where(book_id, content_type)
 
         results = self.collection.query(
             query_embeddings=normalized,
@@ -193,20 +191,19 @@ class VectorStore:
         self,
         book_id: str | None,
         content_type: str | None,
-        section: str | None = None,
     ) -> dict | None:
-        """Build ChromaDB where clause for filtering."""
+        """Build ChromaDB where clause for filtering.
+
+        Section filtering is deliberately absent: Chroma's $contains is a
+        document operator, not a metadata one. SearchService post-filters
+        section paths in Python instead.
+        """
         conditions = []
 
         if book_id:
             conditions.append({"book_id": book_id})
         if content_type:
             conditions.append({"content_type": content_type})
-        if section:
-            # Normalize Unicode for accent-insensitive matching
-            nfkd = unicodedata.normalize("NFKD", section)
-            section_normalized = "".join(c for c in nfkd if not unicodedata.combining(c))
-            conditions.append({"section_path": {"$contains": section_normalized}})
 
         if not conditions:
             return None
