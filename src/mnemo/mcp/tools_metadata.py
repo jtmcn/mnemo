@@ -68,6 +68,9 @@ def _get_book_info_impl(
     if not book_id or len(book_id) != 6:
         return "Error: book_id must be a 6-character identifier"
 
+    assert book_repo is not None, "book_repo is required"
+    assert chunk_repo is not None, "chunk_repo is required"
+
     try:
         book = book_repo.get(book_id)
 
@@ -150,6 +153,9 @@ def _update_book_metadata_impl(
         if normalized is None:
             return f"Error: Invalid ISBN format: {isbn!r}. Expected ISBN-10 or ISBN-13."
         isbn = normalized
+
+    assert book_repo is not None, "book_repo is required"
+    assert chunk_repo is not None, "chunk_repo is required"
 
     try:
         updated = book_repo.update(

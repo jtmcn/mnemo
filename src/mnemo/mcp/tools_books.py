@@ -187,6 +187,9 @@ def _remove_book_impl(
     if not book_id or len(book_id) != 6:
         return "Error: book_id must be a 6-character identifier"
 
+    assert book_repo is not None, "book_repo is required"
+    assert chunk_repo is not None, "chunk_repo is required"
+
     try:
         # Fetch book info BEFORE deletion (for the response message)
         book = book_repo.get(book_id)

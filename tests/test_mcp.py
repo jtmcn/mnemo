@@ -2235,3 +2235,42 @@ class TestSharedDeps:
             assert _deps.make_search_service() is _deps.make_search_service()
         finally:
             _deps.reset()
+
+
+class TestDIGuards:
+    """Omitting a required dependency fails loudly, not with AttributeError."""
+
+    def test_search_books_impl_asserts_on_missing_service(self):
+        """A valid query with no search_service raises AssertionError."""
+        import pytest
+
+        from mnemo.mcp.tools_search import _search_books_impl
+
+        with pytest.raises(AssertionError):
+            _search_books_impl("a real query")
+
+    def test_get_book_info_impl_asserts_on_missing_repo(self):
+        """A valid book_id with no book_repo raises AssertionError."""
+        import pytest
+
+        from mnemo.mcp.tools_metadata import _get_book_info_impl
+
+        with pytest.raises(AssertionError):
+            _get_book_info_impl("abc123")
+
+    def test_get_book_structure_impl_asserts_on_missing_repo(self):
+        """A valid book_id with no book_repo raises AssertionError."""
+        import pytest
+
+        from mnemo.mcp.tools_search import _get_book_structure_impl
+
+        with pytest.raises(AssertionError):
+            _get_book_structure_impl("abc123")
+
+    def test_validation_errors_still_return_before_the_assert(self):
+        """Guards run first: bad input returns a string, never raises."""
+        from mnemo.mcp.tools_metadata import _get_book_info_impl
+        from mnemo.mcp.tools_search import _search_books_impl
+
+        assert _search_books_impl("").startswith("Error:")
+        assert _get_book_info_impl("abc").startswith("Error:")
