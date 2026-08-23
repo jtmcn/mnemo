@@ -99,7 +99,7 @@ class TestAddCollection:
     """Tests for --collection flag on the add command."""
 
     @patch("mnemo.ingest.ingest_book")
-    @patch("mnemo.services.book_service.find_duplicate", return_value=None)
+    @patch("mnemo.storage.repository.BookRepository.get_by_hash", return_value=None)
     @patch("mnemo.services.book_service.validate_book_path", return_value=None)
     @patch("mnemo.storage.get_connection")
     @patch("mnemo.storage.init_db")
@@ -108,7 +108,7 @@ class TestAddCollection:
         mock_init,
         mock_conn,
         mock_validate,
-        mock_dup,
+        mock_get_by_hash,
         mock_ingest,
         tmp_path,
     ) -> None:
@@ -137,7 +137,7 @@ class TestAddCollection:
         assert mock_ingest.call_args.kwargs["collection"] == "ERCOT Nodal Protocols"
 
     @patch("mnemo.ingest.ingest_book")
-    @patch("mnemo.services.book_service.find_duplicate", return_value=None)
+    @patch("mnemo.storage.repository.BookRepository.get_by_hash", return_value=None)
     @patch("mnemo.services.book_service.validate_book_path", return_value=None)
     @patch("mnemo.storage.get_connection")
     @patch("mnemo.storage.init_db")
@@ -146,7 +146,7 @@ class TestAddCollection:
         mock_init,
         mock_conn,
         mock_validate,
-        mock_dup,
+        mock_get_by_hash,
         mock_ingest,
         tmp_path,
     ) -> None:
@@ -178,7 +178,7 @@ class TestAddCollection:
             assert call.kwargs["collection"] == "Group A"
 
     @patch("mnemo.ingest.ingest_book")
-    @patch("mnemo.services.book_service.find_duplicate", return_value=None)
+    @patch("mnemo.storage.repository.BookRepository.get_by_hash", return_value=None)
     @patch("mnemo.services.book_service.validate_book_path", return_value=None)
     @patch("mnemo.storage.get_connection")
     @patch("mnemo.storage.init_db")
@@ -187,7 +187,7 @@ class TestAddCollection:
         mock_init,
         mock_conn,
         mock_validate,
-        mock_dup,
+        mock_get_by_hash,
         mock_ingest,
         tmp_path,
     ) -> None:
@@ -544,3 +544,38 @@ class TestRestoreCLI:
         result = runner.invoke(app, ["restore", "--help"])
         assert result.exit_code == 0
         assert "restore" in result.stdout.lower()
+
+
+class TestBookServiceSurface:
+    """book_service keeps only the function that does real work."""
+
+    def test_only_validate_book_path_is_exported(self):
+        from mnemo.services import book_service
+
+        public = [n for n in dir(book_service) if not n.startswith("_")]
+        assert "validate_book_path" in public
+        assert "find_duplicate" not in public
+        assert "list_all_books" not in public
+
+    def test_validate_book_path_rejects_missing_file(self, tmp_path):
+        from mnemo.services.book_service import validate_book_path
+
+        result = validate_book_path(tmp_path / "nope.epub")
+        assert result is not None
+        assert "File not found" in result
+
+    def test_validate_book_path_rejects_bad_extension(self, tmp_path):
+        from mnemo.services.book_service import validate_book_path
+
+        bad = tmp_path / "book.pdf"
+        bad.write_text("x")
+        result = validate_book_path(bad)
+        assert result is not None
+        assert "Unsupported format" in result
+
+    def test_validate_book_path_accepts_epub(self, tmp_path):
+        from mnemo.services.book_service import validate_book_path
+
+        good = tmp_path / "book.epub"
+        good.write_text("x")
+        assert validate_book_path(good) is None
