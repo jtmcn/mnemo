@@ -47,7 +47,9 @@ def make_chunk_repo() -> ChunkRepository:
 def reset() -> None:
     """Drop cached state. For tests only."""
     global _search_service, _db_connection
-    if _db_connection is not None:
-        _db_connection.close()
-    _search_service = None
-    _db_connection = None
+    # Clear the globals before closing: a close() that raises must not leave
+    # _db_connection pointing at a dead connection, which would wedge reset()
+    # permanently and keep handing the broken handle to make_*_repo().
+    conn, _db_connection, _search_service = _db_connection, None, None
+    if conn is not None:
+        conn.close()
