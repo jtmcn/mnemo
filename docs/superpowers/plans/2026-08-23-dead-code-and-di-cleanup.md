@@ -607,6 +607,24 @@ The fix follows the convention already established in `src/mnemo/search/service.
 - Consumes: `make_book_repo`, `make_chunk_repo`, `make_search_service` from `mnemo.mcp._deps` (Task 2)
 - Produces: no signature changes. All six `_impl` functions keep their existing parameter lists exactly.
 
+**CRITICAL — assert only on UNCONDITIONALLY dereferenced dependencies.**
+
+Some of these functions dereference a dependency only inside an `if x is not None:` guard. Those must NOT get an assert. After Task 2, the `@mcp.tool` wrappers for `remove_book`, `update_book_metadata`, and `reindex_all_books` pass `make_search_service() if _search_service is not None else None` — and `_search_service` is now permanently `None`, so **they always pass `None` for `search_service`**. An unconditional assert there would break all three MCP tools at runtime, and no test would catch it: every test calls these `_impl` functions directly with an explicit mock, never through the wrapper.
+
+Use exactly this table. Do not add an assert that is not in the "assert these" column.
+
+| Function | File | Assert these | Never assert these |
+|---|---|---|---|
+| `_search_books_impl` | `tools_search.py` | `search_service` | — |
+| `_get_book_structure_impl` | `tools_search.py` | `book_repo`, `chunk_repo` | — |
+| `_get_book_chunks_impl` | `tools_search.py` | `chunk_repo` | — |
+| `_get_book_info_impl` | `tools_metadata.py` | `book_repo`, `chunk_repo` | — |
+| `_update_book_metadata_impl` | `tools_metadata.py` | `book_repo`, `chunk_repo` | `search_service` (guarded, always None from the wrapper) |
+| `_remove_book_impl` | `tools_books.py` | `book_repo`, `chunk_repo` | `search_service` (guarded, always None from the wrapper) |
+| `_reindex_all_books_impl` | `tools_books.py` | — (nothing) | `search_service` (guarded, always None from the wrapper) |
+
+Every assert goes **after** the function's existing early-return validation guards and **before** the first unconditional use of that dependency.
+
 - [ ] **Step 1: Write the failing test**
 
 Add this to `tests/test_mcp.py`, at the end of the file:
@@ -770,20 +788,16 @@ Locate the first line in the function that dereferences `book_repo` — run:
 cd /Users/joel/Code/mnemo && sed -n '141,240p' src/mnemo/mcp/tools_metadata.py | grep -n "book_repo\.\|chunk_repo\.\|search_service\."
 ```
 
-Insert directly above that line:
+Insert directly above that line, exactly these two and no others (see the CRITICAL table above — `search_service` here is guarded and must NOT be asserted):
 
 ```python
     assert book_repo is not None, "book_repo is required"
-```
-
-If the function also dereferences `chunk_repo` or `search_service`, add the matching asserts on the following lines:
-
-```python
     assert chunk_repo is not None, "chunk_repo is required"
-    assert search_service is not None, "search_service is required"
 ```
 
-Only add an assert for a dependency the function actually dereferences — an assert on an unused parameter would break the tests at `tests/test_mcp.py:177–214` that pass only `book_id` and metadata kwargs.
+`chunk_repo` earns its assert because this function passes it on to `_get_book_info_impl`, which asserts it in Step 6.
+
+The asserts must land after the last early-return validation guard, or the tests at `tests/test_mcp.py:177–214` — which pass only `book_id` and metadata kwargs — will break.
 
 - [ ] **Step 8: Guard `_remove_book_impl`**
 
