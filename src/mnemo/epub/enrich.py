@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass, field
 
 import httpx
-import isbnlib
+import isbnlib  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
 

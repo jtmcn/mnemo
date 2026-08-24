@@ -364,3 +364,33 @@ class TestSafety:
 
         with tarfile.open(archive, "r:gz") as tar, pytest.raises(ValueError, match="traversal"):
             _safe_extract(tar, dest)
+
+
+class TestNoneMetadataExport:
+    """Chroma returns None for vectors stored without metadata.
+
+    Verified against the installed chromadb: get(include=["metadatas"]) yields
+    a None entry, so exporting must not call dict() on it unguarded — that
+    would abort the whole backup over one such vector.
+    """
+
+    def test_export_survives_a_vector_without_metadata(self, tmp_path):
+        import chromadb
+
+        from mnemo.backup import export_chromadb
+
+        client = chromadb.PersistentClient(path=str(tmp_path / "chroma"))
+        col = client.get_or_create_collection("mnemo", metadata={"hnsw:space": "cosine"})
+        col.add(ids=["a"], embeddings=[[0.1, 0.2]], metadatas=[{"book_id": "x"}])
+        col.add(ids=["b"], embeddings=[[0.3, 0.4]])
+
+        out = tmp_path / "export.json"
+        count = export_chromadb(client, out, collection_name="mnemo")
+
+        assert count == 2
+        import json
+
+        data = json.loads(out.read_text())
+        assert len(data["metadatas"]) == 2
+        assert {"book_id": "x"} in data["metadatas"]
+        assert None in data["metadatas"]

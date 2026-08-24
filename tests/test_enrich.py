@@ -616,8 +616,13 @@ class TestEnrichBookImpl:
 
         result = _enrich_book_impl("abc123", apply=True)
 
+        # Unchanged fields are passed as None, which update() treats as "leave alone".
         mock_repo_cls.return_value.update.assert_called_once_with(
-            book_id="abc123", isbn="9780134685991"
+            book_id="abc123",
+            isbn="9780134685991",
+            publisher=None,
+            year=None,
+            description=None,
         )
         assert "updated" in result.lower()
 

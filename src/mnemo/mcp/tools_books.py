@@ -22,12 +22,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# ponytail: kept as a permanently-None legacy guard so the invalidate-if-already-
-# instantiated checks below (and test_add_book_clears_search_cache's direct
-# patching of this attribute) keep working; real service access goes through
-# mnemo.mcp._deps now.
-_search_service: SearchService | None = None
-
 # Implementation functions (testable directly via DI)
 
 
@@ -123,9 +117,11 @@ def _add_book_impl(
                 )
 
         # Ingest with embedding
+        from mnemo.ingest import EmbeddingFailed
         from mnemo.ingest import ingest_book as pipeline_ingest
         from mnemo.ingest import remove_book as pipeline_remove
 
+        embed_error: str | None = None
         try:
             book, chunk_count = pipeline_ingest(
                 path,
@@ -134,6 +130,10 @@ def _add_book_impl(
                 chunker_config=chunker_config,
                 collection=collection,
             )
+        except EmbeddingFailed as e:
+            # Book is committed and keyword-searchable — keep it, report the
+            # missing vectors rather than throwing away the parse.
+            book, chunk_count, embed_error = e.book, e.chunk_count, str(e)
         except Exception as e:
             # Clean up partial data: if book was stored before embedding failed,
             # look it up by hash and remove it
@@ -149,13 +149,16 @@ def _add_book_impl(
             return f"Error: Failed to add book: {e}"
 
         # Invalidate search cache
-        global _search_service
-        if _search_service is not None:
-            _search_service.invalidate_cache()
+        make_search_service().invalidate_cache()
 
         # Return success message
         authors_str = ", ".join(book.authors) if book.authors else "Unknown"
         result = f"Added: {book.title} by {authors_str} (ID: `{book.id}`) - {chunk_count} chunks"
+        if embed_error:
+            result += (
+                f"\nNote: embeddings were skipped ({embed_error}). "
+                f"Keyword search works; run reindex_all_books to add semantic search."
+            )
         if soft_warning:
             result += soft_warning
 
@@ -238,14 +241,24 @@ def _reindex_all_books_impl(search_service: SearchService | None = None) -> str:
             search_service.invalidate_cache()
 
         success = sum(1 for r in results if r["status"] == "success")
+        partial = sum(1 for r in results if r["status"] == "partial")
         skipped = sum(1 for r in results if r["status"] == "skipped")
         failed = sum(1 for r in results if r["status"] == "failed")
 
-        lines = [f"Reindex complete: {success} succeeded, {skipped} skipped, {failed} failed\n"]
+        headline = f"Reindex complete: {success} succeeded"
+        if partial:
+            headline += f", {partial} without embeddings"
+        headline += f", {skipped} skipped, {failed} failed\n"
+        lines = [headline]
 
         for r in results:
             if r["status"] == "success":
                 lines.append(f"- **{r['title']}** (`{r['book_id']}`): {r['chunks']} chunks")
+            elif r["status"] == "partial":
+                lines.append(
+                    f"- **{r['title']}** (`{r['book_id']}`): {r['chunks']} chunks, "
+                    f"no embeddings — {r['error']}"
+                )
             elif r["status"] == "skipped":
                 lines.append(f"- **{r['title']}** (`{r['book_id']}`): skipped — {r['error']}")
             else:
@@ -376,7 +389,7 @@ def remove_book(book_id: str) -> str:
         book_id,
         make_book_repo(),
         make_chunk_repo(),
-        make_search_service() if _search_service is not None else None,
+        make_search_service(),
     )
 
 
@@ -407,7 +420,7 @@ async def reindex_all_books(
         result = await asyncio.wait_for(
             asyncio.to_thread(
                 _reindex_all_books_impl,
-                make_search_service() if _search_service is not None else None,
+                make_search_service(),
             ),
             timeout=900,  # 15 minutes
         )

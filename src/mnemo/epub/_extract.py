@@ -7,7 +7,8 @@ import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from bs4 import BeautifulSoup, NavigableString, Tag, XMLParsedAsHTMLWarning
+from bs4 import BeautifulSoup, Tag, XMLParsedAsHTMLWarning
+from bs4.element import NavigableString
 
 from mnemo.epub._classify import (
     _detect_code_language,
@@ -26,7 +27,7 @@ from mnemo.parsing.models import ContentBlock
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 if TYPE_CHECKING:
-    import ebooklib
+    import ebooklib  # type: ignore[import-untyped]
 
 
 def _infer_front_matter_label(href: str) -> list[str] | None:
@@ -414,10 +415,10 @@ def _table_to_text(table: Tag) -> str:
     rows: list[list[str]] = []
 
     # Process all rows (thead and tbody)
-    for row in table.find_all("tr"):
+    for tr in table.find_all("tr"):
         cells = []
-        for cell in row.find_all(["th", "td"]):
-            cell_text = cell.get_text(strip=True)
+        for td in tr.find_all(["th", "td"]):
+            cell_text = td.get_text(strip=True)
             # Escape pipes in cell content
             cell_text = cell_text.replace("|", "\\|")
             cells.append(cell_text)

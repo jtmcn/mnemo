@@ -23,6 +23,9 @@ mnemo add path/to/book.epub
 # List books
 mnemo list
 
+# List books, flagging any that have no embeddings (keyword search only)
+mnemo list --check-embeddings
+
 # Remove a book
 mnemo remove <book-id>
 ```

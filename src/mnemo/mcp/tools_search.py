@@ -4,7 +4,7 @@ Registers: search_books, get_book_structure, get_book_chunks
 """
 
 import logging
-from typing import Literal
+from typing import Literal, cast
 
 from mcp.types import ToolAnnotations
 
@@ -15,7 +15,7 @@ from mnemo.mcp.formatters import (
     _format_search_results,
 )
 from mnemo.mcp.server import mcp
-from mnemo.search import SearchService
+from mnemo.search import ExpandedResult, SearchResult, SearchService
 from mnemo.storage import BookRepository, ChunkRepository
 
 logger = logging.getLogger(__name__)
@@ -73,7 +73,10 @@ def _search_books_impl(
             return f"No results found for: {query}"
 
         if context_window >= 1:
-            return _format_enriched_results(results, max_chars)
+            # context_window >= 1 is exactly when search() returns expanded results.
+            return _format_enriched_results(cast("list[ExpandedResult]", results), max_chars)
+
+        plain = cast("list[SearchResult]", results)
 
         # Auto-expand small atomic chunks (code/diagram/math) that are too
         # terse to be useful on their own.  Threshold: ~50 tokens ≈ 200 chars.
@@ -81,17 +84,17 @@ def _search_books_impl(
         _ATOMIC_TYPES = {"code", "diagram", "math"}
         small_indices = [
             i
-            for i, r in enumerate(results)
+            for i, r in enumerate(plain)
             if r.content_type in _ATOMIC_TYPES and len(r.content) <= _SMALL_CHUNK_CHARS
         ]
 
         if small_indices:
-            expanded_map: dict[int, dict] = {}
+            expanded_map: dict[int, ExpandedResult] = {}
             for i in small_indices:
-                expanded_map[i] = search_service._expand_result_context(results[i], window=1)
-            return _format_mixed_results(results, expanded_map, max_chars)
+                expanded_map[i] = search_service._expand_result_context(plain[i], window=1)
+            return _format_mixed_results(plain, expanded_map, max_chars)
 
-        return _format_search_results(results, max_chars)
+        return _format_search_results(plain, max_chars)
 
     except Exception as e:
         logger.exception("search_books failed")

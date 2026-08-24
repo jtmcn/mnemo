@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Literal, TypedDict, TypeVar
 
 from mnemo.chunking import Chunker, ChunkerConfig
 from mnemo.models import Book, is_boilerplate_section
@@ -16,8 +17,46 @@ from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_
 
 logger = __import__("logging").getLogger(__name__)
 
+T = TypeVar("T")
 
-def _batch_items(items: list, batch_size: int = 50) -> Iterator[list]:
+
+class ReindexResult(TypedDict):
+    """Per-book outcome from reindex_all_books."""
+
+    book_id: str
+    title: str
+    status: Literal["success", "partial", "skipped", "failed"]
+    chunks: int
+    error: str | None
+
+
+class NothingToEmbed(ValueError):
+    """The book has no chunks worth embedding (all front/back matter).
+
+    Distinct from EmbeddingFailed: re-running the embedding step can never
+    produce vectors for this book, so callers must not advise a retry.
+    """
+
+
+class EmbeddingFailed(ValueError):
+    """Book was stored and is keyword-searchable, but embedding did not run.
+
+    ingest_book commits the book and its chunks before embedding, so an
+    embedding error leaves a durable, usable book. Raised instead of the
+    underlying error so callers can tell "nothing was written" from
+    "written, vectors missing" and report the latter as partial success.
+
+    Subclasses ValueError because ingest_book has always documented embedding
+    failure as a ValueError; existing `except ValueError` callers keep working.
+    """
+
+    def __init__(self, book: Book, chunk_count: int, cause: Exception) -> None:
+        super().__init__(str(cause))
+        self.book = book
+        self.chunk_count = chunk_count
+
+
+def _batch_items(items: list[T], batch_size: int = 50) -> Iterator[list[T]]:
     """Yield successive batches of items."""
     for i in range(0, len(items), batch_size):
         yield items[i : i + batch_size]
@@ -69,7 +108,7 @@ def embed_book(
         logger.info("Skipped %d boilerplate chunks (of %d total) for embedding", skipped, total)
 
     if not chunks:
-        raise ValueError(f"No embeddable chunks for book: {book_id} (all boilerplate)")
+        raise NothingToEmbed(f"No embeddable chunks for book: {book_id} (all boilerplate)")
 
     # Initialize embedder (will raise if no credentials)
     embedder = DatabricksEmbedder()
@@ -141,7 +180,10 @@ def ingest_book(
 
     Raises:
         FileNotFoundError: File doesn't exist
-        ValueError: Duplicate book (unless force=True) or embedding fails
+        ValueError: Duplicate book (unless force=True)
+        EmbeddingFailed: Book was stored successfully but embedding failed. A
+            ValueError subclass. The book is committed and keyword-searchable;
+            only vectors are missing.
     """
     # 1. Validate input
     book_path = Path(book_path)
@@ -195,9 +237,20 @@ def ingest_book(
     conn.commit()
     conn.close()
 
-    # 8. Optionally embed
+    # 8. Optionally embed. The book is already committed at this point, so an
+    # embedding failure is partial success, not an ingest failure.
     if embed:
-        embed_book(book.id, db_path=db_path, chroma_path=chroma_path)
+        try:
+            embed_book(book.id, db_path=db_path, chroma_path=chroma_path)
+        except NothingToEmbed:
+            # Structural, not a failure: there is nothing here to embed and a
+            # retry would not change that.
+            logger.info("Nothing to embed for %s (%s)", book.id, book.title)
+        except Exception as e:
+            # info, not warning: every caller reports this to the user itself, and a
+            # warning would double-print over the CLI spinner.
+            logger.info("Embedding failed for %s (%s): %s", book.id, book.title, e)
+            raise EmbeddingFailed(book, len(chunks), e) from e
 
     return book, len(chunks)
 
@@ -207,7 +260,7 @@ def reindex_all_books(
     chroma_path: Path | None = None,
     chunker_config: ChunkerConfig | None = None,
     embed: bool = True,
-) -> list[dict]:
+) -> list[ReindexResult]:
     """Re-ingest all books in the library.
 
     Iterates over all indexed books, validates their file paths still exist,
@@ -221,17 +274,33 @@ def reindex_all_books(
         embed: If True, regenerate embeddings (default: True)
 
     Returns:
-        List of result dicts with keys: book_id, title, status, chunks, error
+        List of result dicts with keys: book_id, title, status, chunks, error.
+        status is "partial" for a book that was re-indexed but not re-embedded.
+        The first embedding failure stops the run: reindexing deletes a book's
+        vectors before rewriting them, so the remaining books are left alone
+        and reported as "skipped".
+
+    Raises:
+        ValueError: embed=True with no embedding credentials configured. Raised
+            before any book is touched, since reindexing is destructive.
     """
+    # ingest_book deletes a book's existing vectors before re-embedding it
+    # (step 5), so reindexing without credentials would strip the whole
+    # library's vectors one book at a time. Fail before touching anything.
+    if embed:
+        from mnemo.embeddings import DatabricksEmbedder
+
+        DatabricksEmbedder()
+
     init_db(db_path)
     conn = get_connection(db_path)
     book_repo = BookRepository(conn)
     books = book_repo.list_all()
     conn.close()
 
-    results: list[dict] = []
+    results: list[ReindexResult] = []
 
-    for book in books:
+    for index, book in enumerate(books):
         book_file = book.file_path
         if not book_file or not Path(book_file).exists():
             results.append(
@@ -264,6 +333,34 @@ def reindex_all_books(
                     "error": None,
                 }
             )
+        except EmbeddingFailed as e:
+            # Re-parsed, re-chunked and committed; only the vectors are missing.
+            results.append(
+                {
+                    "book_id": book.id,
+                    "title": book.title,
+                    "status": "partial",
+                    "chunks": e.chunk_count,
+                    "error": str(e),
+                }
+            )
+            # Every book is re-embedded the same way, so a failure here is a
+            # failure for the rest too — and each iteration deletes that book's
+            # vectors first (step 5). Carrying on would strip the whole library
+            # for an expired token or a provider outage, neither of which the
+            # credential preflight can see. Stop and leave the rest untouched.
+            remaining = books[index + 1 :]
+            results.extend(
+                {
+                    "book_id": other.id,
+                    "title": other.title,
+                    "status": "skipped",
+                    "chunks": 0,
+                    "error": "Stopped after an embedding failure; not re-indexed",
+                }
+                for other in remaining
+            )
+            break
         except Exception as e:
             results.append(
                 {

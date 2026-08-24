@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from rich.console import Console
@@ -78,7 +78,7 @@ def add(
     Parses the book, chunks content, generates embeddings, and stores
     everything for search. Supports .epub and .docx files.
     """
-    from mnemo.ingest import ingest_book
+    from mnemo.ingest import EmbeddingFailed, ingest_book
     from mnemo.services.book_service import validate_book_path
     from mnemo.storage import BookRepository, get_connection, init_db
 
@@ -141,19 +141,28 @@ def add(
                 disable=json_output,
             ) as progress:
                 progress.add_task(description="Parsing and indexing...", total=None)
-                book, chunk_count = ingest_book(
-                    path,
-                    embed=True,
-                    force=should_force,
-                    collection=collection,
-                )
+                embed_error: str | None = None
+                try:
+                    book, chunk_count = ingest_book(
+                        path,
+                        embed=True,
+                        force=should_force,
+                        collection=collection,
+                    )
+                except EmbeddingFailed as e:
+                    # Book is committed and keyword-searchable — partial success,
+                    # not a failure. Report it and keep going.
+                    book, chunk_count, embed_error = e.book, e.chunk_count, str(e)
 
             result = {
                 "id": book.id,
                 "title": book.title,
                 "authors": book.authors,
                 "chunks": chunk_count,
+                "embedded": embed_error is None,
             }
+            if embed_error:
+                result["embed_error"] = embed_error
             results.append(result)
 
             if not json_output:
@@ -162,6 +171,12 @@ def add(
                     f"[green]Added:[/green] {book.title} by {authors_str} "
                     f"({book.id}) - {chunk_count} chunks"
                 )
+                if embed_error:
+                    console.print(
+                        f"[yellow]Embeddings skipped:[/yellow] {embed_error}\n"
+                        f"[yellow]Keyword search works now. Re-run "
+                        f"`mnemo add --force {path}` to add semantic search.[/yellow]"
+                    )
 
         except FileNotFoundError as e:
             if json_output:
@@ -186,16 +201,44 @@ def add(
         print(json.dumps(results))
 
 
+def _vector_counts(book_ids: list[str]) -> dict[str, int]:
+    """How many vectors each book has in ChromaDB.
+
+    A count rather than a yes/no: embed_book writes in batches, so a run that
+    dies partway leaves a book with some vectors but not all. Reporting the
+    number keeps that visible instead of claiming the book is embedded.
+
+    Opening the store creates an empty ChromaDB if none exists, so only call
+    this when the caller has asked for embedding status.
+    """
+    from mnemo.vectors import VectorConfig, VectorStore
+
+    store = VectorStore(VectorConfig())
+    try:
+        return {book_id: store.count(book_id) for book_id in book_ids}
+    finally:
+        store.close()
+
+
 @app.command(name="list")
 def list_books(
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Output as JSON"),
     ] = False,
+    check_embeddings: Annotated[
+        bool,
+        typer.Option(
+            "--check-embeddings",
+            help="Also report each book's vector count (loads ChromaDB, slower)",
+        ),
+    ] = False,
 ) -> None:
     """List all indexed books.
 
-    Shows a table of books with their ID, title, and authors.
+    Shows a table of books with their ID, title, and authors. With
+    --check-embeddings, also shows how many vectors each book has; a book
+    with none is keyword-searchable only.
     """
     from mnemo.storage import BookRepository, get_connection, init_db
 
@@ -205,15 +248,22 @@ def list_books(
     books = book_repo.list_all()
     conn.close()
 
+    vectors: dict[str, int] = {}
+    if check_embeddings and books:
+        vectors = _vector_counts([book.id for book in books])
+
     if json_output:
-        result = [
-            {
+        result = []
+        for book in books:
+            entry: dict[str, Any] = {
                 "id": book.id,
                 "title": book.title,
                 "authors": book.authors,
             }
-            for book in books
-        ]
+            if check_embeddings:
+                entry["vectors"] = vectors.get(book.id, 0)
+                entry["embedded"] = vectors.get(book.id, 0) > 0
+            result.append(entry)
         print(json.dumps(result))
         return
 
@@ -225,12 +275,26 @@ def list_books(
     table.add_column("ID", style="cyan", no_wrap=True)
     table.add_column("Title", style="green")
     table.add_column("Authors")
+    if check_embeddings:
+        table.add_column("Vectors", justify="right")
 
     for book in books:
         authors_str = ", ".join(book.authors) if book.authors else "Unknown"
-        table.add_row(book.id, book.title, authors_str)
+        row = [book.id, book.title, authors_str]
+        if check_embeddings:
+            count = vectors.get(book.id, 0)
+            row.append(str(count) if count else "[yellow]none[/yellow]")
+        table.add_row(*row)
 
     console.print(table)
+
+    if check_embeddings:
+        missing = sum(1 for book in books if not vectors.get(book.id, 0))
+        if missing:
+            console.print(
+                f"[yellow]{missing} book(s) have no embeddings (keyword search only). "
+                f"Set DATABRICKS_HOST/DATABRICKS_TOKEN, then run `mnemo reindex`.[/yellow]"
+            )
 
 
 @app.command()
@@ -382,6 +446,7 @@ def reindex(
     if not json_output:
         console.print(f"Reindexing {len(books)} book(s)...")
 
+    preflight_error: str | None = None
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -389,16 +454,37 @@ def reindex(
         disable=json_output,
     ) as progress:
         progress.add_task(description="Reindexing all books...", total=None)
-        results = reindex_all_books(embed=True)
+        try:
+            results = reindex_all_books(embed=True)
+        except ValueError as e:
+            # Only the credential preflight escapes as a ValueError (per-book
+            # EmbeddingFailed is handled inside reindex_all_books), so nothing
+            # has been touched. Report after the spinner stops.
+            preflight_error = str(e)
+
+    if preflight_error is not None:
+        if json_output:
+            print(json.dumps({"error": preflight_error}))
+        else:
+            console.print(f"[red]Error: {preflight_error}[/red]")
+            console.print("[yellow]No books were changed.[/yellow]")
+        raise typer.Exit(1)
 
     success = sum(1 for r in results if r["status"] == "success")
+    partial = sum(1 for r in results if r["status"] == "partial")
     skipped = sum(1 for r in results if r["status"] == "skipped")
     failed = sum(1 for r in results if r["status"] == "failed")
 
     if json_output:
         print(
             json.dumps(
-                {"results": results, "success": success, "skipped": skipped, "failed": failed}
+                {
+                    "results": results,
+                    "success": success,
+                    "partial": partial,
+                    "skipped": skipped,
+                    "failed": failed,
+                }
             )
         )
         return
@@ -409,6 +495,11 @@ def reindex(
                 console.print(
                     f"  [green]OK[/green] {r['title']} ({r['book_id']}) - {r['chunks']} chunks"
                 )
+            elif r["status"] == "partial":
+                console.print(
+                    f"  [yellow]PARTIAL[/yellow] {r['title']} ({r['book_id']}) - "
+                    f"{r['chunks']} chunks, no embeddings: {r['error']}"
+                )
             elif r["status"] == "skipped":
                 console.print(
                     f"  [yellow]SKIP[/yellow] {r['title']} ({r['book_id']}) - {r['error']}"
@@ -416,13 +507,16 @@ def reindex(
             else:
                 console.print(f"  [red]FAIL[/red] {r['title']} ({r['book_id']}) - {r['error']}")
 
-    console.print(
-        f"[green]{success} succeeded[/green], "
-        f"[yellow]{skipped} skipped[/yellow], "
-        f"[red]{failed} failed[/red]"
-    )
+    summary = f"[green]{success} succeeded[/green], "
+    if partial:
+        summary += f"[yellow]{partial} without embeddings[/yellow], "
+    summary += f"[yellow]{skipped} skipped[/yellow], [red]{failed} failed[/red]"
+    console.print(summary)
 
-    if failed > 0:
+    # partial means the book was re-indexed but its vectors were not rewritten
+    # — before this existed the same outcome was reported as failed, and a
+    # wrapper script must not read it as success.
+    if failed > 0 or partial > 0:
         raise typer.Exit(1)
 
 

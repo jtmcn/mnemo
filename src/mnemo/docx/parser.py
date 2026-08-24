@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 from docx import Document
+from docx.document import Document as DocxDocument
 from docx.table import Table as DocxTable
 from docx.text.paragraph import Paragraph
 
@@ -84,7 +85,7 @@ class DocxParser:
         file_hash = hashlib.sha256(file_bytes).hexdigest()
 
         # Open document
-        doc = Document(file_path)
+        doc = Document(str(file_path))
 
         # Extract metadata
         book = self._extract_metadata(doc, file_path, file_bytes, file_hash)
@@ -101,7 +102,7 @@ class DocxParser:
 
     def _extract_metadata(
         self,
-        doc: Document,
+        doc: DocxDocument,
         file_path: Path,
         file_bytes: bytes,
         file_hash: str,
@@ -132,7 +133,7 @@ class DocxParser:
             structure_source="inferred",
         )
 
-    def _extract_content(self, doc: Document) -> list[ContentBlock]:
+    def _extract_content(self, doc: DocxDocument) -> list[ContentBlock]:
         """Walk DOCX body and emit ContentBlocks."""
         blocks: list[ContentBlock] = []
         section_stack: list[str] = []
