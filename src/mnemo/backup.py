@@ -24,8 +24,10 @@ import tarfile
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import chromadb
+from chromadb.api import ClientAPI
 
 from mnemo.storage.migrations import LATEST_VERSION
 
@@ -68,7 +70,7 @@ def backup_sqlite(source_path: Path, dest_path: Path) -> None:
 
 
 def export_chromadb(
-    client: chromadb.ClientAPI,
+    client: ClientAPI,
     dest_path: Path,
     collection_name: str = "mnemo",
     batch_size: int = 5000,
@@ -90,7 +92,7 @@ def export_chromadb(
 
     all_ids: list[str] = []
     all_embeddings: list[list[float]] = []
-    all_metadatas: list[dict] = []
+    all_metadatas: list[dict[str, Any]] = []
     all_documents: list[str | None] = []
 
     offset = 0
@@ -111,14 +113,12 @@ def export_chromadb(
         if raw_embeddings is None:
             raw_embeddings = []
         for emb in raw_embeddings:
-            if hasattr(emb, "tolist"):
-                all_embeddings.append(emb.tolist())
-            else:
-                all_embeddings.append(list(emb))
+            tolist = getattr(emb, "tolist", None)
+            all_embeddings.append(tolist() if tolist is not None else list(emb))
 
         raw_metadatas = batch.get("metadatas")
         if raw_metadatas is not None:
-            all_metadatas.extend(raw_metadatas)
+            all_metadatas.extend(dict(m) for m in raw_metadatas)
 
         raw_docs = batch.get("documents")
         if raw_docs is not None:
@@ -140,10 +140,10 @@ def export_chromadb(
 
 def create_backup(
     db_path: Path,
-    chroma_client: chromadb.ClientAPI,
+    chroma_client: ClientAPI,
     output_path: Path,
     collection_name: str = "mnemo",
-) -> dict:
+) -> dict[str, Any]:
     """Create a full backup archive of a Mnemo library.
 
     The resulting .tar.gz archive contains manifest.json, mnemo.db,
@@ -207,7 +207,7 @@ def create_backup(
 
 
 def _restore_chromadb(
-    client: chromadb.ClientAPI,
+    client: ClientAPI,
     export_path: Path,
     collection_name: str = "mnemo",
     batch_size: int = 5000,
@@ -230,7 +230,7 @@ def _restore_chromadb(
 
     ids: list[str] = data.get("ids", [])
     embeddings: list[list[float]] = data.get("embeddings", [])
-    metadatas: list[dict] = data.get("metadatas", [])
+    metadatas: list[dict[str, Any]] = data.get("metadatas", [])
     documents: list[str | None] = data.get("documents", [])
 
     # Remove existing collection if present, then recreate with cosine metric
@@ -251,7 +251,7 @@ def _restore_chromadb(
         batch_metas = metadatas[start:end]
         batch_docs = documents[start:end] if documents else None
 
-        kwargs: dict = {
+        kwargs: dict[str, Any] = {
             "ids": batch_ids,
             "embeddings": batch_embs,
             "metadatas": batch_metas,
@@ -267,10 +267,10 @@ def _restore_chromadb(
 def restore_backup(
     archive_path: Path,
     db_path: Path,
-    chroma_client: chromadb.ClientAPI,
+    chroma_client: ClientAPI,
     force: bool = False,
     collection_name: str = "mnemo",
-) -> dict:
+) -> dict[str, Any]:
     """Restore a Mnemo library from a backup archive.
 
     Args:
@@ -308,7 +308,7 @@ def restore_backup(
                 "Archive is missing manifest.json — this may not be a valid Mnemo backup."
             )
 
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest: dict[str, Any] = json.loads(manifest_path.read_text(encoding="utf-8"))
 
         schema_ver = manifest.get("schema_version", 0)
         if schema_ver > LATEST_VERSION:

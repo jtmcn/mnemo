@@ -6,10 +6,12 @@ Handles vector persistence with cosine distance metric and L2 normalization
 
 from __future__ import annotations
 
-from typing import TypedDict
+from collections.abc import Mapping, Sequence
+from typing import Any, TypedDict, cast
 
 import chromadb
 import numpy as np
+from chromadb.api import ClientAPI
 
 from mnemo.vectors.config import VectorConfig
 
@@ -19,7 +21,7 @@ class QueryResult(TypedDict):
 
     id: str
     distance: float
-    metadata: dict
+    metadata: dict[str, Any]
     document: str | None
 
 
@@ -40,7 +42,7 @@ class VectorStore:
     def __init__(
         self,
         config: VectorConfig | None = None,
-        client: chromadb.ClientAPI | None = None,
+        client: ClientAPI | None = None,
     ):
         self.config = config or VectorConfig()
 
@@ -64,7 +66,7 @@ class VectorStore:
         self,
         ids: list[str],
         embeddings: list[list[float]],
-        metadatas: list[dict],
+        metadatas: list[dict[str, Any]],
         documents: list[str] | None = None,
     ) -> None:
         """Add vectors with metadata.
@@ -91,7 +93,7 @@ class VectorStore:
 
         normalized = self._normalize(embeddings)
 
-        kwargs: dict = {
+        kwargs: dict[str, Any] = {
             "ids": ids,
             "embeddings": normalized,
             "metadatas": metadatas,
@@ -128,7 +130,9 @@ class VectorStore:
         where = self._build_where(book_id, content_type)
 
         results = self.collection.query(
-            query_embeddings=normalized,
+            # cast: list is invariant, so list[list[float]] is not a
+            # list[Sequence[float]] to mypy even though every element fits.
+            query_embeddings=cast("list[Sequence[float]]", normalized),
             n_results=n_results,
             where=where,
             include=["metadatas", "documents", "distances"],
@@ -185,13 +189,14 @@ class VectorStore:
         # Avoid division by zero
         norms = np.maximum(norms, 1e-12)
         normalized = arr / norms
-        return normalized.tolist()
+        result: list[list[float]] = normalized.tolist()
+        return result
 
     def _build_where(
         self,
         book_id: str | None,
         content_type: str | None,
-    ) -> dict | None:
+    ) -> dict[str, Any] | None:
         """Build ChromaDB where clause for filtering.
 
         Section filtering is deliberately absent: Chroma's $contains is a
@@ -211,7 +216,7 @@ class VectorStore:
             return conditions[0]
         return {"$and": conditions}
 
-    def _format_results(self, results: dict) -> list[QueryResult]:
+    def _format_results(self, results: Mapping[str, Any]) -> list[QueryResult]:
         """Format ChromaDB results into QueryResult list."""
         formatted: list[QueryResult] = []
 

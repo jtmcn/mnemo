@@ -13,13 +13,14 @@ import logging
 import re
 import unicodedata
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, overload
 
-from mnemo.models import ContentType, is_boilerplate_section
+from mnemo.models import Chunk, ContentType, is_boilerplate_section
 from mnemo.search.hybrid import reciprocal_rank_fusion
-from mnemo.search.models import SearchResult
+from mnemo.search.models import ExpandedResult, SearchResult
 
 if TYPE_CHECKING:
+    from mnemo.embeddings.client import DatabricksEmbedder
     from mnemo.storage.repository import BookRepository, ChunkRepository
     from mnemo.vectors.store import VectorStore
 
@@ -96,10 +97,39 @@ class SearchService:
         self._chunk_repo: ChunkRepository | None = None
         self._book_repo: BookRepository | None = None
         self._vector_store: VectorStore | None = None
-        self._embedder = None  # DatabricksEmbedder, imported lazily
+        self._embedder: DatabricksEmbedder | None = None  # imported lazily
 
         # Cache for book lookups to avoid repeated queries
         self._book_cache: dict[str, str] = {}  # book_id -> title
+
+    # search() returns expanded context dicts only when context_window >= 1.
+    # The overloads let callers that leave it at 0 — the CLI, most tests — see
+    # plain SearchResults instead of having to narrow a union.
+    @overload
+    def search(
+        self,
+        query: str,
+        top_k: int = ...,
+        book_id: str | None = ...,
+        content_type: str | None = ...,
+        mode: Literal["hybrid", "semantic", "keyword"] = ...,
+        section: str | None = ...,
+        context_window: Literal[0] = ...,
+        collection: str | None = ...,
+    ) -> list[SearchResult]: ...
+
+    @overload
+    def search(
+        self,
+        query: str,
+        top_k: int = ...,
+        book_id: str | None = ...,
+        content_type: str | None = ...,
+        mode: Literal["hybrid", "semantic", "keyword"] = ...,
+        section: str | None = ...,
+        context_window: int = ...,
+        collection: str | None = ...,
+    ) -> list[SearchResult] | list[ExpandedResult]: ...
 
     def search(
         self,
@@ -111,7 +141,7 @@ class SearchService:
         section: str | None = None,
         context_window: int = 0,
         collection: str | None = None,
-    ) -> list[SearchResult] | list[dict]:
+    ) -> list[SearchResult] | list[ExpandedResult]:
         """Search books with optional filters and mode selection.
 
         Args:
@@ -209,7 +239,7 @@ class SearchService:
 
         return results
 
-    def _expand_result_context(self, result: SearchResult, window: int) -> dict:
+    def _expand_result_context(self, result: SearchResult, window: int) -> ExpandedResult:
         """Expand a search result with neighboring chunks within same section.
 
         Args:
@@ -241,7 +271,7 @@ class SearchService:
 
         # Filter to same section_path, walking outward from matched chunk
         matched_section = chunk.section_path
-        filtered: list = []
+        filtered: list[Chunk] = []
 
         # Sort candidates by sequence
         candidates_sorted = sorted(candidates, key=lambda c: c.sequence)
@@ -294,7 +324,7 @@ class SearchService:
             "result": result,
         }
 
-    def _deduplicate_expanded_results(self, expanded: list[dict]) -> list[dict]:
+    def _deduplicate_expanded_results(self, expanded: list[ExpandedResult]) -> list[ExpandedResult]:
         """Merge overlapping expanded result windows.
 
         Groups by book_id, sorts by start_seq, and merges overlapping or
@@ -311,17 +341,17 @@ class SearchService:
             return []
 
         # Group by book_id
-        by_book: dict[str, list[dict]] = {}
+        by_book: dict[str, list[ExpandedResult]] = {}
         for exp in expanded:
             by_book.setdefault(exp["book_id"], []).append(exp)
 
-        merged_all: list[dict] = []
+        merged_all: list[ExpandedResult] = []
 
         for _book_id, group in by_book.items():
             # Sort by start_seq
             group.sort(key=lambda x: x["start_seq"])
 
-            merged: list[dict] = [group[0]]
+            merged: list[ExpandedResult] = [group[0]]
 
             for current in group[1:]:
                 prev = merged[-1]

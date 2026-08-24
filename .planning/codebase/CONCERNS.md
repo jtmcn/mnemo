@@ -15,9 +15,6 @@
 ### Global Mutable State
 - MCP lazy singletons (`_search_service`, `_db_connection`) now live in one place, `mcp/_deps.py`, with a `reset()` for tests. Still process-global — fine for single-process STDIO, would complicate multi-instance scenarios
 
-### mypy Not Enforced
-- `[tool.mypy] strict = true` in `pyproject.toml`, but CI runs mypy with `continue-on-error: true`. 71 errors remain, dominated by bare `dict`/`list` annotations (`type-arg`) and missing third-party stubs (`import-untyped`)
-
 ### CLI/MCP Code Duplication
 - CLI commands and MCP tools implement similar logic (add book, search, list). `services/book_service.py` holds the one genuinely shared piece (`validate_book_path`); validation and formatting overlap remains
 

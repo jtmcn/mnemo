@@ -17,7 +17,6 @@ jobs:
       - run: uv run ruff check src/ tests/
       - run: uv run ruff format --check src/ tests/
       - run: uv run mypy src/
-        continue-on-error: true  # 78 pre-existing errors — track as warnings until resolved
 
   test:
     runs-on: ubuntu-latest

@@ -14,6 +14,20 @@ from mnemo.epub._models import (
 )
 
 
+def _classes(element: Tag) -> set[str]:
+    """CSS classes on a tag.
+
+    bs4 types the `class` attribute as str | AttributeValueList | None; the
+    str case would otherwise be iterated character by character.
+    """
+    value = element.get("class")
+    if value is None:
+        return set()
+    if isinstance(value, str):
+        return {value}
+    return {cls for cls in value if isinstance(cls, str)}
+
+
 def _is_code_block(element: Tag) -> bool:
     """Check if element is a code block.
 
@@ -36,7 +50,7 @@ def _is_code_block(element: Tag) -> bool:
             return True
 
         # Check for code-related classes
-        classes = set(element.get("class", []))
+        classes = _classes(element)
         if classes & CODE_CLASSES:
             return True
 
@@ -71,7 +85,7 @@ def _is_diagram(element: Tag) -> bool:
     if tag_name != "pre":
         return False
 
-    classes = set(element.get("class", []))
+    classes = _classes(element)
     if classes & DIAGRAM_CLASSES:
         return True
 
@@ -134,7 +148,7 @@ def _is_math(element: Tag) -> bool:
         return True
 
     # Class-based detection
-    classes = set(element.get("class", []))
+    classes = _classes(element)
     if classes & MATH_CLASSES:
         return True
 
@@ -169,10 +183,7 @@ def _detect_code_language(element: Tag) -> str | None:
 
     for el in elements_to_check:
         # Check class attribute
-        classes = el.get("class", [])
-        for cls in classes:
-            if not isinstance(cls, str):
-                continue
+        for cls in _classes(el):
             # language-python, lang-python
             if cls.startswith("language-") or cls.startswith("lang-"):
                 return cls.split("-", 1)[1]

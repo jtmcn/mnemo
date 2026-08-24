@@ -7,8 +7,10 @@ with cosine distance metric. Embeddings are preserved as-is (no re-embedding).
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import chromadb
+from chromadb.api import ClientAPI
 
 logger = logging.getLogger(__name__)
 
@@ -17,9 +19,9 @@ _BATCH_SIZE = 1000
 
 
 def migrate_to_cosine(
-    client: chromadb.ClientAPI,
+    client: ClientAPI,
     collection_name: str = "mnemo",
-) -> dict:
+) -> dict[str, Any]:
     """Migrate a ChromaDB collection from L2 to cosine distance.
 
     Copies all vectors, metadata, and documents to a new collection with
@@ -139,7 +141,7 @@ def _batch_copy(
         if not batch["ids"]:
             break
 
-        kwargs: dict = {
+        kwargs: dict[str, Any] = {
             "ids": batch["ids"],
             "embeddings": batch["embeddings"],
             "metadatas": batch["metadatas"],

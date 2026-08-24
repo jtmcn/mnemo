@@ -3,6 +3,13 @@
 Pure string formatting functions — take data and return markdown strings.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from mnemo.search.models import ExpandedResult, SearchResult
+
 
 def _truncate_at_boundary(content: str, max_chars: int) -> str:
     """Truncate content at sentence or word boundary instead of mid-word.
@@ -39,7 +46,7 @@ def _truncate_at_boundary(content: str, max_chars: int) -> str:
     return content[:max_chars]
 
 
-def _format_search_results(results: list, max_chars: int = 2000) -> str:
+def _format_search_results(results: list[SearchResult], max_chars: int = 2000) -> str:
     """Format search results as markdown with attribution.
 
     Example output per result:
@@ -90,7 +97,7 @@ def _format_search_results(results: list, max_chars: int = 2000) -> str:
     return "\n".join(lines)
 
 
-def _format_enriched_results(expanded_results: list[dict], max_chars: int = 2000) -> str:
+def _format_enriched_results(expanded_results: list[ExpandedResult], max_chars: int = 2000) -> str:
     """Format enriched search results with context chunk markers.
 
     Shows each expanded result with matched chunks clearly delineated
@@ -143,7 +150,9 @@ def _format_enriched_results(expanded_results: list[dict], max_chars: int = 2000
 
 
 def _format_mixed_results(
-    results: list, expanded_map: dict[int, dict], max_chars: int = 2000
+    results: list[SearchResult],
+    expanded_map: dict[int, ExpandedResult],
+    max_chars: int = 2000,
 ) -> str:
     """Format results where some have been auto-expanded with context.
 

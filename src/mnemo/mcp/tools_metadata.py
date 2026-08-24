@@ -247,7 +247,15 @@ def _enrich_book_impl(book_id: str, apply: bool = False) -> str:
                 update_kwargs["description"] = result.description
 
             if update_kwargs:
-                book_repo.update(book_id=book_id, **update_kwargs)
+                # Named rather than **kwargs: update() treats None as "leave
+                # alone", so .get() on the absent keys is equivalent and typed.
+                book_repo.update(
+                    book_id=book_id,
+                    isbn=update_kwargs.get("isbn"),
+                    publisher=update_kwargs.get("publisher"),
+                    year=update_kwargs.get("year"),
+                    description=update_kwargs.get("description"),
+                )
 
                 make_search_service().invalidate_cache()
 

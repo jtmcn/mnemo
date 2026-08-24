@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ebooklib import epub
+from ebooklib import epub  # type: ignore[import-untyped]
 
 if TYPE_CHECKING:
     from mnemo.models import Book
@@ -72,7 +72,7 @@ def normalize_isbn(raw_isbn: str) -> str | None:
     Returns:
         Normalized ISBN string or None if invalid format or bad checksum
     """
-    import isbnlib
+    import isbnlib  # type: ignore[import-untyped]
 
     isbn = _clean_isbn(raw_isbn)
     if isbn is None:

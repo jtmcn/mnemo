@@ -437,7 +437,8 @@ class ChunkRepository:
             "SELECT COUNT(*) as count FROM chunks WHERE book_id = ?",
             (book_id,),
         ).fetchone()
-        return row["count"]
+        count: int = row["count"]
+        return count
 
     def get_section_structure(self, book_id: str) -> list[list[str]]:
         """Get unique section paths in reading order for a book.
