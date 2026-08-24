@@ -17,6 +17,21 @@ from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_
 logger = __import__("logging").getLogger(__name__)
 
 
+class EmbeddingFailed(Exception):
+    """Book was stored and is keyword-searchable, but embedding did not run.
+
+    ingest_book commits the book and its chunks before embedding, so an
+    embedding error leaves a durable, usable book. Raised instead of the
+    underlying error so callers can tell "nothing was written" from
+    "written, vectors missing" and report the latter as partial success.
+    """
+
+    def __init__(self, book: Book, chunk_count: int, cause: Exception) -> None:
+        super().__init__(str(cause))
+        self.book = book
+        self.chunk_count = chunk_count
+
+
 def _batch_items(items: list, batch_size: int = 50) -> Iterator[list]:
     """Yield successive batches of items."""
     for i in range(0, len(items), batch_size):
@@ -141,7 +156,9 @@ def ingest_book(
 
     Raises:
         FileNotFoundError: File doesn't exist
-        ValueError: Duplicate book (unless force=True) or embedding fails
+        ValueError: Duplicate book (unless force=True)
+        EmbeddingFailed: Book was stored successfully but embedding failed.
+            The book is committed and keyword-searchable; only vectors are missing.
     """
     # 1. Validate input
     book_path = Path(book_path)
@@ -195,9 +212,16 @@ def ingest_book(
     conn.commit()
     conn.close()
 
-    # 8. Optionally embed
+    # 8. Optionally embed. The book is already committed at this point, so an
+    # embedding failure is partial success, not an ingest failure.
     if embed:
-        embed_book(book.id, db_path=db_path, chroma_path=chroma_path)
+        try:
+            embed_book(book.id, db_path=db_path, chroma_path=chroma_path)
+        except Exception as e:
+            # info, not warning: every caller reports this to the user itself, and a
+            # warning would double-print over the CLI spinner.
+            logger.info("Embedding failed for %s (%s): %s", book.id, book.title, e)
+            raise EmbeddingFailed(book, len(chunks), e) from e
 
     return book, len(chunks)
 

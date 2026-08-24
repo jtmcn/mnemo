@@ -426,3 +426,46 @@ class TestChunkIntegrity:
                 assert chunk.next_chunk_id in chunk_ids
 
         conn.close()
+
+
+class TestEmbeddingFailureIsPartialSuccess:
+    """A failed embedding leaves a durable, keyword-searchable book (#6).
+
+    ingest_book commits the book and chunks (step 7) before embedding (step 8),
+    so the embed error must be distinguishable from an ingest failure — the
+    caller has to know a book was written.
+    """
+
+    def test_raises_embedding_failed_with_the_committed_book(self, sample_epub, temp_db):
+        from unittest.mock import patch
+
+        from mnemo.ingest import EmbeddingFailed
+        from mnemo.storage import BookRepository
+
+        with (
+            patch(
+                "mnemo.ingest.embed_book",
+                side_effect=ValueError("DATABRICKS_HOST and DATABRICKS_TOKEN must be set"),
+            ),
+            pytest.raises(EmbeddingFailed) as exc_info,
+        ):
+            ingest_book(sample_epub, temp_db, embed=True)
+
+        err = exc_info.value
+        assert "DATABRICKS_HOST" in str(err)
+        assert err.chunk_count > 0
+        assert err.book.title == "Python Testing Guide"
+
+        # The book really is committed and keyword-searchable
+        conn = get_connection(temp_db)
+        book_repo = BookRepository(conn)
+        chunk_repo = ChunkRepository(conn)
+        assert book_repo.get(err.book.id) is not None
+        assert chunk_repo.count_by_book(err.book.id) == err.chunk_count
+        conn.close()
+
+    def test_embed_false_does_not_raise(self, sample_epub, temp_db):
+        """Only the embed=True path can raise EmbeddingFailed."""
+        book, count = ingest_book(sample_epub, temp_db, embed=False)
+        assert count > 0
+        assert book.id is not None

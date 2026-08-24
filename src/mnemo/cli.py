@@ -78,7 +78,7 @@ def add(
     Parses the book, chunks content, generates embeddings, and stores
     everything for search. Supports .epub and .docx files.
     """
-    from mnemo.ingest import ingest_book
+    from mnemo.ingest import EmbeddingFailed, ingest_book
     from mnemo.services.book_service import validate_book_path
     from mnemo.storage import BookRepository, get_connection, init_db
 
@@ -141,19 +141,28 @@ def add(
                 disable=json_output,
             ) as progress:
                 progress.add_task(description="Parsing and indexing...", total=None)
-                book, chunk_count = ingest_book(
-                    path,
-                    embed=True,
-                    force=should_force,
-                    collection=collection,
-                )
+                embed_error: str | None = None
+                try:
+                    book, chunk_count = ingest_book(
+                        path,
+                        embed=True,
+                        force=should_force,
+                        collection=collection,
+                    )
+                except EmbeddingFailed as e:
+                    # Book is committed and keyword-searchable — partial success,
+                    # not a failure. Report it and keep going.
+                    book, chunk_count, embed_error = e.book, e.chunk_count, str(e)
 
             result = {
                 "id": book.id,
                 "title": book.title,
                 "authors": book.authors,
                 "chunks": chunk_count,
+                "embedded": embed_error is None,
             }
+            if embed_error:
+                result["embed_error"] = embed_error
             results.append(result)
 
             if not json_output:
@@ -162,6 +171,12 @@ def add(
                     f"[green]Added:[/green] {book.title} by {authors_str} "
                     f"({book.id}) - {chunk_count} chunks"
                 )
+                if embed_error:
+                    console.print(
+                        f"[yellow]Embeddings skipped:[/yellow] {embed_error}\n"
+                        f"[yellow]Keyword search works now. "
+                        f"Run `mnemo reindex` to add semantic search.[/yellow]"
+                    )
 
         except FileNotFoundError as e:
             if json_output:
@@ -186,16 +201,40 @@ def add(
         print(json.dumps(results))
 
 
+def _embedded_book_ids(book_ids: list[str]) -> set[str]:
+    """Which of these books have vectors in ChromaDB.
+
+    Opening the store creates an empty ChromaDB if none exists, so only call
+    this when the caller has asked for embedding status.
+    """
+    from mnemo.vectors import VectorConfig, VectorStore
+
+    store = VectorStore(VectorConfig())
+    try:
+        return {book_id for book_id in book_ids if store.count(book_id) > 0}
+    finally:
+        store.close()
+
+
 @app.command(name="list")
 def list_books(
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Output as JSON"),
     ] = False,
+    check_embeddings: Annotated[
+        bool,
+        typer.Option(
+            "--check-embeddings",
+            help="Also report which books have embeddings (loads ChromaDB, slower)",
+        ),
+    ] = False,
 ) -> None:
     """List all indexed books.
 
-    Shows a table of books with their ID, title, and authors.
+    Shows a table of books with their ID, title, and authors. With
+    --check-embeddings, also shows whether each book has vectors; books
+    without them are keyword-searchable only until `mnemo reindex` runs.
     """
     from mnemo.storage import BookRepository, get_connection, init_db
 
@@ -205,15 +244,21 @@ def list_books(
     books = book_repo.list_all()
     conn.close()
 
+    embedded: set[str] = set()
+    if check_embeddings and books:
+        embedded = _embedded_book_ids([book.id for book in books])
+
     if json_output:
-        result = [
-            {
+        result = []
+        for book in books:
+            entry = {
                 "id": book.id,
                 "title": book.title,
                 "authors": book.authors,
             }
-            for book in books
-        ]
+            if check_embeddings:
+                entry["embedded"] = book.id in embedded
+            result.append(entry)
         print(json.dumps(result))
         return
 
@@ -225,12 +270,24 @@ def list_books(
     table.add_column("ID", style="cyan", no_wrap=True)
     table.add_column("Title", style="green")
     table.add_column("Authors")
+    if check_embeddings:
+        table.add_column("Embedded")
 
     for book in books:
         authors_str = ", ".join(book.authors) if book.authors else "Unknown"
-        table.add_row(book.id, book.title, authors_str)
+        row = [book.id, book.title, authors_str]
+        if check_embeddings:
+            row.append("yes" if book.id in embedded else "[yellow]no[/yellow]")
+        table.add_row(*row)
 
     console.print(table)
+
+    if check_embeddings and len(embedded) < len(books):
+        missing = len(books) - len(embedded)
+        console.print(
+            f"[yellow]{missing} book(s) have no embeddings "
+            f"(keyword search only). Run `mnemo reindex` to generate them.[/yellow]"
+        )
 
 
 @app.command()

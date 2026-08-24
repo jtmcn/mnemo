@@ -117,9 +117,11 @@ def _add_book_impl(
                 )
 
         # Ingest with embedding
+        from mnemo.ingest import EmbeddingFailed
         from mnemo.ingest import ingest_book as pipeline_ingest
         from mnemo.ingest import remove_book as pipeline_remove
 
+        embed_error: str | None = None
         try:
             book, chunk_count = pipeline_ingest(
                 path,
@@ -128,6 +130,10 @@ def _add_book_impl(
                 chunker_config=chunker_config,
                 collection=collection,
             )
+        except EmbeddingFailed as e:
+            # Book is committed and keyword-searchable — keep it, report the
+            # missing vectors rather than throwing away the parse.
+            book, chunk_count, embed_error = e.book, e.chunk_count, str(e)
         except Exception as e:
             # Clean up partial data: if book was stored before embedding failed,
             # look it up by hash and remove it
@@ -148,6 +154,11 @@ def _add_book_impl(
         # Return success message
         authors_str = ", ".join(book.authors) if book.authors else "Unknown"
         result = f"Added: {book.title} by {authors_str} (ID: `{book.id}`) - {chunk_count} chunks"
+        if embed_error:
+            result += (
+                f"\nNote: embeddings were skipped ({embed_error}). "
+                f"Keyword search works; run reindex_all_books to add semantic search."
+            )
         if soft_warning:
             result += soft_warning
 

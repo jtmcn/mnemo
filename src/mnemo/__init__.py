@@ -4,6 +4,7 @@ Main exports:
 - ingest_book: Parse and store an EPUB file
 - embed_book: Generate embeddings for an already-stored book
 - remove_book: Remove a book and all associated data
+- EmbeddingFailed: Book stored but embedding failed (partial success)
 - Book, Chunk, ContentType: Core data models
 - BookRepository, ChunkRepository: Storage layer
 - EPUBParser: EPUB parsing
@@ -12,7 +13,7 @@ Main exports:
 - VectorStore: Vector storage
 """
 
-from mnemo.ingest import embed_book, ingest_book, remove_book
+from mnemo.ingest import EmbeddingFailed, embed_book, ingest_book, remove_book
 from mnemo.models import Book, Chunk, ContentType
 
 __all__ = [
@@ -20,6 +21,7 @@ __all__ = [
     "ingest_book",
     "embed_book",
     "remove_book",
+    "EmbeddingFailed",
     # Models
     "Book",
     "Chunk",
