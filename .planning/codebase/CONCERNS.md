@@ -7,11 +7,6 @@
 - **No TODO/FIXME/HACK comments** — Codebase is clean of tracked debt markers
 - **`noqa` suppressions** — 12 instances, all justified (import side effects `F401`, default argument `B008`, import ordering `E402`)
 
-### Search Cache Never Invalidated (pre-existing)
-- `add_book`, `remove_book`, `reindex_all_books`, `update_book_metadata`, and `enrich_book` each guard their cache invalidation behind `if _search_service is not None:`, reading their module's own permanently-`None` `_search_service` global (`tools_books.py`, `tools_metadata.py`). The only writer of that global was each module's own now-dead `_make_search_service()`, itself only reachable behind the same guard — the condition can never be true. Net effect: none of these tools has ever invalidated `SearchService`'s book-title cache in a running server, so a renamed or removed book can keep showing its old title in search results until the process restarts.
-- Tests miss it because they call the `_impl` functions directly with an explicit `search_service` mock, never exercising the `@mcp.tool` wrapper that passes the dead global.
-- Cheap to fix now: `mnemo/mcp/_deps.py` already provides one shared `make_search_service()` these guards could just call unconditionally.
-
 ## Technical Debt
 
 ### Large Files
