@@ -241,14 +241,24 @@ def _reindex_all_books_impl(search_service: SearchService | None = None) -> str:
             search_service.invalidate_cache()
 
         success = sum(1 for r in results if r["status"] == "success")
+        partial = sum(1 for r in results if r["status"] == "partial")
         skipped = sum(1 for r in results if r["status"] == "skipped")
         failed = sum(1 for r in results if r["status"] == "failed")
 
-        lines = [f"Reindex complete: {success} succeeded, {skipped} skipped, {failed} failed\n"]
+        headline = f"Reindex complete: {success} succeeded"
+        if partial:
+            headline += f", {partial} without embeddings"
+        headline += f", {skipped} skipped, {failed} failed\n"
+        lines = [headline]
 
         for r in results:
             if r["status"] == "success":
                 lines.append(f"- **{r['title']}** (`{r['book_id']}`): {r['chunks']} chunks")
+            elif r["status"] == "partial":
+                lines.append(
+                    f"- **{r['title']}** (`{r['book_id']}`): {r['chunks']} chunks, "
+                    f"no embeddings — {r['error']}"
+                )
             elif r["status"] == "skipped":
                 lines.append(f"- **{r['title']}** (`{r['book_id']}`): skipped — {r['error']}")
             else:

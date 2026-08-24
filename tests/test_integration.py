@@ -469,3 +469,66 @@ class TestEmbeddingFailureIsPartialSuccess:
         book, count = ingest_book(sample_epub, temp_db, embed=False)
         assert count > 0
         assert book.id is not None
+
+    def test_reindex_marks_unembedded_books_partial(self, sample_epub, temp_db, monkeypatch):
+        """A book re-indexed but not re-embedded is partial, not failed.
+
+        It was re-parsed, re-chunked and committed — reporting "failed, 0
+        chunks" would send the user chasing a book that is actually fine
+        except for its vectors.
+        """
+        from unittest.mock import patch
+
+        ingest_book(sample_epub, temp_db, embed=False)
+
+        monkeypatch.setenv("DATABRICKS_HOST", "https://example.invalid")
+        monkeypatch.setenv("DATABRICKS_TOKEN", "token")
+
+        with patch("mnemo.ingest.embed_book", side_effect=RuntimeError("service down")):
+            results = reindex_all_books(db_path=temp_db, embed=True)
+
+        assert len(results) == 1
+        assert results[0]["status"] == "partial"
+        assert results[0]["chunks"] > 0
+        assert "service down" in results[0]["error"]
+
+    def test_reindex_aborts_before_touching_anything_without_credentials(
+        self, sample_epub, temp_db, monkeypatch
+    ):
+        """The credential preflight runs before any book is re-ingested.
+
+        ingest_book deletes a book's existing vectors before re-embedding, so
+        proceeding without credentials would strip the library book by book.
+        """
+        from unittest.mock import patch
+
+        ingest_book(sample_epub, temp_db, embed=False)
+
+        monkeypatch.delenv("DATABRICKS_HOST", raising=False)
+        monkeypatch.delenv("DATABRICKS_TOKEN", raising=False)
+
+        with (
+            patch("mnemo.ingest.ingest_book") as mock_ingest,
+            pytest.raises(ValueError, match="DATABRICKS_HOST"),
+        ):
+            reindex_all_books(db_path=temp_db, embed=True)
+
+        mock_ingest.assert_not_called()
+
+    def test_embedding_failed_is_a_value_error(self, sample_epub, temp_db):
+        """ingest_book has always documented embedding failure as a ValueError.
+
+        mnemo exports ingest_book as public API, so an out-of-repo caller
+        wrapping it in `except ValueError` must keep working.
+        """
+        from unittest.mock import patch
+
+        from mnemo.ingest import EmbeddingFailed
+
+        assert issubclass(EmbeddingFailed, ValueError)
+
+        with (
+            patch("mnemo.ingest.embed_book", side_effect=RuntimeError("boom")),
+            pytest.raises(ValueError),
+        ):
+            ingest_book(sample_epub, temp_db, embed=True)

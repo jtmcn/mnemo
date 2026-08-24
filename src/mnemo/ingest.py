@@ -25,18 +25,21 @@ class ReindexResult(TypedDict):
 
     book_id: str
     title: str
-    status: Literal["success", "skipped", "failed"]
+    status: Literal["success", "partial", "skipped", "failed"]
     chunks: int
     error: str | None
 
 
-class EmbeddingFailed(Exception):
+class EmbeddingFailed(ValueError):
     """Book was stored and is keyword-searchable, but embedding did not run.
 
     ingest_book commits the book and its chunks before embedding, so an
     embedding error leaves a durable, usable book. Raised instead of the
     underlying error so callers can tell "nothing was written" from
     "written, vectors missing" and report the latter as partial success.
+
+    Subclasses ValueError because ingest_book has always documented embedding
+    failure as a ValueError; existing `except ValueError` callers keep working.
     """
 
     def __init__(self, book: Book, chunk_count: int, cause: Exception) -> None:
@@ -170,8 +173,9 @@ def ingest_book(
     Raises:
         FileNotFoundError: File doesn't exist
         ValueError: Duplicate book (unless force=True)
-        EmbeddingFailed: Book was stored successfully but embedding failed.
-            The book is committed and keyword-searchable; only vectors are missing.
+        EmbeddingFailed: Book was stored successfully but embedding failed. A
+            ValueError subclass. The book is committed and keyword-searchable;
+            only vectors are missing.
     """
     # 1. Validate input
     book_path = Path(book_path)
@@ -258,8 +262,21 @@ def reindex_all_books(
         embed: If True, regenerate embeddings (default: True)
 
     Returns:
-        List of result dicts with keys: book_id, title, status, chunks, error
+        List of result dicts with keys: book_id, title, status, chunks, error.
+        status is "partial" for a book that was re-indexed but not re-embedded.
+
+    Raises:
+        ValueError: embed=True with no embedding credentials configured. Raised
+            before any book is touched, since reindexing is destructive.
     """
+    # ingest_book deletes a book's existing vectors before re-embedding it
+    # (step 5), so reindexing without credentials would strip the whole
+    # library's vectors one book at a time. Fail before touching anything.
+    if embed:
+        from mnemo.embeddings import DatabricksEmbedder
+
+        DatabricksEmbedder()
+
     init_db(db_path)
     conn = get_connection(db_path)
     book_repo = BookRepository(conn)
@@ -299,6 +316,17 @@ def reindex_all_books(
                     "status": "success",
                     "chunks": chunk_count,
                     "error": None,
+                }
+            )
+        except EmbeddingFailed as e:
+            # Re-parsed, re-chunked and committed; only the vectors are missing.
+            results.append(
+                {
+                    "book_id": book.id,
+                    "title": book.title,
+                    "status": "partial",
+                    "chunks": e.chunk_count,
+                    "error": str(e),
                 }
             )
         except Exception as e:
