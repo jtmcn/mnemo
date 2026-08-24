@@ -402,3 +402,38 @@ class TestExtractMath:
         tag = _make_tag("<math><mi>y</mi></math>")
         result = _extract_math(tag)
         assert result == "<math><mi>y</mi></math>"
+
+
+class TestClassAttributeOrdering:
+    """Language detection must not depend on the process hash seed.
+
+    _classes() returns a list, not a set: _detect_code_language returns the
+    first language-bearing class it sees, so set iteration order would make
+    the same EPUB yield different `language` metadata run to run.
+    """
+
+    def test_classes_preserves_document_order(self):
+        from bs4 import BeautifulSoup
+
+        from mnemo.epub._classify import _classes
+
+        el = BeautifulSoup('<pre class="alpha beta gamma">x</pre>', "html.parser").find("pre")
+        assert _classes(el) == ["alpha", "beta", "gamma"]
+
+    def test_first_language_class_wins(self):
+        from bs4 import BeautifulSoup
+
+        from mnemo.epub._classify import _detect_code_language
+
+        el = BeautifulSoup('<pre class="python language-ruby">x</pre>', "html.parser").find("pre")
+        assert _detect_code_language(el) == "python"
+
+    def test_string_valued_class_is_not_split_into_characters(self):
+        """bs4 types `class` as str | list[str]; the str case must stay whole."""
+        from unittest.mock import MagicMock
+
+        from mnemo.epub._classify import _classes
+
+        tag = MagicMock()
+        tag.get.return_value = "python"
+        assert _classes(tag) == ["python"]

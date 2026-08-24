@@ -677,39 +677,127 @@ class TestAddPartialEmbedding:
 
 
 class TestListCheckEmbeddings:
-    """`mnemo list --check-embeddings` distinguishes embedded from keyword-only books."""
+    """`mnemo list --check-embeddings` reports each book's vector count."""
 
-    @patch("mnemo.cli._embedded_book_ids")
-    @patch("mnemo.storage.repository.BookRepository.list_all")
-    @patch("mnemo.storage.get_connection")
-    @patch("mnemo.storage.init_db")
-    def test_list_flags_books_without_embeddings(
-        self, mock_init, mock_conn, mock_list_all, mock_embedded
-    ) -> None:
+    @staticmethod
+    def _books():
         from mnemo.models import Book
 
-        mock_list_all.return_value = [
+        return [
             Book(id="abc123", title="Has", authors=[], file_hash="a" * 64, structure_source="toc"),
             Book(
                 id="def456", title="Lacks", authors=[], file_hash="b" * 64, structure_source="toc"
             ),
         ]
-        mock_embedded.return_value = {"abc123"}
+
+    @patch("mnemo.cli._vector_counts")
+    @patch("mnemo.storage.repository.BookRepository.list_all")
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    def test_list_flags_books_without_embeddings(
+        self, mock_init, mock_conn, mock_list_all, mock_counts
+    ) -> None:
+        mock_list_all.return_value = self._books()
+        mock_counts.return_value = {"abc123": 12, "def456": 0}
 
         result = runner.invoke(app, ["list", "--check-embeddings", "--json"])
 
         assert result.exit_code == 0
-        payload = {b["id"]: b["embedded"] for b in json.loads(result.stdout)}
-        assert payload == {"abc123": True, "def456": False}
+        payload = {b["id"]: (b["vectors"], b["embedded"]) for b in json.loads(result.stdout)}
+        assert payload == {"abc123": (12, True), "def456": (0, False)}
 
-    @patch("mnemo.cli._embedded_book_ids")
+    @patch("mnemo.cli._vector_counts")
+    @patch("mnemo.storage.repository.BookRepository.list_all")
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    def test_list_reports_the_count_not_a_yes(
+        self, mock_init, mock_conn, mock_list_all, mock_counts
+    ) -> None:
+        """A partly-embedded book must not be reported as simply embedded.
+
+        embed_book writes in batches, so a run that dies partway leaves some
+        vectors behind; a bare "yes" would hide exactly the book the flag
+        exists to surface.
+        """
+        mock_list_all.return_value = self._books()
+        mock_counts.return_value = {"abc123": 3, "def456": 0}
+
+        result = runner.invoke(app, ["list", "--check-embeddings"])
+
+        assert result.exit_code == 0
+        assert "3" in result.stdout
+        assert "none" in result.stdout
+        assert "1 book(s) have no embeddings" in result.stdout
+
+    @patch("mnemo.cli._vector_counts")
     @patch("mnemo.storage.repository.BookRepository.list_all", return_value=[])
     @patch("mnemo.storage.get_connection")
     @patch("mnemo.storage.init_db")
     def test_list_without_flag_never_touches_chromadb(
-        self, mock_init, mock_conn, mock_list_all, mock_embedded
+        self, mock_init, mock_conn, mock_list_all, mock_counts
     ) -> None:
         result = runner.invoke(app, ["list", "--json"])
 
         assert result.exit_code == 0
-        mock_embedded.assert_not_called()
+        mock_counts.assert_not_called()
+
+
+class TestReindexCredentialPreflight:
+    """`mnemo reindex` refuses to run without credentials rather than wiping vectors.
+
+    ingest_book deletes a book's existing vectors before re-embedding, so
+    reindexing with no credentials would strip the library one book at a time.
+    """
+
+    @patch("mnemo.storage.repository.BookRepository.list_all")
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    def test_reindex_aborts_without_credentials(
+        self, mock_init, mock_conn, mock_list_all, monkeypatch
+    ) -> None:
+        from mnemo.models import Book
+
+        monkeypatch.delenv("DATABRICKS_HOST", raising=False)
+        monkeypatch.delenv("DATABRICKS_TOKEN", raising=False)
+        mock_list_all.return_value = [
+            Book(id="abc123", title="A", authors=[], file_hash="a" * 64, structure_source="toc")
+        ]
+
+        with patch("mnemo.ingest.ingest_book") as mock_ingest:
+            result = runner.invoke(app, ["reindex"])
+
+        assert result.exit_code == 1
+        assert "DATABRICKS_HOST" in result.stdout
+        assert "No books were changed" in result.stdout
+        # Nothing was re-ingested, so no vectors were deleted.
+        mock_ingest.assert_not_called()
+
+
+class TestReindexPartial:
+    """A book re-indexed but not re-embedded is reported as partial, not failed."""
+
+    @patch("mnemo.storage.repository.BookRepository.list_all")
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    def test_reindex_reports_partial_books(self, mock_init, mock_conn, mock_list_all) -> None:
+        from mnemo.models import Book
+
+        mock_list_all.return_value = [
+            Book(id="abc123", title="A", authors=[], file_hash="a" * 64, structure_source="toc")
+        ]
+        results = [
+            {
+                "book_id": "abc123",
+                "title": "A",
+                "status": "partial",
+                "chunks": 8,
+                "error": "no credentials",
+            }
+        ]
+
+        with patch("mnemo.ingest.reindex_all_books", return_value=results):
+            result = runner.invoke(app, ["reindex", "--verbose"])
+
+        assert result.exit_code == 0
+        assert "PARTIAL" in result.stdout
+        assert "1 without embeddings" in result.stdout

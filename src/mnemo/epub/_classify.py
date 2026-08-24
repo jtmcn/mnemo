@@ -14,18 +14,21 @@ from mnemo.epub._models import (
 )
 
 
-def _classes(element: Tag) -> set[str]:
-    """CSS classes on a tag.
+def _classes(element: Tag) -> list[str]:
+    """CSS classes on a tag, in document order.
 
     bs4 types the `class` attribute as str | AttributeValueList | None; the
-    str case would otherwise be iterated character by character.
+    str case would otherwise be iterated character by character. Order matters
+    to _detect_code_language, which returns the first language it recognises,
+    so this stays a list — a set would make the winner depend on the process
+    hash seed when a tag carries two language-bearing classes.
     """
     value = element.get("class")
     if value is None:
-        return set()
+        return []
     if isinstance(value, str):
-        return {value}
-    return {cls for cls in value if isinstance(cls, str)}
+        return [value]
+    return [cls for cls in value if isinstance(cls, str)]
 
 
 def _is_code_block(element: Tag) -> bool:
@@ -50,7 +53,7 @@ def _is_code_block(element: Tag) -> bool:
             return True
 
         # Check for code-related classes
-        classes = _classes(element)
+        classes = set(_classes(element))
         if classes & CODE_CLASSES:
             return True
 
@@ -85,7 +88,7 @@ def _is_diagram(element: Tag) -> bool:
     if tag_name != "pre":
         return False
 
-    classes = _classes(element)
+    classes = set(_classes(element))
     if classes & DIAGRAM_CLASSES:
         return True
 
@@ -148,7 +151,7 @@ def _is_math(element: Tag) -> bool:
         return True
 
     # Class-based detection
-    classes = _classes(element)
+    classes = set(_classes(element))
     if classes & MATH_CLASSES:
         return True
 
