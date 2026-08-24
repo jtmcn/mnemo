@@ -1048,7 +1048,7 @@ class TestFilePath:
 
     def test_get_book_info_shows_file_path(self):
         """get_book_info should show file_path when present."""
-        from mnemo.mcp.tools import _get_book_info_impl
+        from mnemo.mcp.tools_metadata import _get_book_info_impl
 
         book = Book(
             id="abc123",

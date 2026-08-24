@@ -79,7 +79,7 @@ def add(
     everything for search. Supports .epub and .docx files.
     """
     from mnemo.ingest import ingest_book
-    from mnemo.services.book_service import find_duplicate, validate_book_path
+    from mnemo.services.book_service import validate_book_path
     from mnemo.storage import BookRepository, get_connection, init_db
 
     results = []
@@ -103,7 +103,7 @@ def add(
         import hashlib
 
         file_hash = hashlib.sha256(path.read_bytes()).hexdigest()
-        existing = find_duplicate(book_repo, file_hash)
+        existing = book_repo.get_by_hash(file_hash)
         conn.close()
 
         should_force = force

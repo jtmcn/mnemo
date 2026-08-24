@@ -351,3 +351,25 @@ class TestPersistence:
         store2 = VectorStore(config)
         assert store2.count() == 1
         store2.close()
+
+
+class TestNoSectionFilter:
+    """The section filter was dead code using a document-only Chroma operator."""
+
+    def test_query_has_no_section_parameter(self):
+        """VectorStore.query no longer accepts a section argument."""
+        import inspect
+
+        from mnemo.vectors.store import VectorStore
+
+        params = list(inspect.signature(VectorStore.query).parameters)
+        assert params == ["self", "query_embedding", "n_results", "book_id", "content_type"]
+
+    def test_build_where_has_no_section_parameter(self):
+        """_build_where takes exactly book_id and content_type."""
+        import inspect
+
+        from mnemo.vectors.store import VectorStore
+
+        params = list(inspect.signature(VectorStore._build_where).parameters)
+        assert params == ["self", "book_id", "content_type"]
