@@ -22,12 +22,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# ponytail: kept as a permanently-None legacy guard so the invalidate-if-already-
-# instantiated checks below (and test_add_book_clears_search_cache's direct
-# patching of this attribute) keep working; real service access goes through
-# mnemo.mcp._deps now.
-_search_service: SearchService | None = None
-
 # Implementation functions (testable directly via DI)
 
 
@@ -149,9 +143,7 @@ def _add_book_impl(
             return f"Error: Failed to add book: {e}"
 
         # Invalidate search cache
-        global _search_service
-        if _search_service is not None:
-            _search_service.invalidate_cache()
+        make_search_service().invalidate_cache()
 
         # Return success message
         authors_str = ", ".join(book.authors) if book.authors else "Unknown"
@@ -376,7 +368,7 @@ def remove_book(book_id: str) -> str:
         book_id,
         make_book_repo(),
         make_chunk_repo(),
-        make_search_service() if _search_service is not None else None,
+        make_search_service(),
     )
 
 
@@ -407,7 +399,7 @@ async def reindex_all_books(
         result = await asyncio.wait_for(
             asyncio.to_thread(
                 _reindex_all_books_impl,
-                make_search_service() if _search_service is not None else None,
+                make_search_service(),
             ),
             timeout=900,  # 15 minutes
         )

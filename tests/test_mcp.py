@@ -1046,9 +1046,7 @@ class TestAddBookIntegration:
         assert "Error" not in result
 
     def test_add_book_clears_search_cache(self, tmp_path, temp_db):
-        """Successful add calls invalidate_cache on the search service."""
-        import mnemo.mcp.tools_books as tools_books_mod
-
+        """Successful add calls invalidate_cache on the shared search service."""
         epub_file = tmp_path / "book.epub"
         epub_file.write_bytes(b"fake epub content")
 
@@ -1057,33 +1055,25 @@ class TestAddBookIntegration:
             id="aaa123", file_hash="e" * 64, title="New Book", authors=["Author"]
         )
 
-        original_service = tools_books_mod._search_service
-
-        # Set up mock search service on the domain module
-        # Note: production code never populates this global (see
-        # .planning/codebase/CONCERNS.md "Search Cache Never Invalidated").
         mock_service = MagicMock()
-        tools_books_mod._search_service = mock_service
 
-        try:
-            with (
-                patch(
-                    "mnemo.mcp.tools_books.get_connection",
-                    side_effect=self._make_conn_factory(temp_db),
-                ),
-                patch("mnemo.mcp.tools_books.init_db"),
-                patch(
-                    "mnemo.ingest.ingest_book",
-                    return_value=(mock_result_book, 10),
-                ),
-            ):
-                from mnemo.mcp.tools_books import _add_book_impl
+        with (
+            patch(
+                "mnemo.mcp.tools_books.get_connection",
+                side_effect=self._make_conn_factory(temp_db),
+            ),
+            patch("mnemo.mcp.tools_books.init_db"),
+            patch(
+                "mnemo.ingest.ingest_book",
+                return_value=(mock_result_book, 10),
+            ),
+            patch("mnemo.mcp.tools_books.make_search_service", return_value=mock_service),
+        ):
+            from mnemo.mcp.tools_books import _add_book_impl
 
-                _add_book_impl(str(epub_file), False, mock_pre_parsed)
+            _add_book_impl(str(epub_file), False, mock_pre_parsed)
 
-            mock_service.invalidate_cache.assert_called()
-        finally:
-            tools_books_mod._search_service = original_service
+        mock_service.invalidate_cache.assert_called()
 
     def test_add_book_cleans_up_on_failure(self, tmp_path, temp_db):
         """Failed ingestion cleans up partial data."""
@@ -2282,3 +2272,67 @@ class TestShimRemoved:
 
         with pytest.raises(ImportError):
             import mnemo.mcp.tools  # noqa: F401
+
+
+class TestSearchCacheInvalidationThroughWrappers:
+    """The @mcp.tool wrappers invalidate the cache, not just the _impl functions.
+
+    Regression test for #5: these wrappers used to gate invalidation on a
+    module-level global that nothing ever assigned, so the cache was never
+    cleared in a live server. The _impl-level tests missed it because they
+    pass a mock search_service in directly.
+    """
+
+    def test_remove_book_wrapper_invalidates(self):
+        from mnemo.mcp.tools_books import remove_book
+
+        mock_service = MagicMock()
+        book_repo = MagicMock()
+        book_repo.get.return_value = MagicMock(id="abc123", title="T", authors=["A"])
+        chunk_repo = MagicMock()
+        chunk_repo.count_by_book.return_value = 3
+
+        with (
+            patch("mnemo.mcp.tools_books.make_search_service", return_value=mock_service),
+            patch("mnemo.mcp.tools_books.make_book_repo", return_value=book_repo),
+            patch("mnemo.mcp.tools_books.make_chunk_repo", return_value=chunk_repo),
+            patch("mnemo.ingest.remove_book", return_value=True),
+        ):
+            result = remove_book.fn("abc123")
+
+        assert "Removed" in result
+        mock_service.invalidate_cache.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_reindex_wrapper_invalidates(self):
+        from mnemo.mcp.tools_books import reindex_all_books
+
+        mock_service = MagicMock()
+        mock_results = [
+            {"book_id": "abc123", "title": "T", "status": "success", "chunks": 10, "error": None},
+        ]
+
+        with (
+            patch("mnemo.mcp.tools_books.make_search_service", return_value=mock_service),
+            patch("mnemo.ingest.reindex_all_books", return_value=mock_results),
+        ):
+            await reindex_all_books.fn(ctx=AsyncMock())
+
+        mock_service.invalidate_cache.assert_called()
+
+    def test_update_book_metadata_wrapper_invalidates(self):
+        from mnemo.mcp.tools_metadata import update_book_metadata
+
+        mock_service = MagicMock()
+        book_repo = MagicMock()
+        book_repo.update.return_value = MagicMock(id="abc123")
+
+        with (
+            patch("mnemo.mcp.tools_metadata.make_search_service", return_value=mock_service),
+            patch("mnemo.mcp.tools_metadata.make_book_repo", return_value=book_repo),
+            patch("mnemo.mcp.tools_metadata.make_chunk_repo", return_value=MagicMock()),
+            patch("mnemo.mcp.tools_metadata._get_book_info_impl", return_value="info"),
+        ):
+            update_book_metadata.fn("abc123", title="New Title")
+
+        mock_service.invalidate_cache.assert_called()

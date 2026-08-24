@@ -17,10 +17,6 @@ from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_
 
 logger = logging.getLogger(__name__)
 
-# ponytail: permanently-None legacy guard for the invalidate-if-already-
-# instantiated checks below; real service access goes through mnemo.mcp._deps now.
-_search_service: SearchService | None = None
-
 # Implementation functions (testable directly via DI)
 
 
@@ -253,9 +249,7 @@ def _enrich_book_impl(book_id: str, apply: bool = False) -> str:
             if update_kwargs:
                 book_repo.update(book_id=book_id, **update_kwargs)
 
-                global _search_service
-                if _search_service is not None:
-                    _search_service.invalidate_cache()
+                make_search_service().invalidate_cache()
 
                 fields = ", ".join(update_kwargs.keys())
                 lines.append("")
@@ -369,7 +363,7 @@ def update_book_metadata(
         book_id,
         make_book_repo(),
         make_chunk_repo(),
-        make_search_service() if _search_service is not None else None,
+        make_search_service(),
         title,
         authors,
         isbn,
