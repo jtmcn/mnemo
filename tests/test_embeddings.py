@@ -27,6 +27,11 @@ class TestEmbeddingConfig:
         assert config.api_key == "test-token"
         assert config.model == "custom-embed"
 
+    def test_from_env_ignores_empty_model(self, monkeypatch):
+        """An exported-but-empty model falls back instead of POSTing model=''."""
+        monkeypatch.setenv("MNEMO_EMBED_MODEL", "")
+        assert EmbeddingConfig.from_env().model == "text-embedding-3-small"
+
     def test_from_env_adds_scheme(self, monkeypatch):
         """A bare host gets an https:// prefix."""
         monkeypatch.setenv("MNEMO_EMBED_BASE_URL", "api.example.com/v1")

@@ -22,8 +22,9 @@ class Embedder:
     """Client for any OpenAI-compatible /embeddings endpoint.
 
     Dimension is whatever the configured model returns; ChromaDB locks it in
-    on first insert and rejects mismatches afterwards. Switching models means
-    `mnemo reindex --force` (or a fresh collection).
+    on the collection and rejects mismatches afterwards. Deleting the records
+    does not release the lock, so switching models means deleting the
+    collection: `rm -rf ~/.mnemo/chroma && mnemo reindex`.
 
     Note: embeddings are NOT assumed to be normalized. VectorStore
     L2-normalizes before storage for cosine similarity.

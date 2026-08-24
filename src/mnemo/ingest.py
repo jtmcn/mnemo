@@ -281,16 +281,19 @@ def reindex_all_books(
         and reported as "skipped".
 
     Raises:
-        ValueError: embed=True with no embedding credentials configured. Raised
-            before any book is touched, since reindexing is destructive.
+        ValueError: embed=True with no embedding endpoint configured.
+        httpx.HTTPError: embed=True with an endpoint that rejects a probe
+            request (bad key, unknown model, unreachable host). Both are
+            raised before any book is touched, since reindexing is destructive.
     """
     # ingest_book deletes a book's existing vectors before re-embedding it
-    # (step 5), so reindexing without credentials would strip the whole
-    # library's vectors one book at a time. Fail before touching anything.
+    # (step 5), so a provider that fails mid-run strips the library one book at
+    # a time. A real round-trip is the only preflight that catches a bad key or
+    # model, not just a missing base URL. Costs one embedding of one word.
     if embed:
         from mnemo.embeddings import Embedder
 
-        Embedder()
+        Embedder().embed_one("preflight")
 
     init_db(db_path)
     conn = get_connection(db_path)

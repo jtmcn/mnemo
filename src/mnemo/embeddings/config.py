@@ -27,5 +27,5 @@ class EmbeddingConfig:
         return cls(
             base_url=base_url,
             api_key=os.environ.get("MNEMO_EMBED_API_KEY", ""),
-            model=os.environ.get("MNEMO_EMBED_MODEL", cls.model),
+            model=os.environ.get("MNEMO_EMBED_MODEL") or cls.model,
         )

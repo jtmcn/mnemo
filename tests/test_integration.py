@@ -484,7 +484,11 @@ class TestEmbeddingFailureIsPartialSuccess:
         monkeypatch.setenv("MNEMO_EMBED_BASE_URL", "https://example.invalid/v1")
         monkeypatch.setenv("MNEMO_EMBED_API_KEY", "token")
 
-        with patch("mnemo.ingest.embed_book", side_effect=RuntimeError("service down")):
+        # Preflight passes, then the provider dies mid-run.
+        with (
+            patch("mnemo.embeddings.Embedder"),
+            patch("mnemo.ingest.embed_book", side_effect=RuntimeError("service down")),
+        ):
             results = reindex_all_books(db_path=temp_db, embed=True)
 
         assert len(results) == 1
@@ -515,15 +519,46 @@ class TestEmbeddingFailureIsPartialSuccess:
 
         mock_ingest.assert_not_called()
 
+    def test_reindex_aborts_before_touching_anything_on_a_bad_key(
+        self, sample_epub, temp_db, monkeypatch
+    ):
+        """A configured endpoint that rejects the probe aborts the run.
+
+        A base URL alone proves nothing — the key can be a placeholder and the
+        model can be wrong. Reindexing on that would delete book 1's vectors
+        before the 401 arrived, so the probe has to be a real round-trip.
+        """
+        from unittest.mock import MagicMock, patch
+
+        import httpx
+
+        ingest_book(sample_epub, temp_db, embed=False)
+
+        monkeypatch.setenv("MNEMO_EMBED_BASE_URL", "https://api.openai.com/v1")
+        monkeypatch.setenv("MNEMO_EMBED_API_KEY", "your-api-key")
+
+        unauthorized = httpx.HTTPStatusError(
+            "Unauthorized", request=MagicMock(), response=MagicMock(status_code=401)
+        )
+        with (
+            patch("mnemo.embeddings.Embedder") as mock_embedder,
+            patch("mnemo.ingest.ingest_book") as mock_ingest,
+            pytest.raises(httpx.HTTPStatusError),
+        ):
+            mock_embedder.return_value.embed_one.side_effect = unauthorized
+            reindex_all_books(db_path=temp_db, embed=True)
+
+        mock_ingest.assert_not_called()
+
     def test_reindex_stops_after_the_first_embedding_failure(
         self, sample_epub, temp_db, tmp_path, monkeypatch
     ):
         """A systemic embedding failure must not strip the whole library.
 
         Each iteration deletes that book's vectors before re-embedding, so
-        carrying on past the first failure — an expired token, a provider
-        outage, neither visible to the credential preflight — would destroy
-        every book's vectors and rewrite none of them.
+        carrying on past the first failure — a provider that dies after the
+        preflight probe succeeded — would destroy every book's vectors and
+        rewrite none of them.
         """
         import shutil
         import zipfile
@@ -542,7 +577,10 @@ class TestEmbeddingFailureIsPartialSuccess:
         monkeypatch.setenv("MNEMO_EMBED_BASE_URL", "https://example.invalid/v1")
         monkeypatch.setenv("MNEMO_EMBED_API_KEY", "expired")
 
-        with patch("mnemo.ingest.embed_book", side_effect=RuntimeError("401")) as mock_embed:
+        with (
+            patch("mnemo.embeddings.Embedder"),
+            patch("mnemo.ingest.embed_book", side_effect=RuntimeError("401")) as mock_embed,
+        ):
             results = reindex_all_books(db_path=temp_db, embed=True)
 
         # Only the first book was attempted; the second was left alone.

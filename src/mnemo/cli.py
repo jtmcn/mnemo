@@ -17,6 +17,7 @@ import json
 from pathlib import Path
 from typing import Annotated, Any
 
+import httpx
 import typer
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -456,8 +457,8 @@ def reindex(
         progress.add_task(description="Reindexing all books...", total=None)
         try:
             results = reindex_all_books(embed=True)
-        except ValueError as e:
-            # Only the credential preflight escapes as a ValueError (per-book
+        except (ValueError, httpx.HTTPError) as e:
+            # Only the embedding preflight escapes here (per-book
             # EmbeddingFailed is handled inside reindex_all_books), so nothing
             # has been touched. Report after the spinner stops.
             preflight_error = str(e)
