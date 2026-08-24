@@ -583,3 +583,133 @@ class TestBookServiceSurface:
         good = tmp_path / "book.epub"
         good.write_text("x")
         assert validate_book_path(good) is None
+
+
+class TestAddPartialEmbedding:
+    """`mnemo add` reports a stored-but-unembedded book as partial success.
+
+    Regression test for #6: ingest_book commits the book before embedding, so
+    an embedding failure used to print an error and exit 1 while leaving a
+    durable book behind — and the retry then reported it as a duplicate.
+    """
+
+    @patch("mnemo.ingest.ingest_book")
+    @patch("mnemo.storage.repository.BookRepository.get_by_hash", return_value=None)
+    @patch("mnemo.services.book_service.validate_book_path", return_value=None)
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    def test_add_exits_zero_and_warns_when_embedding_fails(
+        self, mock_init, mock_conn, mock_validate, mock_get_by_hash, mock_ingest, tmp_path
+    ) -> None:
+        from mnemo.ingest import EmbeddingFailed
+        from mnemo.models import Book
+
+        epub = tmp_path / "book.epub"
+        epub.write_bytes(b"fake content")
+
+        book = Book(
+            id="abc123",
+            title="Test",
+            authors=["A"],
+            file_hash="a" * 64,
+            structure_source="toc",
+        )
+        mock_ingest.side_effect = EmbeddingFailed(
+            book, 8, ValueError("DATABRICKS_HOST and DATABRICKS_TOKEN must be set")
+        )
+
+        result = runner.invoke(app, ["add", str(epub)])
+
+        assert result.exit_code == 0
+        assert "Added" in result.stdout
+        assert "Embeddings skipped" in result.stdout
+        assert "mnemo reindex" in result.stdout
+
+    @patch("mnemo.ingest.ingest_book")
+    @patch("mnemo.storage.repository.BookRepository.get_by_hash", return_value=None)
+    @patch("mnemo.services.book_service.validate_book_path", return_value=None)
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    def test_add_json_marks_book_unembedded(
+        self, mock_init, mock_conn, mock_validate, mock_get_by_hash, mock_ingest, tmp_path
+    ) -> None:
+        from mnemo.ingest import EmbeddingFailed
+        from mnemo.models import Book
+
+        epub = tmp_path / "book.epub"
+        epub.write_bytes(b"fake content")
+
+        book = Book(
+            id="abc123", title="Test", authors=[], file_hash="a" * 64, structure_source="toc"
+        )
+        mock_ingest.side_effect = EmbeddingFailed(book, 8, ValueError("no credentials"))
+
+        result = runner.invoke(app, ["add", str(epub), "--json"])
+
+        assert result.exit_code == 0
+        payload = json.loads(result.stdout)
+        assert payload[0]["embedded"] is False
+        assert payload[0]["chunks"] == 8
+        assert "no credentials" in payload[0]["embed_error"]
+
+    @patch("mnemo.ingest.ingest_book")
+    @patch("mnemo.storage.repository.BookRepository.get_by_hash", return_value=None)
+    @patch("mnemo.services.book_service.validate_book_path", return_value=None)
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    def test_add_json_marks_book_embedded_on_success(
+        self, mock_init, mock_conn, mock_validate, mock_get_by_hash, mock_ingest, tmp_path
+    ) -> None:
+        from mnemo.models import Book
+
+        epub = tmp_path / "book.epub"
+        epub.write_bytes(b"fake content")
+
+        book = Book(
+            id="abc123", title="Test", authors=[], file_hash="a" * 64, structure_source="toc"
+        )
+        mock_ingest.return_value = (book, 8)
+
+        result = runner.invoke(app, ["add", str(epub), "--json"])
+
+        assert result.exit_code == 0
+        assert json.loads(result.stdout)[0]["embedded"] is True
+
+
+class TestListCheckEmbeddings:
+    """`mnemo list --check-embeddings` distinguishes embedded from keyword-only books."""
+
+    @patch("mnemo.cli._embedded_book_ids")
+    @patch("mnemo.storage.repository.BookRepository.list_all")
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    def test_list_flags_books_without_embeddings(
+        self, mock_init, mock_conn, mock_list_all, mock_embedded
+    ) -> None:
+        from mnemo.models import Book
+
+        mock_list_all.return_value = [
+            Book(id="abc123", title="Has", authors=[], file_hash="a" * 64, structure_source="toc"),
+            Book(
+                id="def456", title="Lacks", authors=[], file_hash="b" * 64, structure_source="toc"
+            ),
+        ]
+        mock_embedded.return_value = {"abc123"}
+
+        result = runner.invoke(app, ["list", "--check-embeddings", "--json"])
+
+        assert result.exit_code == 0
+        payload = {b["id"]: b["embedded"] for b in json.loads(result.stdout)}
+        assert payload == {"abc123": True, "def456": False}
+
+    @patch("mnemo.cli._embedded_book_ids")
+    @patch("mnemo.storage.repository.BookRepository.list_all", return_value=[])
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    def test_list_without_flag_never_touches_chromadb(
+        self, mock_init, mock_conn, mock_list_all, mock_embedded
+    ) -> None:
+        result = runner.invoke(app, ["list", "--json"])
+
+        assert result.exit_code == 0
+        mock_embedded.assert_not_called()

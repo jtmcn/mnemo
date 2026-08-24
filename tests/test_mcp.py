@@ -1112,6 +1112,45 @@ class TestAddBookIntegration:
         assert "Embedding failed" in result
         mock_remove.assert_called_once_with("bbb001")
 
+    def test_add_book_keeps_book_when_only_embedding_failed(self, tmp_path, temp_db):
+        """EmbeddingFailed is partial success: keep the book, report the gap (#6).
+
+        A generic ingest error still rolls back (test above); only the
+        commit-then-embed-failed case survives.
+        """
+        from mnemo.ingest import EmbeddingFailed
+        from mnemo.mcp.tools_books import _add_book_impl
+
+        epub_file = tmp_path / "book.epub"
+        epub_file.write_bytes(b"fake epub content")
+
+        mock_pre_parsed = self._make_mock_book(file_hash="9" * 64)
+        stored_book = self._make_mock_book(
+            id="ccc002", file_hash="9" * 64, title="Keyword Only", authors=["A"]
+        )
+
+        with (
+            patch(
+                "mnemo.mcp.tools_books.get_connection",
+                side_effect=self._make_conn_factory(temp_db),
+            ),
+            patch("mnemo.mcp.tools_books.init_db"),
+            patch(
+                "mnemo.ingest.ingest_book",
+                side_effect=EmbeddingFailed(stored_book, 8, ValueError("no credentials")),
+            ),
+            patch("mnemo.mcp.tools_books.make_search_service", return_value=MagicMock()),
+            patch("mnemo.ingest.remove_book") as mock_remove,
+        ):
+            result = _add_book_impl(str(epub_file), False, mock_pre_parsed)
+
+        assert "Added" in result
+        assert "Keyword Only" in result
+        assert "8 chunks" in result
+        assert "embeddings were skipped" in result
+        assert "no credentials" in result
+        mock_remove.assert_not_called()
+
 
 class TestAddBookCollection:
     """Tests for collection parameter in MCP add_book."""
