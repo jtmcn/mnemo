@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from rich.console import Console
@@ -251,7 +251,7 @@ def list_books(
     if json_output:
         result = []
         for book in books:
-            entry = {
+            entry: dict[str, Any] = {
                 "id": book.id,
                 "title": book.title,
                 "authors": book.authors,

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Literal, TypedDict, TypeVar
 
 from mnemo.chunking import Chunker, ChunkerConfig
 from mnemo.models import Book, is_boilerplate_section
@@ -15,6 +16,18 @@ from mnemo.parsing import parse_book
 from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_db
 
 logger = __import__("logging").getLogger(__name__)
+
+T = TypeVar("T")
+
+
+class ReindexResult(TypedDict):
+    """Per-book outcome from reindex_all_books."""
+
+    book_id: str
+    title: str
+    status: Literal["success", "skipped", "failed"]
+    chunks: int
+    error: str | None
 
 
 class EmbeddingFailed(Exception):
@@ -32,7 +45,7 @@ class EmbeddingFailed(Exception):
         self.chunk_count = chunk_count
 
 
-def _batch_items(items: list, batch_size: int = 50) -> Iterator[list]:
+def _batch_items(items: list[T], batch_size: int = 50) -> Iterator[list[T]]:
     """Yield successive batches of items."""
     for i in range(0, len(items), batch_size):
         yield items[i : i + batch_size]
@@ -231,7 +244,7 @@ def reindex_all_books(
     chroma_path: Path | None = None,
     chunker_config: ChunkerConfig | None = None,
     embed: bool = True,
-) -> list[dict]:
+) -> list[ReindexResult]:
     """Re-ingest all books in the library.
 
     Iterates over all indexed books, validates their file paths still exist,
@@ -253,7 +266,7 @@ def reindex_all_books(
     books = book_repo.list_all()
     conn.close()
 
-    results: list[dict] = []
+    results: list[ReindexResult] = []
 
     for book in books:
         book_file = book.file_path

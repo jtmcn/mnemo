@@ -206,7 +206,9 @@ class Chunk(BaseModel):
     prev_chunk_id: str | None = None
     next_chunk_id: str | None = None
 
-    @computed_field
+    # mypy can't see through a decorator stacked on @property (python/mypy#1362);
+    # pydantic documents this ignore as the workaround for @computed_field.
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def is_code(self) -> bool:
         """Check if this chunk contains code content.

@@ -11,8 +11,8 @@ import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
-from ebooklib import epub
+from bs4 import BeautifulSoup, Tag, XMLParsedAsHTMLWarning
+from ebooklib import epub  # type: ignore[import-untyped]
 
 # EPUB content is XHTML but lxml HTML parser handles real-world EPUBs better
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
@@ -23,9 +23,21 @@ from mnemo.models import Book  # noqa: E402
 from mnemo.parsing.models import ContentBlock  # noqa: E402
 
 if TYPE_CHECKING:
-    from ebooklib.epub import EpubBook
+    from ebooklib.epub import EpubBook  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
+
+
+def _attr(tag: Tag, name: str) -> str:
+    """Single-valued attribute as a str.
+
+    bs4 types every attribute as str | AttributeValueList because some (class,
+    rel) are multi-valued; href and src never are.
+    """
+    value = tag.get(name, "")
+    if isinstance(value, str):
+        return value
+    return " ".join(value) if value else ""
 
 
 class EPUBParser:
@@ -164,15 +176,15 @@ class EPUBParser:
             return {}
 
         toc_mapping: dict[str, list[str]] = {}
-        ol = nav.find("ol")
-        if ol:
+        ol = nav.find("ol") if isinstance(nav, Tag) else None
+        if isinstance(ol, Tag):
             self._parse_nav_ol(ol, [], toc_mapping)
 
         return toc_mapping
 
     def _parse_nav_ol(
         self,
-        ol_element: object,
+        ol_element: Tag,
         current_path: list[str],
         mapping: dict[str, list[str]],
     ) -> None:
@@ -189,7 +201,7 @@ class EPUBParser:
             if not a:
                 continue
 
-            href = a.get("href", "")
+            href = _attr(a, "href")
             title = a.get_text(strip=True)
 
             if not href or not title:
@@ -207,7 +219,7 @@ class EPUBParser:
 
             # Process nested items
             nested_ol = li.find("ol")
-            if nested_ol:
+            if isinstance(nested_ol, Tag):
                 self._parse_nav_ol(nested_ol, item_path, mapping)
 
     def _parse_epub2_ncx(self, epub_book: EpubBook) -> dict[str, list[str]]:
@@ -240,14 +252,14 @@ class EPUBParser:
 
         toc_mapping: dict[str, list[str]] = {}
         nav_map = soup.find("navMap")
-        if nav_map:
+        if isinstance(nav_map, Tag):
             self._parse_ncx_navpoint(nav_map, [], toc_mapping)
 
         return toc_mapping
 
     def _parse_ncx_navpoint(
         self,
-        element: object,
+        element: Tag,
         current_path: list[str],
         mapping: dict[str, list[str]],
     ) -> None:
@@ -266,7 +278,7 @@ class EPUBParser:
 
             # Get content href
             content = navpoint.find("content")
-            href = content.get("src", "") if content else ""
+            href = _attr(content, "src") if isinstance(content, Tag) else ""
 
             if not href or not title:
                 continue
