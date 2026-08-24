@@ -296,7 +296,7 @@ class TestSearchServiceMocked:
 
     @pytest.fixture
     def mock_embedder(self):
-        """Create mock DatabricksEmbedder."""
+        """Create mock Embedder."""
         embedder = MagicMock()
         embedder.embed_one.return_value = [0.1] * 1024
         return embedder

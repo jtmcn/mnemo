@@ -293,7 +293,7 @@ def list_books(
         if missing:
             console.print(
                 f"[yellow]{missing} book(s) have no embeddings (keyword search only). "
-                f"Set DATABRICKS_HOST/DATABRICKS_TOKEN, then run `mnemo reindex`.[/yellow]"
+                f"Set MNEMO_EMBED_BASE_URL/MNEMO_EMBED_API_KEY, then run `mnemo reindex`.[/yellow]"
             )
 
 

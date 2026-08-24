@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from mnemo.embeddings import DatabricksEmbedder, EmbeddingConfig
+from mnemo.embeddings import Embedder, EmbeddingConfig
 
 
 class TestEmbeddingConfig:
@@ -14,73 +14,71 @@ class TestEmbeddingConfig:
     def test_default_values(self):
         """Config has sensible defaults."""
         config = EmbeddingConfig()
-        assert config.model == "databricks-gte-large-en"
-        assert config.batch_size == 50
-        assert config.max_retries == 5
+        assert config.model == "text-embedding-3-small"
         assert config.timeout == 30.0
 
     def test_from_env(self, monkeypatch):
         """Config loads from environment."""
-        monkeypatch.setenv("DATABRICKS_HOST", "https://test.databricks.com")
-        monkeypatch.setenv("DATABRICKS_TOKEN", "test-token")
+        monkeypatch.setenv("MNEMO_EMBED_BASE_URL", "https://api.example.com/v1")
+        monkeypatch.setenv("MNEMO_EMBED_API_KEY", "test-token")
+        monkeypatch.setenv("MNEMO_EMBED_MODEL", "custom-embed")
         config = EmbeddingConfig.from_env()
-        assert config.host == "https://test.databricks.com"
-        assert config.token == "test-token"
+        assert config.base_url == "https://api.example.com/v1"
+        assert config.api_key == "test-token"
+        assert config.model == "custom-embed"
+
+    def test_from_env_adds_scheme(self, monkeypatch):
+        """A bare host gets an https:// prefix."""
+        monkeypatch.setenv("MNEMO_EMBED_BASE_URL", "api.example.com/v1")
+        assert EmbeddingConfig.from_env().base_url == "https://api.example.com/v1"
 
     def test_from_env_missing(self, monkeypatch):
         """Config handles missing env vars."""
-        monkeypatch.delenv("DATABRICKS_HOST", raising=False)
-        monkeypatch.delenv("DATABRICKS_TOKEN", raising=False)
+        monkeypatch.delenv("MNEMO_EMBED_BASE_URL", raising=False)
+        monkeypatch.delenv("MNEMO_EMBED_API_KEY", raising=False)
         config = EmbeddingConfig.from_env()
-        assert config.host == ""
-        assert config.token == ""
+        assert config.base_url == ""
+        assert config.api_key == ""
 
 
-class TestDatabricksEmbedder:
-    """Tests for DatabricksEmbedder."""
+class TestEmbedder:
+    """Tests for Embedder."""
 
     @pytest.fixture
     def config(self):
         """Valid test configuration."""
         return EmbeddingConfig(
-            host="https://test.databricks.com",
-            token="test-token",
+            base_url="https://api.example.com/v1",
+            api_key="test-token",
         )
 
     @pytest.fixture
     def embedder(self, config):
         """Embedder with test config."""
-        return DatabricksEmbedder(config)
+        return Embedder(config)
 
-    def test_init_requires_credentials(self):
-        """Init raises without credentials."""
-        with pytest.raises(ValueError, match="DATABRICKS_HOST"):
-            DatabricksEmbedder(EmbeddingConfig())
+    def test_init_requires_base_url(self):
+        """Init raises without a configured endpoint."""
+        with pytest.raises(ValueError, match="MNEMO_EMBED_BASE_URL"):
+            Embedder(EmbeddingConfig())
+
+    def test_init_allows_missing_api_key(self):
+        """Local providers (Ollama etc.) need no key."""
+        assert Embedder(EmbeddingConfig(base_url="http://localhost:11434/v1")).url
 
     def test_url_construction(self, embedder):
         """URL is constructed correctly."""
-        assert (
-            embedder.url
-            == "https://test.databricks.com/serving-endpoints/databricks-gte-large-en/invocations"
-        )
+        assert embedder.url == "https://api.example.com/v1/embeddings"
 
     def test_url_strips_trailing_slash(self):
         """URL construction handles trailing slash."""
-        config = EmbeddingConfig(
-            host="https://test.databricks.com/",
-            token="test-token",
-        )
-        embedder = DatabricksEmbedder(config)
-        assert "com/serving" in embedder.url  # Not com//serving
+        config = EmbeddingConfig(base_url="https://api.example.com/v1/")
+        assert Embedder(config).url == "https://api.example.com/v1/embeddings"
 
     def test_embed_batch_empty_raises(self, embedder):
         """Empty texts list raises ValueError."""
         with pytest.raises(ValueError, match="cannot be empty"):
             embedder.embed_batch([])
-
-    def test_embedding_dimension_constant(self):
-        """Embedding dimension is documented."""
-        assert DatabricksEmbedder.EMBEDDING_DIM == 1024
 
 
 class TestEmbedderWithMock:
@@ -89,8 +87,8 @@ class TestEmbedderWithMock:
     @pytest.fixture
     def config(self):
         return EmbeddingConfig(
-            host="https://test.databricks.com",
-            token="test-token",
+            base_url="https://api.example.com/v1",
+            api_key="test-token",
         )
 
     @pytest.fixture
@@ -114,13 +112,33 @@ class TestEmbedderWithMock:
             mock_resp.raise_for_status = MagicMock()
             mock_client.post.return_value = mock_resp
 
-            embedder = DatabricksEmbedder(config)
+            embedder = Embedder(config)
             result = embedder.embed_batch(["text1", "text2"])
 
             assert len(result) == 2
             assert len(result[0]) == 1024
             assert result[0][0] == 0.1
             assert result[1][0] == 0.2
+
+    def test_request_shape(self, config, mock_response):
+        """Model goes in the body, key in a Bearer header; no key means no header."""
+        with patch("httpx.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value.__enter__.return_value = mock_client
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = mock_response
+            mock_client.post.return_value = mock_resp
+
+            Embedder(config).embed_batch(["text1", "text2"])
+            kwargs = mock_client.post.call_args.kwargs
+            assert kwargs["json"] == {
+                "input": ["text1", "text2"],
+                "model": "text-embedding-3-small",
+            }
+            assert kwargs["headers"]["Authorization"] == "Bearer test-token"
+
+            Embedder(EmbeddingConfig(base_url="http://localhost:11434/v1")).embed_batch(["t"])
+            assert "Authorization" not in mock_client.post.call_args.kwargs["headers"]
 
     def test_embed_batch_maintains_order(self, config):
         """Embeddings are returned in input order even if API returns out of order."""
@@ -140,7 +158,7 @@ class TestEmbedderWithMock:
             mock_resp.raise_for_status = MagicMock()
             mock_client.post.return_value = mock_resp
 
-            embedder = DatabricksEmbedder(config)
+            embedder = Embedder(config)
             result = embedder.embed_batch(["first", "second"])
 
             # Should be sorted by index
@@ -160,7 +178,7 @@ class TestEmbedderWithMock:
             mock_resp.raise_for_status = MagicMock()
             mock_client.post.return_value = mock_resp
 
-            embedder = DatabricksEmbedder(config)
+            embedder = Embedder(config)
             result = embedder.embed_one("single text")
 
             assert len(result) == 1024
@@ -173,8 +191,8 @@ class TestRetryBehavior:
     @pytest.fixture
     def config(self):
         return EmbeddingConfig(
-            host="https://test.databricks.com",
-            token="test-token",
+            base_url="https://api.example.com/v1",
+            api_key="test-token",
         )
 
     def test_retries_on_429(self, config):

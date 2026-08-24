@@ -70,7 +70,7 @@ def embed_book(
 ) -> int:
     """Generate and store embeddings for an already-ingested book.
 
-    Retrieves chunks from SQLite, generates embeddings via Databricks,
+    Retrieves chunks from SQLite, generates embeddings via the configured provider,
     and stores vectors in ChromaDB.
 
     Args:
@@ -86,7 +86,7 @@ def embed_book(
         ValueError: Book not found or embedding credentials not configured
     """
     # Lazy imports to avoid hard dependency on embedding modules
-    from mnemo.embeddings import DatabricksEmbedder
+    from mnemo.embeddings import Embedder
     from mnemo.vectors import VectorConfig, VectorStore
 
     # Load chunks from SQLite
@@ -111,7 +111,7 @@ def embed_book(
         raise NothingToEmbed(f"No embeddable chunks for book: {book_id} (all boilerplate)")
 
     # Initialize embedder (will raise if no credentials)
-    embedder = DatabricksEmbedder()
+    embedder = Embedder()
 
     # Initialize vector store
     vector_config = VectorConfig(persist_path=chroma_path)
@@ -288,9 +288,9 @@ def reindex_all_books(
     # (step 5), so reindexing without credentials would strip the whole
     # library's vectors one book at a time. Fail before touching anything.
     if embed:
-        from mnemo.embeddings import DatabricksEmbedder
+        from mnemo.embeddings import Embedder
 
-        DatabricksEmbedder()
+        Embedder()
 
     init_db(db_path)
     conn = get_connection(db_path)

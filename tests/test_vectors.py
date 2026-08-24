@@ -5,6 +5,7 @@ from pathlib import Path
 import chromadb
 import numpy as np
 import pytest
+from chromadb.errors import InvalidArgumentError
 
 from mnemo.vectors import VectorConfig, VectorStore
 
@@ -67,10 +68,6 @@ class TestVectorStore:
         assert store.collection is not None
         assert store.collection.name == "test"
 
-    def test_embedding_dim_constant(self):
-        """Embedding dimension is documented."""
-        assert VectorStore.EMBEDDING_DIM == 1024
-
     def test_add_empty_list(self, store):
         """Adding empty list is a no-op."""
         store.add([], [], [])
@@ -117,11 +114,12 @@ class TestVectorStore:
                 metadatas=[{"book_id": "abc123"}],
             )
 
-    def test_add_validates_dimension(self, store):
-        """Raises on wrong embedding dimension."""
-        with pytest.raises(ValueError, match="1024-dimensional"):
+    def test_add_rejects_mismatched_dimension(self, store, sample_embedding):
+        """ChromaDB locks dimension on first insert and rejects mismatches."""
+        store.add(["chunk-1"], [sample_embedding], [{"book_id": "abc123"}])
+        with pytest.raises(InvalidArgumentError, match="dimension"):
             store.add(
-                ids=["chunk-1"],
+                ids=["chunk-2"],
                 embeddings=[[0.1] * 512],  # Wrong dim
                 metadatas=[{"book_id": "abc123"}],
             )
@@ -224,9 +222,9 @@ class TestVectorStoreQuery:
         assert results[0]["metadata"]["book_id"] == "book1"
         assert results[0]["metadata"]["content_type"] == "text"
 
-    def test_query_validates_dimension(self, populated_store):
-        """Raises on wrong query dimension."""
-        with pytest.raises(ValueError, match="1024-dimensional"):
+    def test_query_rejects_mismatched_dimension(self, populated_store):
+        """ChromaDB rejects a query vector that doesn't match the collection."""
+        with pytest.raises(InvalidArgumentError, match="dimension"):
             populated_store.query(
                 query_embedding=[0.1] * 512,  # Wrong dim
                 n_results=10,

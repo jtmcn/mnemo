@@ -20,7 +20,7 @@ from mnemo.search.hybrid import reciprocal_rank_fusion
 from mnemo.search.models import ExpandedResult, SearchResult
 
 if TYPE_CHECKING:
-    from mnemo.embeddings.client import DatabricksEmbedder
+    from mnemo.embeddings.client import Embedder
     from mnemo.storage.repository import BookRepository, ChunkRepository
     from mnemo.vectors.store import VectorStore
 
@@ -97,7 +97,7 @@ class SearchService:
         self._chunk_repo: ChunkRepository | None = None
         self._book_repo: BookRepository | None = None
         self._vector_store: VectorStore | None = None
-        self._embedder: DatabricksEmbedder | None = None  # imported lazily
+        self._embedder: Embedder | None = None  # imported lazily
 
         # Cache for book lookups to avoid repeated queries
         self._book_cache: dict[str, str] = {}  # book_id -> title
@@ -733,12 +733,12 @@ class SearchService:
     def _get_query_embedding(self, query: str) -> list[float]:
         """Generate embedding for search query.
 
-        Lazy imports DatabricksEmbedder to avoid credential requirement at import time.
+        Lazy imports Embedder to avoid credential requirement at import time.
         """
         if self._embedder is None:
-            from mnemo.embeddings.client import DatabricksEmbedder
+            from mnemo.embeddings.client import Embedder
 
-            self._embedder = DatabricksEmbedder()
+            self._embedder = Embedder()
 
         return self._embedder.embed_one(query)
 

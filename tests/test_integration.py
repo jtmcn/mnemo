@@ -445,14 +445,14 @@ class TestEmbeddingFailureIsPartialSuccess:
         with (
             patch(
                 "mnemo.ingest.embed_book",
-                side_effect=ValueError("DATABRICKS_HOST and DATABRICKS_TOKEN must be set"),
+                side_effect=ValueError("MNEMO_EMBED_BASE_URL must be set"),
             ),
             pytest.raises(EmbeddingFailed) as exc_info,
         ):
             ingest_book(sample_epub, temp_db, embed=True)
 
         err = exc_info.value
-        assert "DATABRICKS_HOST" in str(err)
+        assert "MNEMO_EMBED_BASE_URL" in str(err)
         assert err.chunk_count > 0
         assert err.book.title == "Python Testing Guide"
 
@@ -481,8 +481,8 @@ class TestEmbeddingFailureIsPartialSuccess:
 
         ingest_book(sample_epub, temp_db, embed=False)
 
-        monkeypatch.setenv("DATABRICKS_HOST", "https://example.invalid")
-        monkeypatch.setenv("DATABRICKS_TOKEN", "token")
+        monkeypatch.setenv("MNEMO_EMBED_BASE_URL", "https://example.invalid/v1")
+        monkeypatch.setenv("MNEMO_EMBED_API_KEY", "token")
 
         with patch("mnemo.ingest.embed_book", side_effect=RuntimeError("service down")):
             results = reindex_all_books(db_path=temp_db, embed=True)
@@ -504,12 +504,12 @@ class TestEmbeddingFailureIsPartialSuccess:
 
         ingest_book(sample_epub, temp_db, embed=False)
 
-        monkeypatch.delenv("DATABRICKS_HOST", raising=False)
-        monkeypatch.delenv("DATABRICKS_TOKEN", raising=False)
+        monkeypatch.delenv("MNEMO_EMBED_BASE_URL", raising=False)
+        monkeypatch.delenv("MNEMO_EMBED_API_KEY", raising=False)
 
         with (
             patch("mnemo.ingest.ingest_book") as mock_ingest,
-            pytest.raises(ValueError, match="DATABRICKS_HOST"),
+            pytest.raises(ValueError, match="MNEMO_EMBED_BASE_URL"),
         ):
             reindex_all_books(db_path=temp_db, embed=True)
 
@@ -539,8 +539,8 @@ class TestEmbeddingFailureIsPartialSuccess:
         ingest_book(sample_epub, temp_db, embed=False)
         ingest_book(second, temp_db, embed=False)
 
-        monkeypatch.setenv("DATABRICKS_HOST", "https://example.invalid")
-        monkeypatch.setenv("DATABRICKS_TOKEN", "expired")
+        monkeypatch.setenv("MNEMO_EMBED_BASE_URL", "https://example.invalid/v1")
+        monkeypatch.setenv("MNEMO_EMBED_API_KEY", "expired")
 
         with patch("mnemo.ingest.embed_book", side_effect=RuntimeError("401")) as mock_embed:
             results = reindex_all_books(db_path=temp_db, embed=True)
