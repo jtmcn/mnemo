@@ -519,7 +519,7 @@ class TestEnrichBookImpl:
     """Tests for the MCP tool implementation function."""
 
     def test_invalid_book_id(self) -> None:
-        from mnemo.mcp.tools import _enrich_book_impl
+        from mnemo.mcp.tools_metadata import _enrich_book_impl
 
         result = _enrich_book_impl("abc")
         assert result.startswith("Error:")
@@ -530,7 +530,7 @@ class TestEnrichBookImpl:
     def test_book_not_found(
         self, mock_repo_cls: MagicMock, mock_init: MagicMock, mock_conn: MagicMock
     ) -> None:
-        from mnemo.mcp.tools import _enrich_book_impl
+        from mnemo.mcp.tools_metadata import _enrich_book_impl
 
         mock_repo_cls.return_value.get.return_value = None
 
@@ -548,7 +548,7 @@ class TestEnrichBookImpl:
         mock_init: MagicMock,
         mock_conn: MagicMock,
     ) -> None:
-        from mnemo.mcp.tools import _enrich_book_impl
+        from mnemo.mcp.tools_metadata import _enrich_book_impl
         from mnemo.models import Book
 
         mock_book = Book(
@@ -592,7 +592,7 @@ class TestEnrichBookImpl:
         mock_init: MagicMock,
         mock_conn: MagicMock,
     ) -> None:
-        from mnemo.mcp.tools import _enrich_book_impl
+        from mnemo.mcp.tools_metadata import _enrich_book_impl
         from mnemo.models import Book
 
         mock_book = Book(
@@ -633,7 +633,7 @@ class TestEnrichBookImpl:
         mock_conn: MagicMock,
     ) -> None:
         """Apply prompt should appear when metadata differs, even if ISBN matches."""
-        from mnemo.mcp.tools import _enrich_book_impl
+        from mnemo.mcp.tools_metadata import _enrich_book_impl
         from mnemo.models import Book
 
         mock_book = Book(

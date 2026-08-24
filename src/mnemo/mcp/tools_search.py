@@ -4,10 +4,11 @@ Registers: search_books, get_book_structure, get_book_chunks
 """
 
 import logging
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 from mcp.types import ToolAnnotations
 
+from mnemo.mcp._deps import make_book_repo, make_chunk_repo, make_search_service
 from mnemo.mcp.formatters import (
     _format_enriched_results,
     _format_mixed_results,
@@ -15,43 +16,9 @@ from mnemo.mcp.formatters import (
 )
 from mnemo.mcp.server import mcp
 from mnemo.search import SearchService
-from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_db
-
-if TYPE_CHECKING:
-    pass
+from mnemo.storage import BookRepository, ChunkRepository
 
 logger = logging.getLogger(__name__)
-
-# Lazy-initialized services (avoid import-time DB connections)
-_search_service: SearchService | None = None
-_db_connection = None
-
-
-def _make_search_service() -> SearchService:
-    """Get or create SearchService (lazy init)."""
-    global _search_service
-    if _search_service is None:
-        _search_service = SearchService()
-    return _search_service
-
-
-def _make_book_repo() -> BookRepository:
-    """Get BookRepository (lazy init)."""
-    global _db_connection
-    if _db_connection is None:
-        init_db()
-        _db_connection = get_connection()
-    return BookRepository(_db_connection)
-
-
-def _make_chunk_repo() -> ChunkRepository:
-    """Get ChunkRepository (lazy init)."""
-    global _db_connection
-    if _db_connection is None:
-        init_db()
-        _db_connection = get_connection()
-    return ChunkRepository(_db_connection)
-
 
 # Implementation functions (testable directly via DI)
 
@@ -80,9 +47,10 @@ def _search_books_impl(
     context_window = min(max(0, context_window), 3)  # Clamp to 0-3
     max_chars = min(max(100, max_chars), 10000)  # Clamp to 100-10000
 
+    assert search_service is not None, "search_service is required"
+
     try:
-        service = search_service
-        results = service.search(
+        results = search_service.search(
             query=query,
             top_k=top_k,
             book_id=book_id,
@@ -95,7 +63,7 @@ def _search_books_impl(
 
         if not results:
             if section:
-                suggestions = service.suggest_sections(section, book_id)
+                suggestions = search_service.suggest_sections(section, book_id)
                 if suggestions:
                     quoted = ", ".join(f'"{s}"' for s in suggestions)
                     return (
@@ -120,7 +88,7 @@ def _search_books_impl(
         if small_indices:
             expanded_map: dict[int, dict] = {}
             for i in small_indices:
-                expanded_map[i] = service._expand_result_context(results[i], window=1)
+                expanded_map[i] = search_service._expand_result_context(results[i], window=1)
             return _format_mixed_results(results, expanded_map, max_chars)
 
         return _format_search_results(results, max_chars)
@@ -140,6 +108,9 @@ def _get_book_structure_impl(
 
     if not book_id or len(book_id) != 6:
         return "Error: book_id must be a 6-character identifier"
+
+    assert book_repo is not None, "book_repo is required"
+    assert chunk_repo is not None, "chunk_repo is required"
 
     try:
         book = book_repo.get(book_id)
@@ -188,6 +159,8 @@ def _get_book_chunks_impl(
 
     if end_sequence < start_sequence:
         return "Error: end_sequence must be >= start_sequence"
+
+    assert chunk_repo is not None, "chunk_repo is required"
 
     try:
         chunks = chunk_repo.get_chunk_range(book_id, start_sequence, end_sequence)
@@ -271,7 +244,7 @@ def search_books(
         context_window,
         max_chars,
         collection,
-        search_service=_make_search_service(),
+        search_service=make_search_service(),
     )
 
 
@@ -296,7 +269,7 @@ def get_book_structure(book_id: str) -> str:
     Returns:
         Indented markdown section outline, or an error message starting with "Error:"
     """
-    return _get_book_structure_impl(book_id, _make_book_repo(), _make_chunk_repo())
+    return _get_book_structure_impl(book_id, make_book_repo(), make_chunk_repo())
 
 
 @mcp.tool(
@@ -325,4 +298,4 @@ def get_book_chunks(
         Markdown-formatted chunks with content, section path, content type,
         and sequence number, or an error message starting with "Error:"
     """
-    return _get_book_chunks_impl(book_id, start_sequence, end_sequence, _make_chunk_repo())
+    return _get_book_chunks_impl(book_id, start_sequence, end_sequence, make_chunk_repo())
