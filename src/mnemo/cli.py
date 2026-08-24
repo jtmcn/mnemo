@@ -174,8 +174,8 @@ def add(
                 if embed_error:
                     console.print(
                         f"[yellow]Embeddings skipped:[/yellow] {embed_error}\n"
-                        f"[yellow]Keyword search works now. "
-                        f"Run `mnemo reindex` to add semantic search.[/yellow]"
+                        f"[yellow]Keyword search works now. Re-run "
+                        f"`mnemo add --force {path}` to add semantic search.[/yellow]"
                     )
 
         except FileNotFoundError as e:
@@ -513,7 +513,10 @@ def reindex(
     summary += f"[yellow]{skipped} skipped[/yellow], [red]{failed} failed[/red]"
     console.print(summary)
 
-    if failed > 0:
+    # partial means the book was re-indexed but its vectors were not rewritten
+    # — before this existed the same outcome was reported as failed, and a
+    # wrapper script must not read it as success.
+    if failed > 0 or partial > 0:
         raise typer.Exit(1)
 
 

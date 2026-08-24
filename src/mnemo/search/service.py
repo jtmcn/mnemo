@@ -748,8 +748,11 @@ class SearchService:
 
     def _get_book_title(self, book_id: str) -> str:
         """Get book title with caching to avoid repeated lookups."""
-        if book_id in self._book_cache:
-            return self._book_cache[book_id]
+        # Single lookup: invalidate_cache() can clear between a check and a
+        # get, and add_book invalidates from an asyncio.to_thread worker.
+        cached = self._book_cache.get(book_id)
+        if cached is not None:
+            return cached
 
         assert self._book_repo is not None
         book = self._book_repo.get(book_id)

@@ -515,6 +515,62 @@ class TestEmbeddingFailureIsPartialSuccess:
 
         mock_ingest.assert_not_called()
 
+    def test_reindex_stops_after_the_first_embedding_failure(
+        self, sample_epub, temp_db, tmp_path, monkeypatch
+    ):
+        """A systemic embedding failure must not strip the whole library.
+
+        Each iteration deletes that book's vectors before re-embedding, so
+        carrying on past the first failure — an expired token, a provider
+        outage, neither visible to the credential preflight — would destroy
+        every book's vectors and rewrite none of them.
+        """
+        import shutil
+        import zipfile
+        from unittest.mock import patch
+
+        # A zip comment changes the file bytes (so the hash, so the book id)
+        # while keeping a valid EPUB — two distinct books to reindex.
+        second = tmp_path / "second.epub"
+        shutil.copy(sample_epub, second)
+        with zipfile.ZipFile(second, "a") as archive:
+            archive.comment = b"variant"
+
+        ingest_book(sample_epub, temp_db, embed=False)
+        ingest_book(second, temp_db, embed=False)
+
+        monkeypatch.setenv("DATABRICKS_HOST", "https://example.invalid")
+        monkeypatch.setenv("DATABRICKS_TOKEN", "expired")
+
+        with patch("mnemo.ingest.embed_book", side_effect=RuntimeError("401")) as mock_embed:
+            results = reindex_all_books(db_path=temp_db, embed=True)
+
+        # Only the first book was attempted; the second was left alone.
+        assert mock_embed.call_count == 1
+        statuses = [r["status"] for r in results]
+        assert statuses.count("partial") == 1
+        assert statuses.count("skipped") == 1
+        skipped = next(r for r in results if r["status"] == "skipped")
+        assert "Stopped after an embedding failure" in skipped["error"]
+
+    def test_all_boilerplate_book_is_not_an_embedding_failure(self, sample_epub, temp_db):
+        """A book with nothing embeddable is structural, not a retriable gap.
+
+        Re-running the embedding step can never give it vectors, so it must not
+        raise EmbeddingFailed and send the user chasing a retry.
+        """
+        from unittest.mock import patch
+
+        from mnemo.ingest import NothingToEmbed
+
+        assert issubclass(NothingToEmbed, ValueError)
+
+        with patch("mnemo.ingest.embed_book", side_effect=NothingToEmbed("all boilerplate")):
+            book, count = ingest_book(sample_epub, temp_db, embed=True)
+
+        assert count > 0
+        assert book.id is not None
+
     def test_embedding_failed_is_a_value_error(self, sample_epub, temp_db):
         """ingest_book has always documented embedding failure as a ValueError.
 

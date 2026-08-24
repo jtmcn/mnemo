@@ -30,6 +30,14 @@ class ReindexResult(TypedDict):
     error: str | None
 
 
+class NothingToEmbed(ValueError):
+    """The book has no chunks worth embedding (all front/back matter).
+
+    Distinct from EmbeddingFailed: re-running the embedding step can never
+    produce vectors for this book, so callers must not advise a retry.
+    """
+
+
 class EmbeddingFailed(ValueError):
     """Book was stored and is keyword-searchable, but embedding did not run.
 
@@ -100,7 +108,7 @@ def embed_book(
         logger.info("Skipped %d boilerplate chunks (of %d total) for embedding", skipped, total)
 
     if not chunks:
-        raise ValueError(f"No embeddable chunks for book: {book_id} (all boilerplate)")
+        raise NothingToEmbed(f"No embeddable chunks for book: {book_id} (all boilerplate)")
 
     # Initialize embedder (will raise if no credentials)
     embedder = DatabricksEmbedder()
@@ -234,6 +242,10 @@ def ingest_book(
     if embed:
         try:
             embed_book(book.id, db_path=db_path, chroma_path=chroma_path)
+        except NothingToEmbed:
+            # Structural, not a failure: there is nothing here to embed and a
+            # retry would not change that.
+            logger.info("Nothing to embed for %s (%s)", book.id, book.title)
         except Exception as e:
             # info, not warning: every caller reports this to the user itself, and a
             # warning would double-print over the CLI spinner.
@@ -264,6 +276,9 @@ def reindex_all_books(
     Returns:
         List of result dicts with keys: book_id, title, status, chunks, error.
         status is "partial" for a book that was re-indexed but not re-embedded.
+        The first embedding failure stops the run: reindexing deletes a book's
+        vectors before rewriting them, so the remaining books are left alone
+        and reported as "skipped".
 
     Raises:
         ValueError: embed=True with no embedding credentials configured. Raised
@@ -285,7 +300,7 @@ def reindex_all_books(
 
     results: list[ReindexResult] = []
 
-    for book in books:
+    for index, book in enumerate(books):
         book_file = book.file_path
         if not book_file or not Path(book_file).exists():
             results.append(
@@ -329,6 +344,23 @@ def reindex_all_books(
                     "error": str(e),
                 }
             )
+            # Every book is re-embedded the same way, so a failure here is a
+            # failure for the rest too — and each iteration deletes that book's
+            # vectors first (step 5). Carrying on would strip the whole library
+            # for an expired token or a provider outage, neither of which the
+            # credential preflight can see. Stop and leave the rest untouched.
+            remaining = books[index + 1 :]
+            results.extend(
+                {
+                    "book_id": other.id,
+                    "title": other.title,
+                    "status": "skipped",
+                    "chunks": 0,
+                    "error": "Stopped after an embedding failure; not re-indexed",
+                }
+                for other in remaining
+            )
+            break
         except Exception as e:
             results.append(
                 {
