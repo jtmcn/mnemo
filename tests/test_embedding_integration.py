@@ -48,7 +48,7 @@ class TestEmbedBook:
         from mnemo.vectors import VectorConfig, VectorStore
 
         # Mock the embedder at the package level (where embed_book imports from)
-        with patch("mnemo.embeddings.DatabricksEmbedder") as mock_embedder_class:
+        with patch("mnemo.embeddings.Embedder") as mock_embedder_class:
             mock_embedder_class.return_value = create_mock_embedder()
 
             count = embed_book(
@@ -65,7 +65,7 @@ class TestEmbedBook:
 
     def test_embed_book_batches_requests(self, db_with_book):
         """embed_book calls API in batches."""
-        with patch("mnemo.embeddings.DatabricksEmbedder") as mock_embedder_class:
+        with patch("mnemo.embeddings.Embedder") as mock_embedder_class:
             mock_embedder = create_mock_embedder()
             mock_embedder_class.return_value = mock_embedder
 
@@ -91,7 +91,7 @@ class TestEmbedBook:
         init_db(db_path)  # Initialize empty database
 
         with (
-            patch("mnemo.embeddings.DatabricksEmbedder"),
+            patch("mnemo.embeddings.Embedder"),
             pytest.raises(ValueError, match="No chunks found"),
         ):
             embed_book(
@@ -104,7 +104,7 @@ class TestEmbedBook:
         """Re-embedding deletes old vectors first."""
         from mnemo.vectors import VectorConfig, VectorStore
 
-        with patch("mnemo.embeddings.DatabricksEmbedder") as mock_embedder_class:
+        with patch("mnemo.embeddings.Embedder") as mock_embedder_class:
             mock_embedder_class.return_value = create_mock_embedder()
 
             # Embed twice
@@ -136,7 +136,7 @@ class TestIngestWithEmbed:
         db_path = tmp_path / "test.db"
         chroma_path = tmp_path / "chroma"
 
-        with patch("mnemo.embeddings.DatabricksEmbedder") as mock_embedder_class:
+        with patch("mnemo.embeddings.Embedder") as mock_embedder_class:
             mock_embedder_class.return_value = create_mock_embedder()
 
             book, chunk_count = ingest_book(
@@ -183,7 +183,7 @@ class TestRemoveBookWithVectors:
         db_path = tmp_path / "test.db"
         chroma_path = tmp_path / "chroma"
 
-        with patch("mnemo.embeddings.DatabricksEmbedder") as mock_embedder_class:
+        with patch("mnemo.embeddings.Embedder") as mock_embedder_class:
             mock_embedder_class.return_value = create_mock_embedder()
 
             book, _ = ingest_book(
@@ -216,7 +216,7 @@ class TestMetadataInVectors:
         db_path = tmp_path / "test.db"
         chroma_path = tmp_path / "chroma"
 
-        with patch("mnemo.embeddings.DatabricksEmbedder") as mock_embedder_class:
+        with patch("mnemo.embeddings.Embedder") as mock_embedder_class:
             mock_embedder_class.return_value = create_mock_embedder()
 
             book, _ = ingest_book(

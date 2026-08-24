@@ -1,4 +1,4 @@
-"""Databricks embedding client with retry logic."""
+"""OpenAI-compatible embedding client with retry logic."""
 
 import httpx
 from tenacity import (
@@ -18,29 +18,27 @@ def is_retryable(exc: BaseException) -> bool:
     return isinstance(exc, (httpx.TimeoutException, httpx.ConnectError))
 
 
-class DatabricksEmbedder:
-    """Client for generating embeddings via Databricks GTE-large-en.
+class Embedder:
+    """Client for any OpenAI-compatible /embeddings endpoint.
 
-    GTE-large-en produces 1024-dimension embeddings and has an 8192 token
-    context window. Unlike BGE models, it does NOT require instruction
-    prefixes for queries.
+    Dimension is whatever the configured model returns; ChromaDB locks it in
+    on the collection and rejects mismatches afterwards. Deleting the records
+    does not release the lock, so switching models means deleting the
+    collection: `rm -rf ~/.mnemo/chroma && mnemo reindex`.
 
-    Note: Embeddings are NOT normalized by the API. Caller must L2-normalize
-    before storage if using cosine/dot-product similarity.
+    Note: embeddings are NOT assumed to be normalized. VectorStore
+    L2-normalizes before storage for cosine similarity.
     """
-
-    EMBEDDING_DIM = 1024
 
     def __init__(self, config: EmbeddingConfig | None = None):
         self.config = config or EmbeddingConfig.from_env()
-        if not self.config.host or not self.config.token:
+        if not self.config.base_url:
             raise ValueError(
-                "DATABRICKS_HOST and DATABRICKS_TOKEN must be set. "
-                "Get token from Databricks -> User Settings -> Developer -> Access tokens"
+                "MNEMO_EMBED_BASE_URL must be set to an OpenAI-compatible endpoint "
+                "(e.g. https://api.openai.com/v1), along with MNEMO_EMBED_API_KEY "
+                "unless the provider needs no auth."
             )
-        self.url = (
-            f"{self.config.host.rstrip('/')}/serving-endpoints/{self.config.model}/invocations"
-        )
+        self.url = f"{self.config.base_url.rstrip('/')}/embeddings"
 
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """Embed a batch of texts.
@@ -49,7 +47,7 @@ class DatabricksEmbedder:
             texts: List of texts to embed (max 50 recommended)
 
         Returns:
-            List of 1024-dimension embedding vectors (unnormalized)
+            List of embedding vectors, one per input, in input order
 
         Raises:
             httpx.HTTPStatusError: On non-retryable API errors
@@ -68,12 +66,15 @@ class DatabricksEmbedder:
     )
     def _embed_with_retry(self, texts: list[str]) -> list[list[float]]:
         """Internal method with retry decorator."""
+        headers = {"Content-Type": "application/json"}
+        if self.config.api_key:
+            headers["Authorization"] = f"Bearer {self.config.api_key}"
+
         with httpx.Client(timeout=self.config.timeout) as client:
             response = client.post(
                 self.url,
-                json={"input": texts},
-                headers={"Content-Type": "application/json"},
-                auth=("token", self.config.token),
+                json={"input": texts, "model": self.config.model},
+                headers=headers,
             )
             response.raise_for_status()
             data = response.json()

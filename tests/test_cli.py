@@ -628,7 +628,7 @@ class TestAddPartialEmbedding:
             structure_source="toc",
         )
         mock_ingest.side_effect = EmbeddingFailed(
-            book, 8, ValueError("DATABRICKS_HOST and DATABRICKS_TOKEN must be set")
+            book, 8, ValueError("MNEMO_EMBED_BASE_URL must be set")
         )
 
         result = runner.invoke(app, ["add", str(epub)])
@@ -778,8 +778,8 @@ class TestReindexCredentialPreflight:
     ) -> None:
         from mnemo.models import Book
 
-        monkeypatch.delenv("DATABRICKS_HOST", raising=False)
-        monkeypatch.delenv("DATABRICKS_TOKEN", raising=False)
+        monkeypatch.delenv("MNEMO_EMBED_BASE_URL", raising=False)
+        monkeypatch.delenv("MNEMO_EMBED_API_KEY", raising=False)
         mock_list_all.return_value = [
             Book(id="abc123", title="A", authors=[], file_hash="a" * 64, structure_source="toc")
         ]
@@ -788,7 +788,7 @@ class TestReindexCredentialPreflight:
             result = runner.invoke(app, ["reindex"])
 
         assert result.exit_code == 1
-        assert "DATABRICKS_HOST" in result.stdout
+        assert "MNEMO_EMBED_BASE_URL" in result.stdout
         assert "No books were changed" in _plain(result.stdout)
         # Nothing was re-ingested, so no vectors were deleted.
         mock_ingest.assert_not_called()

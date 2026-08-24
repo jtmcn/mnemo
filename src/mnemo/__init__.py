@@ -9,7 +9,7 @@ Main exports:
 - BookRepository, ChunkRepository: Storage layer
 - EPUBParser: EPUB parsing
 - Chunker: Smart chunking
-- DatabricksEmbedder: Embedding generation
+- Embedder: Embedding generation
 - VectorStore: Vector storage
 """
 

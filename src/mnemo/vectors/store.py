@@ -1,7 +1,7 @@
 """ChromaDB vector store for semantic search.
 
-Handles vector persistence with cosine distance metric and L2 normalization
-(required for GTE-large-en) and metadata filtering for book/content-type scoping.
+Handles vector persistence with cosine distance metric, L2 normalization,
+and metadata filtering for book/content-type scoping.
 """
 
 from __future__ import annotations
@@ -29,15 +29,14 @@ class VectorStore:
     """ChromaDB wrapper for vector storage and retrieval.
 
     Handles:
-    - L2 normalization (GTE-large-en returns unnormalized vectors)
+    - L2 normalization (most providers return unnormalized vectors)
     - Persistent storage across process restarts
     - Metadata filtering for book_id and content_type
 
-    The collection is created on first use and persists to disk.
-    Embedding dimension is locked to 1024 (GTE-large-en) on first insert.
+    The collection is created on first use and persists to disk. ChromaDB
+    locks the embedding dimension on first insert and rejects mismatches,
+    so switching embedding models requires a fresh collection.
     """
-
-    EMBEDDING_DIM = 1024
 
     def __init__(
         self,
@@ -75,21 +74,18 @@ class VectorStore:
 
         Args:
             ids: Unique IDs (use chunk UUIDs)
-            embeddings: 1024-dim vectors from DatabricksEmbedder
+            embeddings: Vectors from Embedder (dimension set by the model)
             metadatas: Dicts with book_id, content_type, section_path, etc.
             documents: Optional original text (useful for debugging)
 
         Raises:
-            ValueError: If inputs have mismatched lengths or wrong dimension
+            ValueError: If inputs have mismatched lengths
         """
         if not ids:
             return  # Nothing to add
 
         if len(ids) != len(embeddings) or len(ids) != len(metadatas):
             raise ValueError("ids, embeddings, and metadatas must have same length")
-
-        if embeddings and len(embeddings[0]) != self.EMBEDDING_DIM:
-            raise ValueError(f"Embeddings must be {self.EMBEDDING_DIM}-dimensional")
 
         normalized = self._normalize(embeddings)
 
@@ -113,7 +109,7 @@ class VectorStore:
         """Query by embedding vector with optional filters.
 
         Args:
-            query_embedding: 1024-dim query vector (will be normalized)
+            query_embedding: Query vector (will be normalized)
             n_results: Max results to return
             book_id: Filter to specific book
             content_type: Filter to content type (text, code, etc.)
@@ -121,9 +117,6 @@ class VectorStore:
         Returns:
             List of QueryResult dicts with id, distance, metadata, document
         """
-        if len(query_embedding) != self.EMBEDDING_DIM:
-            raise ValueError(f"Query embedding must be {self.EMBEDDING_DIM}-dimensional")
-
         normalized = self._normalize([query_embedding])
 
         # Build where clause for filtering
@@ -181,8 +174,9 @@ class VectorStore:
     def _normalize(self, embeddings: list[list[float]]) -> list[list[float]]:
         """L2 normalize embeddings.
 
-        GTE-large-en does NOT return normalized embeddings, so we must
-        normalize before storage for consistent similarity calculations.
+        Not all providers return normalized embeddings, so normalize before
+        storage for consistent cosine similarity. Already-normalized vectors
+        are unaffected.
         """
         arr = np.array(embeddings, dtype=np.float32)
         norms = np.linalg.norm(arr, axis=1, keepdims=True)

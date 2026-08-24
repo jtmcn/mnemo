@@ -17,6 +17,7 @@ import json
 from pathlib import Path
 from typing import Annotated, Any
 
+import httpx
 import typer
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -293,7 +294,7 @@ def list_books(
         if missing:
             console.print(
                 f"[yellow]{missing} book(s) have no embeddings (keyword search only). "
-                f"Set DATABRICKS_HOST/DATABRICKS_TOKEN, then run `mnemo reindex`.[/yellow]"
+                f"Set MNEMO_EMBED_BASE_URL/MNEMO_EMBED_API_KEY, then run `mnemo reindex`.[/yellow]"
             )
 
 
@@ -456,8 +457,8 @@ def reindex(
         progress.add_task(description="Reindexing all books...", total=None)
         try:
             results = reindex_all_books(embed=True)
-        except ValueError as e:
-            # Only the credential preflight escapes as a ValueError (per-book
+        except (ValueError, httpx.HTTPError) as e:
+            # Only the embedding preflight escapes here (per-book
             # EmbeddingFailed is handled inside reindex_all_books), so nothing
             # has been touched. Report after the spinner stops.
             preflight_error = str(e)
