@@ -92,7 +92,7 @@ def export_chromadb(
 
     all_ids: list[str] = []
     all_embeddings: list[list[float]] = []
-    all_metadatas: list[dict[str, Any]] = []
+    all_metadatas: list[dict[str, Any] | None] = []
     all_documents: list[str | None] = []
 
     offset = 0
@@ -118,7 +118,7 @@ def export_chromadb(
 
         raw_metadatas = batch.get("metadatas")
         if raw_metadatas is not None:
-            all_metadatas.extend(dict(m) for m in raw_metadatas)
+            all_metadatas.extend(dict(m) if m is not None else None for m in raw_metadatas)
 
         raw_docs = batch.get("documents")
         if raw_docs is not None:
@@ -230,7 +230,7 @@ def _restore_chromadb(
 
     ids: list[str] = data.get("ids", [])
     embeddings: list[list[float]] = data.get("embeddings", [])
-    metadatas: list[dict[str, Any]] = data.get("metadatas", [])
+    metadatas: list[dict[str, Any] | None] = data.get("metadatas", [])
     documents: list[str | None] = data.get("documents", [])
 
     # Remove existing collection if present, then recreate with cosine metric

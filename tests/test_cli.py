@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
@@ -10,6 +11,18 @@ from typer.testing import CliRunner
 from mnemo.cli import app
 
 runner = CliRunner()
+
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _plain(text: str) -> str:
+    """Rich output with style escapes removed and wrapping collapsed.
+
+    Rich splits styled runs mid-sentence and wraps at terminal width, so a
+    substring assertion against raw stdout passes under NO_COLOR and fails in
+    a real terminal.
+    """
+    return " ".join(_ANSI.sub("", text).split())
 
 
 class TestHelp:
@@ -248,7 +261,7 @@ class TestExport:
         result = runner.invoke(app, ["export", str(out)])
 
         assert result.exit_code == 0
-        assert "2 paths" in result.stdout
+        assert "2 paths" in _plain(result.stdout)
         lines = out.read_text().strip().splitlines()
         assert lines == ["/books/one.epub", "/books/two.epub"]
 
@@ -269,7 +282,7 @@ class TestExport:
         result = runner.invoke(app, ["export", str(out)])
 
         assert result.exit_code == 0
-        assert "1 paths" in result.stdout
+        assert "1 paths" in _plain(result.stdout)
         lines = out.read_text().strip().splitlines()
         assert lines == ["/books/one.epub"]
 
@@ -418,7 +431,7 @@ class TestReindex:
         ]
         result = runner.invoke(app, ["reindex"])
         assert result.exit_code == 0
-        assert "1 succeeded" in result.stdout
+        assert "1 succeeded" in _plain(result.stdout)
 
     @patch("mnemo.ingest.reindex_all_books")
     @patch("mnemo.storage.BookRepository.list_all")
@@ -621,9 +634,15 @@ class TestAddPartialEmbedding:
         result = runner.invoke(app, ["add", str(epub)])
 
         assert result.exit_code == 0
-        assert "Added" in result.stdout
-        assert "Embeddings skipped" in result.stdout
-        assert "mnemo reindex" in result.stdout
+        # Rich wraps at terminal width and injects style escapes, so compare
+        # against the flattened text (see _plain).
+        out = _plain(result.stdout)
+        assert "Added" in out
+        assert "Embeddings skipped" in out
+        # The advice must point at the single-book path, not the whole-library
+        # rebuild: mnemo reindex deletes every book's vectors before re-embedding.
+        assert "mnemo add --force" in out
+        assert "mnemo reindex" not in out
 
     @patch("mnemo.ingest.ingest_book")
     @patch("mnemo.storage.repository.BookRepository.get_by_hash", return_value=None)
@@ -727,7 +746,9 @@ class TestListCheckEmbeddings:
         assert result.exit_code == 0
         assert "3" in result.stdout
         assert "none" in result.stdout
-        assert "1 book(s) have no embeddings" in result.stdout
+        # Rich injects style escapes between the count and the words and wraps
+        # at terminal width, so assert on the wording only.
+        assert "have no embeddings" in _plain(result.stdout)
 
     @patch("mnemo.cli._vector_counts")
     @patch("mnemo.storage.repository.BookRepository.list_all", return_value=[])
@@ -768,7 +789,7 @@ class TestReindexCredentialPreflight:
 
         assert result.exit_code == 1
         assert "DATABRICKS_HOST" in result.stdout
-        assert "No books were changed" in result.stdout
+        assert "No books were changed" in _plain(result.stdout)
         # Nothing was re-ingested, so no vectors were deleted.
         mock_ingest.assert_not_called()
 
@@ -798,6 +819,6 @@ class TestReindexPartial:
         with patch("mnemo.ingest.reindex_all_books", return_value=results):
             result = runner.invoke(app, ["reindex", "--verbose"])
 
-        assert result.exit_code == 0
+        assert result.exit_code == 1, "a run that embedded nothing must not exit 0"
         assert "PARTIAL" in result.stdout
-        assert "1 without embeddings" in result.stdout
+        assert "without embeddings" in _plain(result.stdout)
