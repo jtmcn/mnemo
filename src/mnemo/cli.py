@@ -386,7 +386,21 @@ def search(
     from mnemo.search import SearchService
 
     service = SearchService()
-    results = service.search(query, top_k=limit, book_id=book)
+    try:
+        results = service.search(query, top_k=limit, book_id=book)
+    except (ValueError, httpx.HTTPError) as e:
+        # A configured endpoint that fails is a misconfiguration, not a reason
+        # to quietly return worse results. Say so instead of a traceback.
+        message = f"Semantic search failed: {e}"
+        if json_output:
+            print(json.dumps({"error": message}))
+        else:
+            console.print(f"[red]Error: {escape(message)}[/red]")
+            console.print(
+                "[yellow]Check MNEMO_EMBED_BASE_URL / MNEMO_EMBED_API_KEY, "
+                "or unset them for keyword-only search.[/yellow]"
+            )
+        raise typer.Exit(1) from e
 
     if json_output:
         output = [

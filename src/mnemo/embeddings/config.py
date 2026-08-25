@@ -7,6 +7,17 @@ from dataclasses import dataclass
 logger = logging.getLogger(__name__)
 
 
+class EmbeddingsNotConfigured(ValueError):
+    """No embedding endpoint is configured at all.
+
+    Distinct from a configured endpoint that fails: not setting
+    MNEMO_EMBED_BASE_URL is a deliberate choice to run keyword-only, so hybrid
+    search falls back quietly. Anything else is a misconfiguration and must
+    surface. Lives here rather than in client.py so that callers can catch it
+    without importing the client (and, through it, tiktoken).
+    """
+
+
 def _positive_int(name: str, raw: str | None, default: int) -> int:
     """Parse a positive int, falling back to default on anything else.
 

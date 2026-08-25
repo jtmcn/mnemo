@@ -14,6 +14,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from mnemo.embeddings.config import EmbeddingsNotConfigured
 from mnemo.models import Book, Chunk, ContentType, is_boilerplate_section
 from mnemo.search import SearchFilter, SearchResult, reciprocal_rank_fusion
 from mnemo.search.service import (
@@ -258,10 +259,15 @@ class TestSearchServiceValidation:
         init_db(db_path)
         service = SearchService(db_path=db_path, chroma_path=tmp_path / "chroma")
 
-        # These should not raise (may return empty results)
-        for mode in ["hybrid", "semantic", "keyword"]:
+        # hybrid and keyword work with no embeddings configured; semantic is an
+        # explicit request for something unavailable, so it raises rather than
+        # returning [] (which would read as "no matching content").
+        for mode in ["hybrid", "keyword"]:
             result = service.search("test", mode=mode)
             assert isinstance(result, list)
+
+        with pytest.raises(EmbeddingsNotConfigured):
+            service.search("test", mode="semantic")
 
 
 # ============================================================================
@@ -495,9 +501,13 @@ class TestSearchServiceMocked:
     def test_semantic_failure_falls_back_to_keyword(
         self, service_with_mocks, mock_embedder, mock_chunk_repo
     ):
-        """If semantic search fails, hybrid falls back to keyword-only."""
-        # Make embedder fail
-        mock_embedder.embed_one.side_effect = Exception("API error")
+        """Hybrid falls back to keyword when no endpoint is configured.
+
+        Only the unconfigured case is quiet: running without
+        MNEMO_EMBED_BASE_URL is a deliberate keyword-only setup. A configured
+        endpoint that fails is a misconfiguration and raises (see below).
+        """
+        mock_embedder.embed_one.side_effect = EmbeddingsNotConfigured("not configured")
 
         # Setup keyword results
         mock_chunk = MagicMock(
@@ -515,6 +525,22 @@ class TestSearchServiceMocked:
 
         assert len(results) == 1
         assert results[0].source == "keyword"
+
+    def test_broken_endpoint_raises_instead_of_degrading(
+        self, service_with_mocks, mock_embedder, mock_chunk_repo
+    ):
+        """A configured-but-failing endpoint must not masquerade as keyword-only.
+
+        Silently downgrading hid a bad key, a wrong model, and a dead host
+        behind ordinary-looking results — over MCP the warning went to stderr
+        where no caller ever saw it.
+        """
+        mock_embedder.embed_one.side_effect = Exception("401 Unauthorized")
+        mock_chunk_repo.search_fts.return_value = []
+
+        for mode in ("hybrid", "semantic"):
+            with pytest.raises(Exception, match="401 Unauthorized"):
+                service_with_mocks.search("test", mode=mode)
 
     def test_invalid_content_type_ignored(self, service_with_mocks, mock_chunk_repo):
         """Invalid content_type filter is ignored with warning."""

@@ -15,6 +15,7 @@ import unicodedata
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, overload
 
+from mnemo.embeddings.config import EmbeddingsNotConfigured
 from mnemo.models import Chunk, ContentType, is_boilerplate_section
 from mnemo.search.hybrid import reciprocal_rank_fusion
 from mnemo.search.models import ExpandedResult, SearchResult
@@ -433,13 +434,10 @@ class SearchService:
         assert self._vector_store is not None
         assert self._chunk_repo is not None
 
-        # Get query embedding
-        try:
-            query_embedding = self._get_query_embedding(query)
-        except Exception as e:
-            logger.warning(f"Failed to generate query embedding: {e}")
-            logger.info("Semantic search unavailable, returning empty results")
-            return []
+        # Semantic mode has no fallback, so an empty list here would read as
+        # "no matching content" when the truth is "embeddings are unavailable".
+        # Let both the unconfigured and the broken case surface.
+        query_embedding = self._get_query_embedding(query)
 
         # Query vector store
         vector_results = self._vector_store.query(
@@ -517,8 +515,9 @@ class SearchService:
             # means similarity < 0, i.e. essentially unrelated content)
             vector_results = [vr for vr in vector_results if vr["distance"] <= 1.0]
             semantic_ids = [vr["id"] for vr in vector_results]
-        except Exception as e:
-            logger.warning(f"Semantic search failed, using keyword-only: {e}")
+        except EmbeddingsNotConfigured as e:
+            # No endpoint configured at all: keyword-only is the intended mode.
+            logger.info("Semantic search not configured, using keyword-only: %s", e)
 
         # If no semantic results, fall back to keyword-only
         if not semantic_ids:

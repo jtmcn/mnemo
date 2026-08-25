@@ -32,7 +32,11 @@ shorter-context model, raise it for a longer one. The full text is always kept
 for keyword search and display.
 
 Without these, `add` still stores books and `search` falls back to keyword-only
-(SQLite FTS5). See `.env.example` for the full list. Switching embedding models
+(SQLite FTS5) — that is a supported mode, so it stays quiet. But a *configured*
+endpoint that fails (bad key, wrong model, host down) raises instead of quietly
+returning worse results, since a silent downgrade is indistinguishable from a
+thin library. `mode="semantic"` also raises when embeddings are unavailable
+rather than returning an empty list, which would read as "no matching content". See `.env.example` for the full list. Switching embedding models
 changes the vector dimension, which ChromaDB locks on first insert, so re-embed
 from scratch after a switch:
 

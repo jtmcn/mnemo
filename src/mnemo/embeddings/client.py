@@ -11,7 +11,7 @@ from tenacity import (
 )
 
 from mnemo.chunking.tokenizer import count_tokens, truncate_to_tokens
-from mnemo.embeddings.config import EmbeddingConfig
+from mnemo.embeddings.config import EmbeddingConfig, EmbeddingsNotConfigured
 
 
 def is_retryable(exc: BaseException) -> bool:
@@ -36,7 +36,7 @@ class Embedder:
     def __init__(self, config: EmbeddingConfig | None = None):
         self.config = config or EmbeddingConfig.from_env()
         if not self.config.base_url:
-            raise ValueError(
+            raise EmbeddingsNotConfigured(
                 "MNEMO_EMBED_BASE_URL must be set to an OpenAI-compatible endpoint "
                 "(e.g. https://api.openai.com/v1), along with MNEMO_EMBED_API_KEY "
                 "unless the provider needs no auth."
