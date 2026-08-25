@@ -32,6 +32,25 @@ class TestEmbeddingConfig:
         monkeypatch.setenv("MNEMO_EMBED_MODEL", "")
         assert EmbeddingConfig.from_env().model == "text-embedding-3-small"
 
+    def test_from_env_token_limits(self, monkeypatch):
+        """Token limits parse from env, ignoring junk instead of raising."""
+        monkeypatch.setenv("MNEMO_EMBED_MAX_TOKENS", "4096")
+        monkeypatch.setenv("MNEMO_EMBED_MAX_REQUEST_TOKENS", "50000")
+        config = EmbeddingConfig.from_env()
+        assert config.max_input_tokens == 4096
+        assert config.max_request_tokens == 50000
+
+    @pytest.mark.parametrize("bad", ["8k", "0", "-5", ""])
+    def test_from_env_rejects_bad_token_limits(self, monkeypatch, bad):
+        """A typo must not raise from inside Embedder() nor truncate to nothing.
+
+        Search wraps embedding in a broad except, so an opaque ValueError here
+        would silently degrade semantic search to keyword-only; 0 would send
+        every input as an empty string.
+        """
+        monkeypatch.setenv("MNEMO_EMBED_MAX_TOKENS", bad)
+        assert EmbeddingConfig.from_env().max_input_tokens == 8192
+
     def test_from_env_adds_scheme(self, monkeypatch):
         """A bare host gets an https:// prefix."""
         monkeypatch.setenv("MNEMO_EMBED_BASE_URL", "api.example.com/v1")
@@ -144,6 +163,62 @@ class TestEmbedderWithMock:
 
             Embedder(EmbeddingConfig(base_url="http://localhost:11434/v1")).embed_batch(["t"])
             assert "Authorization" not in mock_client.post.call_args.kwargs["headers"]
+
+    def test_oversized_input_is_truncated(self, config, mock_response):
+        """A chunk over the model limit is trimmed, not sent whole.
+
+        The chunker keeps code/math/table blocks atomic at any length, and a
+        provider 400s the entire batch over one long block.
+        """
+        from mnemo.chunking.tokenizer import count_tokens
+
+        config.max_input_tokens = 100
+        with patch("httpx.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value.__enter__.return_value = mock_client
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = mock_response
+            mock_client.post.return_value = mock_resp
+
+            Embedder(config).embed_batch(["word " * 500, "short one"])
+            sent = mock_client.post.call_args.kwargs["json"]["input"]
+
+        assert count_tokens(sent[0]) <= 100
+        assert sent[1] == "short one"  # under the limit, untouched
+
+    def test_splits_batches_over_the_request_budget(self, config):
+        """Truncation bounds each input, not their sum — split the request too."""
+        config.max_request_tokens = 25
+        texts = ["word " * 10] * 4  # 11 tokens each, so 2 fit per request
+
+        with patch("httpx.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value.__enter__.return_value = mock_client
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = {
+                "data": [{"embedding": [0.1] * 4, "index": 0}, {"embedding": [0.2] * 4, "index": 1}]
+            }
+            mock_client.post.return_value = mock_resp
+
+            result = Embedder(config).embed_batch(texts)
+
+        assert mock_client.post.call_count == 2
+        assert len(result) == 4  # every input still accounted for, in order
+
+    def test_single_oversized_input_still_sent(self, config, mock_response):
+        """One input above the whole budget goes alone rather than being dropped."""
+        config.max_request_tokens = 5
+        with patch("httpx.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value.__enter__.return_value = mock_client
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = {"data": [{"embedding": [0.1] * 4, "index": 0}]}
+            mock_client.post.return_value = mock_resp
+
+            result = Embedder(config).embed_batch(["word " * 100])
+
+        assert mock_client.post.call_count == 1
+        assert len(result) == 1
 
     def test_embed_batch_maintains_order(self, config):
         """Embeddings are returned in input order even if API returns out of order."""

@@ -25,6 +25,12 @@ export MNEMO_EMBED_API_KEY=sk-...
 export MNEMO_EMBED_MODEL=text-embedding-3-small  # optional, this is the default
 ```
 
+Code, math, and table blocks are never split, so a long listing can exceed a
+provider's per-input limit. Inputs are truncated to `MNEMO_EMBED_MAX_TOKENS`
+(default 8192, matching text-embedding-3) before embedding — lower it for a
+shorter-context model, raise it for a longer one. The full text is always kept
+for keyword search and display.
+
 Without these, `add` still stores books and `search` falls back to keyword-only
 (SQLite FTS5). See `.env.example` for the full list. Switching embedding models
 changes the vector dimension, which ChromaDB locks on first insert, so re-embed

@@ -498,6 +498,30 @@ class TestReindex:
     @patch("mnemo.storage.BookRepository.list_all")
     @patch("mnemo.storage.get_connection")
     @patch("mnemo.storage.init_db")
+    def test_reindex_verbose_escapes_titles_and_errors(
+        self, mock_init, mock_conn, mock_list, mock_reindex
+    ) -> None:
+        """Per-book verbose lines carry titles and provider errors verbatim."""
+        mock_list.return_value = [MagicMock()]
+        mock_reindex.return_value = [
+            {
+                "book_id": "abc123",
+                "title": "Python [bold] Tricks",
+                "status": "partial",
+                "chunks": 50,
+                "error": "provider said [/b] no",
+            },
+        ]
+        # partial exits 1 by design; the point here is the output, not the code.
+        result = runner.invoke(app, ["reindex", "--verbose"])
+        out = _plain(result.stdout)
+        assert "[bold]" in out
+        assert "[/b]" in out
+
+    @patch("mnemo.ingest.reindex_all_books")
+    @patch("mnemo.storage.BookRepository.list_all")
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
     def test_reindex_failure_exits_nonzero(
         self, mock_init, mock_conn, mock_list, mock_reindex
     ) -> None:
@@ -596,6 +620,99 @@ class TestBookServiceSurface:
         good = tmp_path / "book.epub"
         good.write_text("x")
         assert validate_book_path(good) is None
+
+
+class TestRichMarkupEscaping:
+    """User data must survive Rich's markup parser intact.
+
+    Retail ebook filenames routinely contain square brackets, which Rich reads
+    as style tags: "Book [retail].epub" printed as "Book .epub", so the
+    `mnemo add --force <path>` hint it suggests was not a runnable command.
+    """
+
+    @patch("mnemo.ingest.ingest_book")
+    @patch("mnemo.storage.repository.BookRepository.get_by_hash", return_value=None)
+    @patch("mnemo.services.book_service.validate_book_path", return_value=None)
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    def test_bracketed_path_and_title_survive(
+        self, mock_init, mock_conn, mock_validate, mock_get_by_hash, mock_ingest, tmp_path
+    ) -> None:
+        from mnemo.ingest import EmbeddingFailed
+        from mnemo.models import Book
+
+        epub = tmp_path / "Some Book [retail].epub"
+        epub.write_bytes(b"fake content")
+
+        book = Book(
+            id="abc123",
+            title="Clean Code [bold] Cookbook",
+            authors=["A"],
+            file_hash="a" * 64,
+            structure_source="toc",
+        )
+        mock_ingest.side_effect = EmbeddingFailed(book, 8, ValueError("nope"))
+
+        result = runner.invoke(app, ["add", str(epub)])
+
+        out = _plain(result.stdout)
+        assert "[retail]" in out
+        assert "[bold]" in out
+
+    def test_missing_file_error_keeps_path(self, tmp_path) -> None:
+        """The validation error embeds the path, so it needs escaping too."""
+        missing = tmp_path / "Some Book [retail].epub"
+
+        result = runner.invoke(app, ["add", str(missing)])
+
+        assert result.exit_code == 1
+        assert "[retail]" in _plain(result.stdout)
+
+    def test_unclosed_tag_in_title_does_not_crash(self) -> None:
+        """A stray closing tag raises MarkupError unescaped, killing the command."""
+        from mnemo.models import Book
+
+        with (
+            patch("mnemo.storage.init_db"),
+            patch("mnemo.storage.get_connection"),
+            patch("mnemo.storage.repository.BookRepository.list_all") as mock_list,
+        ):
+            mock_list.return_value = [
+                Book(
+                    id="abc123",
+                    title="C++ [/b] Guide",
+                    authors=["A"],
+                    file_hash="a" * 64,
+                    structure_source="toc",
+                )
+            ]
+            result = runner.invoke(app, ["list"])
+
+        assert result.exit_code == 0
+        assert "[/b]" in _plain(result.stdout)
+
+    @patch("mnemo.storage.repository.BookRepository.list_all")
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    def test_list_table_cells_keep_markup(self, mock_init, mock_conn, mock_list) -> None:
+        """Rich parses markup inside table cells too, not just console.print."""
+        from mnemo.models import Book
+
+        mock_list.return_value = [
+            Book(
+                id="abc123",
+                title="Python [bold] Tricks",
+                authors=["[red] Author"],
+                file_hash="a" * 64,
+                structure_source="toc",
+            )
+        ]
+
+        result = runner.invoke(app, ["list"])
+
+        out = _plain(result.stdout)
+        assert "[bold]" in out
+        assert "[red]" in out
 
 
 class TestAddPartialEmbedding:
