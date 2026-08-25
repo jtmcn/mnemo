@@ -207,9 +207,7 @@ def intake(
 
         is_valid, _ = validate_isbn(book.isbn)
         if not is_valid:
-            notes.append(
-                Note("suspect_isbn", f"ISBN {book.isbn} may be invalid (bad checksum)")
-            )
+            notes.append(Note("suspect_isbn", f"ISBN {book.isbn} may be invalid (bad checksum)"))
 
     if embed_note is not None:
         notes.append(embed_note)

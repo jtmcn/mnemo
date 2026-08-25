@@ -44,6 +44,7 @@ def stub_intake(existing=None, similar=()):
     ):
         yield
 
+
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
@@ -621,9 +622,7 @@ class TestSkipExisting:
     """
 
     @patch("mnemo.ingest.ingest_book")
-    def test_skips_without_prompting(
-        self, mock_ingest, tmp_path
-    ) -> None:
+    def test_skips_without_prompting(self, mock_ingest, tmp_path) -> None:
         from mnemo.models import Book
 
         epub = tmp_path / "book.epub"
@@ -691,9 +690,7 @@ class TestSkipExisting:
         assert "mutually exclusive" in _plain(result.stdout)
 
     @patch("mnemo.ingest.ingest_book")
-    def test_skip_existing_still_adds_new_books(
-        self, mock_ingest, tmp_path
-    ) -> None:
+    def test_skip_existing_still_adds_new_books(self, mock_ingest, tmp_path) -> None:
         from mnemo.models import Book
 
         epub = tmp_path / "fresh.epub"
@@ -782,9 +779,7 @@ class TestRichMarkupEscaping:
     """
 
     @patch("mnemo.ingest.ingest_book")
-    def test_bracketed_path_and_title_survive(
-        self, mock_ingest, tmp_path
-    ) -> None:
+    def test_bracketed_path_and_title_survive(self, mock_ingest, tmp_path) -> None:
         from mnemo.ingest import EmbeddingFailed
         from mnemo.models import Book
 
@@ -872,9 +867,7 @@ class TestAddPartialEmbedding:
     """
 
     @patch("mnemo.ingest.ingest_book")
-    def test_add_exits_zero_and_warns_when_embedding_fails(
-        self, mock_ingest, tmp_path
-    ) -> None:
+    def test_add_exits_zero_and_warns_when_embedding_fails(self, mock_ingest, tmp_path) -> None:
         from mnemo.ingest import EmbeddingFailed
         from mnemo.models import Book
 
@@ -907,9 +900,7 @@ class TestAddPartialEmbedding:
         assert "mnemo reindex" not in out
 
     @patch("mnemo.ingest.ingest_book")
-    def test_add_json_marks_book_unembedded(
-        self, mock_ingest, tmp_path
-    ) -> None:
+    def test_add_json_marks_book_unembedded(self, mock_ingest, tmp_path) -> None:
         from mnemo.ingest import EmbeddingFailed
         from mnemo.models import Book
 
@@ -935,9 +926,7 @@ class TestAddPartialEmbedding:
         assert "no credentials" in notes[0]["message"]
 
     @patch("mnemo.ingest.ingest_book")
-    def test_add_json_marks_book_embedded_on_success(
-        self, mock_ingest, tmp_path
-    ) -> None:
+    def test_add_json_marks_book_embedded_on_success(self, mock_ingest, tmp_path) -> None:
         from mnemo.models import Book
 
         epub = tmp_path / "book.epub"
