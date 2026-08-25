@@ -70,7 +70,8 @@ def add(
         bool,
         typer.Option(
             "--skip-existing",
-            help="Skip books already indexed instead of prompting (for unattended batches)",
+            help="Skip books already indexed instead of prompting (for unattended batches); "
+            "cannot be combined with --force",
         ),
     ] = False,
     collection: Annotated[
@@ -93,6 +94,16 @@ def add(
     from mnemo.storage import BookRepository, get_connection, init_db
 
     results = []
+
+    if force and skip_existing:
+        # Directly contradictory for a duplicate, and guessing wrong means
+        # re-embedding the whole library instead of skipping it.
+        message = "--force and --skip-existing are mutually exclusive."
+        if json_output:
+            print(json.dumps({"error": message}))
+        else:
+            console.print(f"[red]Error: {message}[/red]")
+        raise typer.Exit(1)
 
     for path in paths:
         # Validate path using service layer
@@ -123,7 +134,18 @@ def add(
             if skip_existing:
                 if not json_output:
                     console.print(f"[yellow]Skipped (already indexed): {existing.id}[/yellow]")
-                results.append({"id": existing.id, "skipped": True})
+                # Same keys as a successful add: --json is the scripted
+                # interface, and a batch is exactly where skips show up.
+                results.append(
+                    {
+                        "id": existing.id,
+                        "title": existing.title,
+                        "authors": existing.authors,
+                        "chunks": 0,
+                        "embedded": False,
+                        "skipped": True,
+                    }
+                )
                 continue
             # Prompt user in TTY mode, error in non-TTY
             if console.is_terminal and not json_output:
@@ -178,6 +200,7 @@ def add(
                 "authors": book.authors,
                 "chunks": chunk_count,
                 "embedded": embed_error is None,
+                "skipped": False,
             }
             if embed_error:
                 result["embed_error"] = embed_error
