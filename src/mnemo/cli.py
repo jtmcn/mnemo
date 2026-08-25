@@ -14,6 +14,7 @@ Provides commands to manage the book library and MCP server:
 from __future__ import annotations
 
 import json
+import shlex
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -93,7 +94,7 @@ def add(
             if json_output:
                 print(json.dumps({"error": error}))
             else:
-                console.print(f"[red]{error}[/red]")
+                console.print(f"[red]{escape(error)}[/red]")
             raise typer.Exit(1)
 
         # Check for duplicate
@@ -177,7 +178,8 @@ def add(
                     console.print(
                         f"[yellow]Embeddings skipped:[/yellow] {escape(embed_error)}\n"
                         f"[yellow]Keyword search works now. Re-run "
-                        f"`mnemo add --force {escape(str(path))}` to add semantic search.[/yellow]"
+                        f"`mnemo add --force {escape(shlex.quote(str(path)))}` "
+                        f"to add semantic search.[/yellow]"
                     )
 
         except FileNotFoundError as e:
@@ -495,19 +497,24 @@ def reindex(
         for r in results:
             if r["status"] == "success":
                 console.print(
-                    f"  [green]OK[/green] {r['title']} ({r['book_id']}) - {r['chunks']} chunks"
+                    f"  [green]OK[/green] {escape(str(r['title']))} ({r['book_id']}) - "
+                    f"{r['chunks']} chunks"
                 )
             elif r["status"] == "partial":
                 console.print(
-                    f"  [yellow]PARTIAL[/yellow] {r['title']} ({r['book_id']}) - "
-                    f"{r['chunks']} chunks, no embeddings: {r['error']}"
+                    f"  [yellow]PARTIAL[/yellow] {escape(str(r['title']))} ({r['book_id']}) - "
+                    f"{r['chunks']} chunks, no embeddings: {escape(str(r['error']))}"
                 )
             elif r["status"] == "skipped":
                 console.print(
-                    f"  [yellow]SKIP[/yellow] {r['title']} ({r['book_id']}) - {r['error']}"
+                    f"  [yellow]SKIP[/yellow] {escape(str(r['title']))} ({r['book_id']}) - "
+                    f"{escape(str(r['error']))}"
                 )
             else:
-                console.print(f"  [red]FAIL[/red] {r['title']} ({r['book_id']}) - {r['error']}")
+                console.print(
+                    f"  [red]FAIL[/red] {escape(str(r['title']))} ({r['book_id']}) - "
+                    f"{escape(str(r['error']))}"
+                )
 
     summary = f"[green]{success} succeeded[/green], "
     if partial:
@@ -630,7 +637,7 @@ def backup(
             print(json.dumps({**manifest, "archive_path": str(output)}))
         else:
             console.print(
-                f"[green]Backup created:[/green] {output}\n"
+                f"[green]Backup created:[/green] {escape(str(output))}\n"
                 f"  Books: {manifest['book_count']}, "
                 f"Vectors: {manifest['vector_count']}, "
                 f"Schema: v{manifest['schema_version']}"
@@ -695,7 +702,7 @@ def restore(
             print(json.dumps({**manifest, "archive_path": str(archive)}))
         else:
             console.print(
-                f"[green]Restore complete:[/green] {archive}\n"
+                f"[green]Restore complete:[/green] {escape(str(archive))}\n"
                 f"  Books: {manifest['book_count']}, "
                 f"Vectors: {manifest['vector_count']}, "
                 f"Schema: v{manifest['schema_version']}"

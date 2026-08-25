@@ -1,5 +1,7 @@
 """OpenAI-compatible embedding client with retry logic."""
 
+from collections.abc import Iterator
+
 import httpx
 from tenacity import (
     retry,
@@ -8,7 +10,7 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
-from mnemo.chunking.tokenizer import truncate_to_tokens
+from mnemo.chunking.tokenizer import count_tokens, truncate_to_tokens
 from mnemo.embeddings.config import EmbeddingConfig
 
 
@@ -62,12 +64,36 @@ class Embedder:
         if not texts:
             raise ValueError("texts cannot be empty")
 
-        # ponytail: cl100k_base is OpenAI's tokenizer, so the count is an
-        # approximation for other providers — it errs short, which is safe.
-        # Set MNEMO_EMBED_MAX_TOKENS if a provider's real limit differs.
+        # ponytail: cl100k_base is OpenAI's tokenizer, so the count only matches
+        # OpenAI exactly. Providers with a smaller window (a 512-token local
+        # model) need MNEMO_EMBED_MAX_TOKENS lowered to match, or oversized
+        # inputs still reach them.
         texts = [truncate_to_tokens(t, self.config.max_input_tokens) for t in texts]
 
-        return self._embed_with_retry(texts)
+        embeddings: list[list[float]] = []
+        for group in self._token_budgeted(texts):
+            embeddings.extend(self._embed_with_retry(group))
+        return embeddings
+
+    def _token_budgeted(self, texts: list[str]) -> Iterator[list[str]]:
+        """Split texts so no single request exceeds the per-request budget.
+
+        Truncation bounds each input, not their sum: 50 chunks of 8192 tokens
+        is ~410k in one request, past what providers accept, and it fails as a
+        non-retryable 400 on the whole batch. Books of ordinary prose never
+        reach the budget, so this only splits the pathological case.
+        """
+        group: list[str] = []
+        used = 0
+        for text in texts:
+            tokens = count_tokens(text)
+            if group and used + tokens > self.config.max_request_tokens:
+                yield group
+                group, used = [], 0
+            group.append(text)
+            used += tokens
+        if group:
+            yield group
 
     @retry(
         stop=stop_after_attempt(5),
