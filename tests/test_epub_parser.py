@@ -8,6 +8,7 @@ import pytest
 from bs4 import BeautifulSoup, Tag
 
 from mnemo.epub import EPUBParser
+from mnemo.epub._classify import _is_math
 from mnemo.epub.content import _extract_math
 from mnemo.epub.metadata import extract_metadata, normalize_isbn, normalize_isbn_lenient
 from mnemo.models import Book, ContentType
@@ -372,6 +373,74 @@ def _make_tag(html: str) -> Tag:
     """Parse HTML fragment and return the first tag."""
     soup = BeautifulSoup(html, "html.parser")
     return next(soup.children)
+
+
+class TestIsMathHeuristic:
+    """The LaTeX text heuristic must not swallow code.
+
+    "$x$" also matches PHP and shell variables. On a container element one
+    such pair classified an entire chapter as math, and math blocks are never
+    split — a real book produced 9,653-token chunks that no provider accepts.
+    """
+
+    def test_php_variables_are_not_math(self) -> None:
+        tag = _make_tag(
+            "<div><p>Intro prose.</p>"
+            "<pre><code>$flag = true;\nwhile ($flag) { $flag = false; }</code></pre></div>"
+        )
+        assert _is_math(tag) is False
+
+    def test_shell_variables_on_one_line_are_not_math(self) -> None:
+        tag = _make_tag("<div><pre><code>echo $HOME and $PATH</code></pre></div>")
+        assert _is_math(tag) is False
+
+    def test_inline_latex_still_detected(self) -> None:
+        tag = _make_tag("<p>The value $x^2 + y^2$ is constant.</p>")
+        assert _is_math(tag) is True
+
+    def test_mathml_still_detected(self) -> None:
+        assert _is_math(_make_tag("<math><mrow><mi>x</mi></mrow></math>")) is True
+
+    def test_math_class_still_detected(self) -> None:
+        assert _is_math(_make_tag('<div class="equation">anything</div>')) is True
+
+    def test_dollar_pair_across_paragraphs_is_not_math(self) -> None:
+        """A container is never a math node, whatever dollar signs it holds."""
+        tag = _make_tag("<div><p>cost $5 for one</p><p>and $7 for two</p></div>")
+        assert _is_math(tag) is False
+
+    def test_prose_chapter_with_dollar_amounts_is_not_math(self) -> None:
+        """Prices in prose used to make a whole chapter one atomic MATH block.
+
+        No code involved, so the pre/code guard alone did not catch it — the
+        element being a container is what makes it untrustworthy.
+        """
+        tag = _make_tag(
+            '<div class="chapter"><p>Intro.</p>'
+            "<p>Plans ranged from $5 to $10 per month.</p><p>More.</p></div>"
+        )
+        assert _is_math(tag) is False
+
+    @pytest.mark.parametrize(
+        "html",
+        [
+            '<div class="programlisting">echo $HOME and $PATH</div>',
+            '<div class="listing"><span>$a = 1; $b = 2;</span></div>',
+            '<p class="code">export $FOO=$BAR</p>',
+        ],
+    )
+    def test_class_marked_code_is_not_math(self, html: str) -> None:
+        """Publishers mark code with a class on non-pre elements.
+
+        _is_code_block only inspects pre/code tags, so these would otherwise
+        fall through to the math path.
+        """
+        assert _is_math(_make_tag(html)) is False
+
+    def test_inline_latex_with_markup_still_detected(self) -> None:
+        """Subscripts inside the delimiters must not break detection."""
+        tag = _make_tag("<p>where $a<sub>i</sub> + b$ holds.</p>")
+        assert _is_math(tag) is True
 
 
 class TestExtractMath:

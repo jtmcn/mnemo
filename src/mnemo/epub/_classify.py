@@ -6,6 +6,7 @@ from bs4 import Tag
 
 from mnemo.epub._models import (
     _KNOWN_LANGUAGES,
+    BLOCK_LEVEL_TAGS,
     CODE_CLASSES,
     DIAGRAM_CLASSES,
     LATEX_BLOCK_PATTERN,
@@ -155,7 +156,22 @@ def _is_math(element: Tag) -> bool:
     if classes & MATH_CLASSES:
         return True
 
-    # Check for LaTeX delimiters in text
+    # Everything below is a text heuristic on "$...$", which also matches PHP
+    # and shell variables and, on a chapter-sized element, prose like
+    # "$5 to $10". Math blocks are never split, so a false positive there
+    # becomes one unsplittable chunk of an entire chapter. Two structural
+    # guards keep the heuristic on leaves, where it is trustworthy.
+
+    # A math node is a leaf. Anything containing block-level children is a
+    # container, whatever dollar signs it happens to hold.
+    if any(child.name and child.name.lower() in BLOCK_LEVEL_TAGS for child in element.find_all()):
+        return False
+
+    # Code, by tag or by publisher class — _is_code_block only checks tags,
+    # so class-marked listings would otherwise land on the math path.
+    if element.find("code") is not None or set(_classes(element)) & CODE_CLASSES:
+        return False
+
     text = element.get_text()
     return bool(
         LATEX_BLOCK_PATTERN.search(text)
