@@ -58,8 +58,11 @@ DIAGRAM_CLASSES = {"ascii", "diagram", "ascii-diagram", "ascii-art"}
 MATH_CLASSES = {"equation", "math", "formula", "katex", "mathjax"}
 
 # LaTeX delimiter patterns
-LATEX_BLOCK_PATTERN = re.compile(r"\\\[.*?\\\]", re.DOTALL)
-LATEX_INLINE_PATTERN = re.compile(r"\$[^$]+\$")
+# Bounded so one stray delimiter pair cannot swallow a whole chapter.
+LATEX_BLOCK_PATTERN = re.compile(r"\\\[.{1,2000}?\\\]", re.DOTALL)
+# Single-line and bounded: real inline math is short, while "$x ... $y" spanning
+# lines matches PHP/shell variables in any code sample.
+LATEX_INLINE_PATTERN = re.compile(r"\$[^$\n]{1,200}\$")
 
 # Common programming languages for detection
 _KNOWN_LANGUAGES = {

@@ -155,8 +155,16 @@ def _is_math(element: Tag) -> bool:
     if classes & MATH_CLASSES:
         return True
 
-    # Check for LaTeX delimiters in text
-    text = element.get_text()
+    # Below here it's a text heuristic, so keep it away from code: "$x$" also
+    # matches PHP/shell variables, and on a container element a single pair
+    # classifies the entire chapter as math (so it is never split).
+    if element.find(["pre", "code"]) is not None:
+        return False
+
+    # separator="\n" so block boundaries survive: plain get_text() joins
+    # paragraphs with no gap, which reconnects "$5 ...</p><p>... $7" into one
+    # line and defeats the single-line bound on the inline pattern.
+    text = element.get_text(separator="\n")
     return bool(
         LATEX_BLOCK_PATTERN.search(text)
         or (LATEX_INLINE_PATTERN.search(text) and tag_name in ("span", "div", "p"))
