@@ -66,6 +66,13 @@ def add(
         bool,
         typer.Option("--force", "-f", help="Re-index without prompting if book exists"),
     ] = False,
+    skip_existing: Annotated[
+        bool,
+        typer.Option(
+            "--skip-existing",
+            help="Skip books already indexed instead of prompting (for unattended batches)",
+        ),
+    ] = False,
     collection: Annotated[
         str | None,
         typer.Option(
@@ -111,6 +118,13 @@ def add(
 
         should_force = force
         if existing and not force:
+            # A blocking y/N prompt stalls an unattended batch on the first
+            # duplicate, so let callers opt out of it entirely.
+            if skip_existing:
+                if not json_output:
+                    console.print(f"[yellow]Skipped (already indexed): {existing.id}[/yellow]")
+                results.append({"id": existing.id, "skipped": True})
+                continue
             # Prompt user in TTY mode, error in non-TTY
             if console.is_terminal and not json_output:
                 confirm = typer.confirm(f"Book already indexed (id: {existing.id}). Re-index?")
@@ -142,6 +156,7 @@ def add(
                 TextColumn("[progress.description]{task.description}"),
                 console=console,
                 disable=json_output,
+                transient=True,  # erase the spinner line so it can't outlive the run
             ) as progress:
                 progress.add_task(description="Parsing and indexing...", total=None)
                 embed_error: str | None = None
@@ -470,6 +485,7 @@ def reindex(
         TextColumn("[progress.description]{task.description}"),
         console=console,
         disable=json_output,
+        transient=True,  # erase the spinner line so it can't outlive the run
     ) as progress:
         progress.add_task(description="Reindexing all books...", total=None)
         try:
@@ -641,6 +657,7 @@ def backup(
             TextColumn("[progress.description]{task.description}"),
             console=console,
             disable=json_output,
+            transient=True,  # erase the spinner line so it can't outlive the run
         ) as progress:
             progress.add_task(description="Creating backup...", total=None)
             manifest = create_backup(
@@ -702,6 +719,7 @@ def restore(
             TextColumn("[progress.description]{task.description}"),
             console=console,
             disable=json_output,
+            transient=True,  # erase the spinner line so it can't outlive the run
         ) as progress:
             progress.add_task(description="Restoring backup...", total=None)
             manifest = restore_backup(

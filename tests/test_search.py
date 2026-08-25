@@ -252,8 +252,14 @@ class TestSearchServiceValidation:
         with pytest.raises(ValueError, match="Invalid mode"):
             service.search("test", mode="invalid")
 
-    def test_valid_modes_accepted(self, tmp_path):
-        """All valid modes are accepted."""
+    def test_valid_modes_accepted(self, tmp_path, monkeypatch):
+        """All valid modes are accepted.
+
+        Clears the embedding env so the result does not depend on whether the
+        developer running the suite happens to have credentials exported.
+        """
+        monkeypatch.delenv("MNEMO_EMBED_BASE_URL", raising=False)
+        monkeypatch.delenv("MNEMO_EMBED_API_KEY", raising=False)
         # Create a properly initialized service
         db_path = tmp_path / "test.db"
         init_db(db_path)
