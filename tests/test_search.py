@@ -253,7 +253,11 @@ class TestSearchServiceValidation:
             service.search("test", mode="invalid")
 
     def test_valid_modes_accepted(self, tmp_path):
-        """All valid modes are accepted."""
+        """All valid modes are accepted.
+
+        Embedding env is cleared by the autouse fixture in conftest, so
+        semantic mode raises here regardless of the developer's own config.
+        """
         # Create a properly initialized service
         db_path = tmp_path / "test.db"
         init_db(db_path)

@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from typer.testing import CliRunner
 
 from mnemo.cli import app
+from mnemo.cli import console as cli_console
 
 runner = CliRunner()
 
@@ -620,6 +621,124 @@ class TestBookServiceSurface:
         good = tmp_path / "book.epub"
         good.write_text("x")
         assert validate_book_path(good) is None
+
+
+class TestSkipExisting:
+    """--skip-existing keeps an unattended batch from stalling.
+
+    Without it, a duplicate in the middle of `mnemo add *.epub` hits a
+    blocking y/N prompt on a TTY and the run waits forever.
+    """
+
+    @patch("mnemo.ingest.ingest_book")
+    @patch("mnemo.storage.repository.BookRepository.get_by_hash")
+    @patch("mnemo.services.book_service.validate_book_path", return_value=None)
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    def test_skips_without_prompting(
+        self, mock_init, mock_conn, mock_validate, mock_get_by_hash, mock_ingest, tmp_path
+    ) -> None:
+        from mnemo.models import Book
+
+        epub = tmp_path / "book.epub"
+        epub.write_bytes(b"fake content")
+        mock_get_by_hash.return_value = Book(
+            id="abc123",
+            title="Already Here",
+            authors=["A"],
+            file_hash="a" * 64,
+            structure_source="toc",
+        )
+
+        result = runner.invoke(app, ["add", "--skip-existing", str(epub)])
+
+        assert result.exit_code == 0
+        assert "Skipped" in _plain(result.stdout)
+        # The whole point: no re-ingest, and no prompt to block on.
+        mock_ingest.assert_not_called()
+
+    @patch("mnemo.cli.typer.confirm")
+    @patch("mnemo.ingest.ingest_book")
+    @patch("mnemo.storage.repository.BookRepository.get_by_hash")
+    @patch("mnemo.services.book_service.validate_book_path", return_value=None)
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    def test_skips_without_prompting_on_a_tty(
+        self,
+        mock_init,
+        mock_conn,
+        mock_validate,
+        mock_get_by_hash,
+        mock_ingest,
+        mock_confirm,
+        tmp_path,
+        monkeypatch,
+    ) -> None:
+        """The prompt only exists on a TTY, which is the case CliRunner never hits.
+
+        Without forcing is_terminal, both other tests exercise the non-TTY
+        error branch and would pass even if skipping never suppressed the
+        blocking confirm.
+        """
+        from mnemo.models import Book
+
+        monkeypatch.setattr(type(cli_console), "is_terminal", property(lambda self: True))
+
+        epub = tmp_path / "book.epub"
+        epub.write_bytes(b"fake content")
+        mock_get_by_hash.return_value = Book(
+            id="abc123",
+            title="Already Here",
+            authors=["A"],
+            file_hash="a" * 64,
+            structure_source="toc",
+        )
+
+        result = runner.invoke(app, ["add", "--skip-existing", str(epub)])
+
+        assert result.exit_code == 0
+        mock_confirm.assert_not_called()
+        mock_ingest.assert_not_called()
+
+    def test_force_with_skip_existing_is_rejected(self, tmp_path) -> None:
+        """Contradictory flags must not silently re-embed the whole library."""
+        epub = tmp_path / "book.epub"
+        epub.write_bytes(b"fake content")
+
+        result = runner.invoke(app, ["add", "--force", "--skip-existing", str(epub)])
+
+        assert result.exit_code == 1
+        assert "mutually exclusive" in _plain(result.stdout)
+
+    @patch("mnemo.ingest.ingest_book")
+    @patch("mnemo.storage.repository.BookRepository.get_by_hash")
+    @patch("mnemo.services.book_service.validate_book_path", return_value=None)
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    def test_skip_existing_still_adds_new_books(
+        self, mock_init, mock_conn, mock_validate, mock_get_by_hash, mock_ingest, tmp_path
+    ) -> None:
+        from mnemo.models import Book
+
+        epub = tmp_path / "fresh.epub"
+        epub.write_bytes(b"fake content")
+        mock_get_by_hash.return_value = None
+        mock_ingest.return_value = (
+            Book(
+                id="def456",
+                title="New",
+                authors=["B"],
+                file_hash="b" * 64,
+                structure_source="toc",
+            ),
+            12,
+        )
+
+        result = runner.invoke(app, ["add", "--skip-existing", str(epub)])
+
+        assert result.exit_code == 0
+        assert "Added" in _plain(result.stdout)
+        mock_ingest.assert_called_once()
 
 
 class TestRichMarkupEscaping:

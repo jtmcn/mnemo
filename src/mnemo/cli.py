@@ -66,6 +66,14 @@ def add(
         bool,
         typer.Option("--force", "-f", help="Re-index without prompting if book exists"),
     ] = False,
+    skip_existing: Annotated[
+        bool,
+        typer.Option(
+            "--skip-existing",
+            help="Skip books already indexed instead of prompting (for unattended batches); "
+            "cannot be combined with --force",
+        ),
+    ] = False,
     collection: Annotated[
         str | None,
         typer.Option(
@@ -86,6 +94,16 @@ def add(
     from mnemo.storage import BookRepository, get_connection, init_db
 
     results = []
+
+    if force and skip_existing:
+        # Directly contradictory for a duplicate, and guessing wrong means
+        # re-embedding the whole library instead of skipping it.
+        message = "--force and --skip-existing are mutually exclusive."
+        if json_output:
+            print(json.dumps({"error": message}))
+        else:
+            console.print(f"[red]Error: {message}[/red]")
+        raise typer.Exit(1)
 
     for path in paths:
         # Validate path using service layer
@@ -111,6 +129,24 @@ def add(
 
         should_force = force
         if existing and not force:
+            # A blocking y/N prompt stalls an unattended batch on the first
+            # duplicate, so let callers opt out of it entirely.
+            if skip_existing:
+                if not json_output:
+                    console.print(f"[yellow]Skipped (already indexed): {existing.id}[/yellow]")
+                # Same keys as a successful add: --json is the scripted
+                # interface, and a batch is exactly where skips show up.
+                results.append(
+                    {
+                        "id": existing.id,
+                        "title": existing.title,
+                        "authors": existing.authors,
+                        "chunks": 0,
+                        "embedded": False,
+                        "skipped": True,
+                    }
+                )
+                continue
             # Prompt user in TTY mode, error in non-TTY
             if console.is_terminal and not json_output:
                 confirm = typer.confirm(f"Book already indexed (id: {existing.id}). Re-index?")
@@ -142,6 +178,7 @@ def add(
                 TextColumn("[progress.description]{task.description}"),
                 console=console,
                 disable=json_output,
+                transient=True,  # erase the spinner line so it can't outlive the run
             ) as progress:
                 progress.add_task(description="Parsing and indexing...", total=None)
                 embed_error: str | None = None
@@ -163,6 +200,7 @@ def add(
                 "authors": book.authors,
                 "chunks": chunk_count,
                 "embedded": embed_error is None,
+                "skipped": False,
             }
             if embed_error:
                 result["embed_error"] = embed_error
@@ -470,6 +508,7 @@ def reindex(
         TextColumn("[progress.description]{task.description}"),
         console=console,
         disable=json_output,
+        transient=True,  # erase the spinner line so it can't outlive the run
     ) as progress:
         progress.add_task(description="Reindexing all books...", total=None)
         try:
@@ -641,6 +680,7 @@ def backup(
             TextColumn("[progress.description]{task.description}"),
             console=console,
             disable=json_output,
+            transient=True,  # erase the spinner line so it can't outlive the run
         ) as progress:
             progress.add_task(description="Creating backup...", total=None)
             manifest = create_backup(
@@ -702,6 +742,7 @@ def restore(
             TextColumn("[progress.description]{task.description}"),
             console=console,
             disable=json_output,
+            transient=True,  # erase the spinner line so it can't outlive the run
         ) as progress:
             progress.add_task(description="Restoring backup...", total=None)
             manifest = restore_backup(
