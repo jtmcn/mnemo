@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import shlex
 from pathlib import Path
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 import httpx
 import typer
@@ -26,6 +26,9 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from mnemo import __version__
+
+if TYPE_CHECKING:
+    from mnemo.services.book_service import DuplicatePolicy, IntakeOutcome
 
 
 def version_callback(value: bool) -> None:
@@ -89,158 +92,124 @@ def add(
     Parses the book, chunks content, generates embeddings, and stores
     everything for search. Supports .epub and .docx files.
     """
-    from mnemo.ingest import EmbeddingFailed, ingest_book
-    from mnemo.services.book_service import validate_book_path
-    from mnemo.storage import BookRepository, get_connection, init_db
-
-    results = []
-
     if force and skip_existing:
         # Directly contradictory for a duplicate, and guessing wrong means
         # re-embedding the whole library instead of skipping it.
-        message = "--force and --skip-existing are mutually exclusive."
-        if json_output:
-            print(json.dumps({"error": message}))
-        else:
-            console.print(f"[red]Error: {message}[/red]")
+        _emit_error("--force and --skip-existing are mutually exclusive.", json_output)
         raise typer.Exit(1)
 
+    # A blocking y/N prompt stalls an unattended batch on the first duplicate,
+    # so only ask for one when there is someone there to answer.
+    interactive = console.is_terminal and not json_output
+    policy: DuplicatePolicy = (
+        "replace" if force else "skip" if (skip_existing or interactive) else "reject"
+    )
+
+    results = []
+
     for path in paths:
-        # Validate path using service layer
-        error = validate_book_path(path)
-        if error:
-            if json_output:
-                print(json.dumps({"error": error}))
-            else:
-                console.print(f"[red]{escape(error)}[/red]")
+        outcome = _intake_with_spinner(path, policy, collection, json_output)
+
+        if outcome.status == "already_indexed" and interactive and not skip_existing:
+            assert outcome.book is not None
+            if not typer.confirm(f"Book already indexed (id: {outcome.book.id}). Re-index?"):
+                console.print("[yellow]Skipped[/yellow]")
+                continue
+            outcome = _intake_with_spinner(path, "replace", collection, json_output)
+
+        if outcome.status == "rejected":
+            extra = (
+                {"existing_id": outcome.book.id}
+                if outcome.reason == "duplicate" and outcome.book
+                else None
+            )
+            message = outcome.message
+            if outcome.reason == "duplicate":
+                message += " Use --force to re-index."
+            _emit_error(message, json_output, extra)
             raise typer.Exit(1)
 
-        # Check for duplicate
-        init_db()
-        conn = get_connection()
-        book_repo = BookRepository(conn)
+        assert outcome.book is not None
+        results.append(_as_json(outcome))
 
-        # Compute file hash to check for duplicate
-        import hashlib
-
-        file_hash = hashlib.sha256(path.read_bytes()).hexdigest()
-        existing = book_repo.get_by_hash(file_hash)
-        conn.close()
-
-        should_force = force
-        if existing and not force:
-            # A blocking y/N prompt stalls an unattended batch on the first
-            # duplicate, so let callers opt out of it entirely.
-            if skip_existing:
-                if not json_output:
-                    console.print(f"[yellow]Skipped (already indexed): {existing.id}[/yellow]")
-                # Same keys as a successful add: --json is the scripted
-                # interface, and a batch is exactly where skips show up.
-                results.append(
-                    {
-                        "id": existing.id,
-                        "title": existing.title,
-                        "authors": existing.authors,
-                        "chunks": 0,
-                        "embedded": False,
-                        "skipped": True,
-                    }
-                )
-                continue
-            # Prompt user in TTY mode, error in non-TTY
-            if console.is_terminal and not json_output:
-                confirm = typer.confirm(f"Book already indexed (id: {existing.id}). Re-index?")
-                if confirm:
-                    should_force = True
-                else:
-                    console.print("[yellow]Skipped[/yellow]")
-                    continue
-            else:
-                if json_output:
-                    print(
-                        json.dumps(
-                            {
-                                "error": "Book exists. Use --force to re-index.",
-                                "existing_id": existing.id,
-                            }
-                        )
-                    )
-                else:
-                    console.print(
-                        f"[red]Book exists (id: {existing.id}). Use --force to re-index.[/red]"
-                    )
-                raise typer.Exit(1)
-
-        # Ingest with progress spinner
-        try:
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                console=console,
-                disable=json_output,
-                transient=True,  # erase the spinner line so it can't outlive the run
-            ) as progress:
-                progress.add_task(description="Parsing and indexing...", total=None)
-                embed_error: str | None = None
-                try:
-                    book, chunk_count = ingest_book(
-                        path,
-                        embed=True,
-                        force=should_force,
-                        collection=collection,
-                    )
-                except EmbeddingFailed as e:
-                    # Book is committed and keyword-searchable — partial success,
-                    # not a failure. Report it and keep going.
-                    book, chunk_count, embed_error = e.book, e.chunk_count, str(e)
-
-            result = {
-                "id": book.id,
-                "title": book.title,
-                "authors": book.authors,
-                "chunks": chunk_count,
-                "embedded": embed_error is None,
-                "skipped": False,
-            }
-            if embed_error:
-                result["embed_error"] = embed_error
-            results.append(result)
-
-            if not json_output:
-                authors_str = ", ".join(book.authors) if book.authors else "Unknown"
-                console.print(
-                    f"[green]Added:[/green] {escape(book.title)} by {escape(authors_str)} "
-                    f"({book.id}) - {chunk_count} chunks"
-                )
-                if embed_error:
-                    console.print(
-                        f"[yellow]Embeddings skipped:[/yellow] {escape(embed_error)}\n"
-                        f"[yellow]Keyword search works now. Re-run "
-                        f"`mnemo add --force {escape(shlex.quote(str(path)))}` "
-                        f"to add semantic search.[/yellow]"
-                    )
-
-        except FileNotFoundError as e:
-            if json_output:
-                print(json.dumps({"error": str(e)}))
-            else:
-                console.print(f"[red]Error: {escape(str(e))}[/red]")
-            raise typer.Exit(1) from e
-        except ValueError as e:
-            if json_output:
-                print(json.dumps({"error": str(e)}))
-            else:
-                console.print(f"[red]Error: {escape(str(e))}[/red]")
-            raise typer.Exit(1) from e
-        except Exception as e:
-            if json_output:
-                print(json.dumps({"error": f"Failed to add {path}: {e}"}))
-            else:
-                console.print(f"[red]Failed to add {escape(str(path))}: {escape(str(e))}[/red]")
-            raise typer.Exit(1) from e
+        if not json_output:
+            _print_outcome(outcome, path)
 
     if json_output:
         print(json.dumps(results))
+
+
+def _intake_with_spinner(
+    path: Path,
+    policy: DuplicatePolicy,
+    collection: str | None,
+    json_output: bool,
+) -> IntakeOutcome:
+    """Run one intake behind a transient spinner."""
+    from mnemo.services.book_service import intake
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+        disable=json_output,
+        transient=True,  # erase the spinner line so it can't outlive the run
+    ) as progress:
+        progress.add_task(description="Parsing and indexing...", total=None)
+        return intake(path, on_duplicate=policy, collection=collection)
+
+
+def _emit_error(message: str, json_output: bool, extra: dict[str, Any] | None = None) -> None:
+    """Report a failure in whichever shape the caller asked for."""
+    if json_output:
+        print(json.dumps({"error": message, **(extra or {})}))
+    else:
+        console.print(f"[red]Error: {escape(message)}[/red]")
+
+
+def _as_json(outcome: IntakeOutcome) -> dict[str, Any]:
+    """One result object for `mnemo add --json`.
+
+    `skipped` is kept alongside `status` because batch wrappers branch on it;
+    `embed_error` is gone, since the same text now arrives as a note.
+    """
+    book = outcome.book
+    assert book is not None, "a non-rejected outcome always carries its book"
+    return {
+        "id": book.id,
+        "title": book.title,
+        "authors": book.authors,
+        "chunks": outcome.chunks,
+        "embedded": outcome.embedded,
+        "skipped": outcome.skipped,
+        "status": outcome.status,
+        "notes": [{"kind": n.kind, "message": n.message} for n in outcome.notes],
+    }
+
+
+def _print_outcome(outcome: IntakeOutcome, path: Path) -> None:
+    """Render one intake outcome to the console."""
+    book = outcome.book
+    assert book is not None, "a non-rejected outcome always carries its book"
+    if outcome.skipped:
+        console.print(f"[yellow]Skipped (already indexed): {escape(book.id)}[/yellow]")
+        return
+
+    authors_str = ", ".join(book.authors) if book.authors else "Unknown"
+    console.print(
+        f"[green]Added:[/green] {escape(book.title)} by {escape(authors_str)} "
+        f"({book.id}) - {outcome.chunks} chunks"
+    )
+    for note in outcome.notes:
+        if note.kind == "embeddings_skipped":
+            console.print(
+                f"[yellow]Embeddings skipped:[/yellow] {escape(note.message)}\n"
+                f"[yellow]Keyword search works now. Re-run "
+                f"`mnemo add --force {escape(shlex.quote(str(path)))}` "
+                f"to add semantic search.[/yellow]"
+            )
+        else:
+            console.print(f"[yellow]Note:[/yellow] {escape(note.message)}")
 
 
 def _vector_counts(book_ids: list[str]) -> dict[str, int]:

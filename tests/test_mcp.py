@@ -887,7 +887,7 @@ class TestAddBookValidation:
         """Non-existent path should return file-not-found error."""
         from mnemo.mcp.tools_books import _add_book_impl
 
-        result = _add_book_impl("/nonexistent/path/book.epub", pre_parsed=MagicMock())
+        result = _add_book_impl("/nonexistent/path/book.epub")
         assert "Error" in result
         assert "not found" in result.lower()
 
@@ -897,7 +897,7 @@ class TestAddBookValidation:
 
         txt_file = tmp_path / "notes.txt"
         txt_file.write_text("some content")
-        result = _add_book_impl(str(txt_file), pre_parsed=MagicMock())
+        result = _add_book_impl(str(txt_file))
         assert "Error" in result
         assert "epub" in result.lower()
 
@@ -907,7 +907,7 @@ class TestAddBookValidation:
 
         pdf_file = tmp_path / "book.PDF"
         pdf_file.write_bytes(b"fake pdf content")
-        result = _add_book_impl(str(pdf_file), pre_parsed=MagicMock())
+        result = _add_book_impl(str(pdf_file))
         assert "Error" in result
 
 
@@ -946,7 +946,9 @@ class TestAddBookIntegration:
         """Create a factory that returns new connections to the temp DB."""
         from mnemo.storage.database import get_connection
 
-        return lambda: get_connection(temp_db["path"])
+        # intake calls get_connection(db_path); the MCP tools call it with no
+        # args. Accept both so one factory serves every add_book test.
+        return lambda *_: get_connection(temp_db["path"])
 
     def test_add_book_success(self, tmp_path, temp_db):
         """Successful add returns book details and chunk count."""
@@ -962,16 +964,20 @@ class TestAddBookIntegration:
 
         with (
             patch(
-                "mnemo.mcp.tools_books.get_connection",
+                "mnemo.services.book_service.get_connection",
                 side_effect=self._make_conn_factory(temp_db),
             ),
-            patch("mnemo.mcp.tools_books.init_db"),
+            patch("mnemo.services.book_service.init_db"),
+            patch(
+                "mnemo.services.book_service.pre_parse_metadata",
+                return_value=mock_pre_parsed,
+            ),
             patch(
                 "mnemo.ingest.ingest_book",
                 return_value=(mock_result_book, 42),
             ),
         ):
-            result = _add_book_impl(str(epub_file), False, mock_pre_parsed)
+            result = _add_book_impl(str(epub_file), False)
 
         assert "Added" in result
         assert "Test Book" in result
@@ -996,12 +1002,16 @@ class TestAddBookIntegration:
 
         with (
             patch(
-                "mnemo.mcp.tools_books.get_connection",
+                "mnemo.services.book_service.get_connection",
                 side_effect=self._make_conn_factory(temp_db),
             ),
-            patch("mnemo.mcp.tools_books.init_db"),
+            patch("mnemo.services.book_service.init_db"),
+            patch(
+                "mnemo.services.book_service.pre_parse_metadata",
+                return_value=mock_pre_parsed,
+            ),
         ):
-            result = _add_book_impl(str(epub_file), False, mock_pre_parsed)
+            result = _add_book_impl(str(epub_file), False)
 
         assert "Error" in result
         assert "already exists" in result.lower()
@@ -1031,16 +1041,20 @@ class TestAddBookIntegration:
 
         with (
             patch(
-                "mnemo.mcp.tools_books.get_connection",
+                "mnemo.services.book_service.get_connection",
                 side_effect=self._make_conn_factory(temp_db),
             ),
-            patch("mnemo.mcp.tools_books.init_db"),
+            patch("mnemo.services.book_service.init_db"),
+            patch(
+                "mnemo.services.book_service.pre_parse_metadata",
+                return_value=mock_pre_parsed,
+            ),
             patch(
                 "mnemo.ingest.ingest_book",
                 return_value=(mock_result_book, 42),
             ),
         ):
-            result = _add_book_impl(str(epub_file), True, mock_pre_parsed)
+            result = _add_book_impl(str(epub_file), True)
 
         assert "Added" in result
         assert "Error" not in result
@@ -1059,10 +1073,14 @@ class TestAddBookIntegration:
 
         with (
             patch(
-                "mnemo.mcp.tools_books.get_connection",
+                "mnemo.services.book_service.get_connection",
                 side_effect=self._make_conn_factory(temp_db),
             ),
-            patch("mnemo.mcp.tools_books.init_db"),
+            patch("mnemo.services.book_service.init_db"),
+            patch(
+                "mnemo.services.book_service.pre_parse_metadata",
+                return_value=mock_pre_parsed,
+            ),
             patch(
                 "mnemo.ingest.ingest_book",
                 return_value=(mock_result_book, 10),
@@ -1071,7 +1089,7 @@ class TestAddBookIntegration:
         ):
             from mnemo.mcp.tools_books import _add_book_impl
 
-            _add_book_impl(str(epub_file), False, mock_pre_parsed)
+            _add_book_impl(str(epub_file), False)
 
         mock_service.invalidate_cache.assert_called()
 
@@ -1096,21 +1114,25 @@ class TestAddBookIntegration:
 
         with (
             patch(
-                "mnemo.mcp.tools_books.get_connection",
+                "mnemo.services.book_service.get_connection",
                 side_effect=self._make_conn_factory(temp_db),
             ),
-            patch("mnemo.mcp.tools_books.init_db"),
+            patch("mnemo.services.book_service.init_db"),
+            patch(
+                "mnemo.services.book_service.pre_parse_metadata",
+                return_value=mock_pre_parsed,
+            ),
             patch(
                 "mnemo.ingest.ingest_book",
                 side_effect=ingest_side_effect,
             ),
             patch("mnemo.ingest.remove_book") as mock_remove,
         ):
-            result = _add_book_impl(str(epub_file), False, mock_pre_parsed)
+            result = _add_book_impl(str(epub_file), False)
 
         assert "Error" in result
         assert "Embedding failed" in result
-        mock_remove.assert_called_once_with("bbb001")
+        mock_remove.assert_called_once_with("bbb001", db_path=None, chroma_path=None)
 
     def test_add_book_keeps_book_when_only_embedding_failed(self, tmp_path, temp_db):
         """EmbeddingFailed is partial success: keep the book, report the gap (#6).
@@ -1131,10 +1153,14 @@ class TestAddBookIntegration:
 
         with (
             patch(
-                "mnemo.mcp.tools_books.get_connection",
+                "mnemo.services.book_service.get_connection",
                 side_effect=self._make_conn_factory(temp_db),
             ),
-            patch("mnemo.mcp.tools_books.init_db"),
+            patch("mnemo.services.book_service.init_db"),
+            patch(
+                "mnemo.services.book_service.pre_parse_metadata",
+                return_value=mock_pre_parsed,
+            ),
             patch(
                 "mnemo.ingest.ingest_book",
                 side_effect=EmbeddingFailed(stored_book, 8, ValueError("no credentials")),
@@ -1142,7 +1168,7 @@ class TestAddBookIntegration:
             patch("mnemo.mcp.tools_books.make_search_service", return_value=MagicMock()),
             patch("mnemo.ingest.remove_book") as mock_remove,
         ):
-            result = _add_book_impl(str(epub_file), False, mock_pre_parsed)
+            result = _add_book_impl(str(epub_file), False)
 
         assert "Added" in result
         assert "Keyword Only" in result
@@ -1181,15 +1207,19 @@ class TestAddBookCollection:
         )
 
         with (
-            patch("mnemo.mcp.tools_books.init_db"),
-            patch("mnemo.mcp.tools_books.get_connection"),
+            patch("mnemo.services.book_service.init_db"),
+            patch(
+                "mnemo.services.book_service.pre_parse_metadata",
+                return_value=mock_pre_parsed,
+            ),
+            patch("mnemo.services.book_service.get_connection"),
             patch("mnemo.ingest.ingest_book", return_value=(mock_result_book, 5)) as mock_ingest,
         ):
             mock_repo = MagicMock()
             mock_repo.get_by_hash.return_value = None
             mock_repo.find_similar_title.return_value = []
-            with patch("mnemo.mcp.tools_books.BookRepository", return_value=mock_repo):
-                _add_book_impl(str(epub_file), False, mock_pre_parsed, collection="ERCOT")
+            with patch("mnemo.services.book_service.BookRepository", return_value=mock_repo):
+                _add_book_impl(str(epub_file), False, collection="ERCOT")
 
         # Verify ingest_book received the collection kwarg
         mock_ingest.assert_called_once()
@@ -1220,15 +1250,19 @@ class TestAddBookCollection:
         )
 
         with (
-            patch("mnemo.mcp.tools_books.init_db"),
-            patch("mnemo.mcp.tools_books.get_connection"),
+            patch("mnemo.services.book_service.init_db"),
+            patch(
+                "mnemo.services.book_service.pre_parse_metadata",
+                return_value=mock_pre_parsed,
+            ),
+            patch("mnemo.services.book_service.get_connection"),
             patch("mnemo.ingest.ingest_book", return_value=(mock_result_book, 5)) as mock_ingest,
         ):
             mock_repo = MagicMock()
             mock_repo.get_by_hash.return_value = None
             mock_repo.find_similar_title.return_value = []
-            with patch("mnemo.mcp.tools_books.BookRepository", return_value=mock_repo):
-                _add_book_impl(str(epub_file), False, mock_pre_parsed)
+            with patch("mnemo.services.book_service.BookRepository", return_value=mock_repo):
+                _add_book_impl(str(epub_file), False)
 
         assert mock_ingest.call_args.kwargs.get("collection") is None
 
@@ -1277,7 +1311,8 @@ class TestLifecycle:
 
         # --- Step 1: Add book ---
         # Mock ingest_book to insert the book into our temp DB and return it
-        def mock_ingest(path, embed=True, force=False, chunker_config=None, collection=None):
+        def mock_ingest(path, embed=True, force=False, chunker_config=None,
+                        collection=None, **_):
             book_repo = BookRepository(temp_db["conn"])
             book_repo.add(lifecycle_book)
             # Also add chunks so search and get_book_info work
@@ -1301,15 +1336,19 @@ class TestLifecycle:
 
         from mnemo.storage.database import get_connection as db_get_conn
 
-        def conn_factory():
+        def conn_factory(*_):
             return db_get_conn(temp_db["path"])
 
         with (
-            patch("mnemo.mcp.tools_books.get_connection", side_effect=conn_factory),
-            patch("mnemo.mcp.tools_books.init_db"),
+            patch("mnemo.services.book_service.get_connection", side_effect=conn_factory),
+            patch("mnemo.services.book_service.init_db"),
+            patch(
+                "mnemo.services.book_service.pre_parse_metadata",
+                return_value=mock_pre_parsed,
+            ),
             patch("mnemo.ingest.ingest_book", side_effect=mock_ingest),
         ):
-            add_result = _add_book_impl(str(epub_file), False, mock_pre_parsed)
+            add_result = _add_book_impl(str(epub_file), False)
 
         assert "Added" in add_result
         assert "Lifecycle Test Book" in add_result
@@ -1364,19 +1403,22 @@ class TestAddBookAsync:
     """Tests for the add_book async wrapper."""
 
     @pytest.mark.asyncio
-    async def test_add_book_file_not_found_no_thread(self):
-        """File-not-found returns error without entering thread."""
+    async def test_add_book_file_not_found(self):
+        """File-not-found surfaces as an error, rejected by intake in the thread.
+
+        Validation used to be duplicated in this wrapper so a bad path could
+        skip the thread; it now lives only in intake, so the wrapper spawns
+        one and renders the rejection it gets back.
+        """
         from mnemo.mcp.tools_books import add_book
 
         ctx = AsyncMock()
         add_book_fn = add_book.fn  # Unwrap FastMCP FunctionTool
 
-        with patch("mnemo.mcp.tools_books._add_book_impl") as mock_impl:
-            result = await add_book_fn("/nonexistent/book.epub", False, ctx=ctx)
+        result = await add_book_fn("/nonexistent/book.epub", False, ctx=ctx)
 
         assert "Error" in result
         assert "not found" in result.lower()
-        mock_impl.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_add_book_timeout_returns_error(self, tmp_path):
@@ -1398,8 +1440,8 @@ class TestAddBookAsync:
             patch("mnemo.epub.metadata.extract_metadata", return_value=mock_pre),
             patch("mnemo.mcp.tools_books.asyncio.to_thread", lambda *a, **kw: "stub"),
             patch("mnemo.mcp.tools_books.asyncio.wait_for", new=fake_wait_for_timeout),
-            patch("mnemo.mcp.tools_books.init_db"),
-            patch("mnemo.mcp.tools_books.get_connection") as mock_get_conn,
+            patch("mnemo.services.book_service.init_db"),
+            patch("mnemo.services.book_service.get_connection") as mock_get_conn,
         ):
             mock_repo = MagicMock()
             mock_repo.get_by_hash.return_value = None
@@ -1465,6 +1507,7 @@ class TestAddBookAsync:
             patch("mnemo.epub.metadata.extract_metadata", return_value=mock_pre),
             patch("mnemo.mcp.tools_books.asyncio.to_thread", lambda *a, **kw: "stub"),
             patch("mnemo.mcp.tools_books.asyncio.wait_for", new=fake_wait_for_timeout),
+            # Timeout cleanup runs in the wrapper, not in intake.
             patch("mnemo.mcp.tools_books.init_db"),
             patch("mnemo.mcp.tools_books.get_connection", return_value=mock_conn),
             patch("mnemo.mcp.tools_books.BookRepository", return_value=mock_repo),
@@ -1583,10 +1626,10 @@ class TestAddBookChunkParams:
         mock_book.file_hash = "a" * 64
 
         with (
-            patch("mnemo.mcp.tools_books.init_db"),
-            patch("mnemo.mcp.tools_books.get_connection") as mock_conn_fn,
-            patch("mnemo.epub.metadata.extract_metadata", return_value=mock_book),
-            patch("mnemo.mcp.tools_books.BookRepository") as mock_repo_cls,
+            patch("mnemo.services.book_service.init_db"),
+            patch("mnemo.services.book_service.get_connection") as mock_conn_fn,
+            patch("mnemo.services.book_service.pre_parse_metadata", return_value=mock_book),
+            patch("mnemo.services.book_service.BookRepository") as mock_repo_cls,
             patch("mnemo.ingest.ingest_book") as mock_ingest,
         ):
             mock_conn = MagicMock()
@@ -1646,10 +1689,10 @@ class TestAddBookChunkParams:
         mock_book.file_hash = "a" * 64
 
         with (
-            patch("mnemo.mcp.tools_books.init_db"),
-            patch("mnemo.mcp.tools_books.get_connection") as mock_conn_fn,
-            patch("mnemo.epub.metadata.extract_metadata", return_value=mock_book),
-            patch("mnemo.mcp.tools_books.BookRepository") as mock_repo_cls,
+            patch("mnemo.services.book_service.init_db"),
+            patch("mnemo.services.book_service.get_connection") as mock_conn_fn,
+            patch("mnemo.services.book_service.pre_parse_metadata", return_value=mock_book),
+            patch("mnemo.services.book_service.BookRepository") as mock_repo_cls,
             patch("mnemo.ingest.ingest_book") as mock_ingest,
         ):
             mock_conn = MagicMock()

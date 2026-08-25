@@ -18,7 +18,7 @@ from mnemo.search import SearchService
 from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_db
 
 if TYPE_CHECKING:
-    from mnemo.models import Book
+    from mnemo.services.book_service import IntakeOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -28,36 +28,30 @@ logger = logging.getLogger(__name__)
 def _add_book_impl(
     file_path: str,
     force: bool = False,
-    pre_parsed: "Book | None" = None,
     chunk_min_tokens: int | None = None,
     chunk_max_tokens: int | None = None,
     collection: str | None = None,
+    skip_existing: bool = False,
 ) -> str:
     """Add book implementation - see add_book for docs.
 
-    Args:
-        file_path: Path to book file (.epub, .docx)
-        force: If True, re-index even if duplicate exists
-        pre_parsed: Pre-extracted Book metadata (from extract_metadata for EPUB,
-            or None for other formats where metadata comes from the full parse).
-        chunk_min_tokens: Minimum tokens per chunk (default 400, min 100)
-        chunk_max_tokens: Maximum tokens per chunk (default 800, max 2000)
-        collection: Optional collection name to tag the book with at ingest.
-
-    Note: This function creates its own DB connection internally for thread safety.
-    It does not accept a book_repo parameter because it runs in asyncio.to_thread
-    and needs a thread-local connection.
+    Every decision here (validation, duplicate handling, partial success,
+    cleanup) belongs to intake(); this function only renders the outcome as
+    markdown. intake opens its own DB connection, which keeps this safe to run
+    under asyncio.to_thread.
     """
     logger.info(f"add_book: file_path={file_path!r}, force={force}, collection={collection!r}")
 
-    # Validate chunk size parameters
     from mnemo.chunking.chunker import ChunkerConfig
+    from mnemo.services.book_service import DuplicatePolicy, intake
 
     validation_error = ChunkerConfig.validate_params(chunk_min_tokens, chunk_max_tokens)
     if validation_error:
         return f"Error: {validation_error}"
 
-    # Build chunker config if custom params provided
+    if force and skip_existing:
+        return "Error: force and skip_existing are mutually exclusive."
+
     chunker_config = None
     if chunk_min_tokens is not None or chunk_max_tokens is not None:
         chunker_config = ChunkerConfig(
@@ -65,117 +59,52 @@ def _add_book_impl(
             max_tokens=chunk_max_tokens or 800,
         )
 
-    # Validate path exists
-    path = Path(file_path)
-    if not path.exists():
-        return f"Error: File not found: {file_path}"
+    policy: DuplicatePolicy = "replace" if force else "skip" if skip_existing else "reject"
+    outcome = intake(
+        Path(file_path),
+        on_duplicate=policy,
+        collection=collection,
+        chunker_config=chunker_config,
+    )
 
-    # Validate file extension
-    from mnemo.parsing import SUPPORTED_FORMATS
-
-    if path.suffix.lower() not in SUPPORTED_FORMATS:
-        return (
-            f"Error: Unsupported format: {path.suffix} "
-            f"(supported: {', '.join(sorted(SUPPORTED_FORMATS))})"
-        )
-
-    # Extract metadata if not provided (direct call without async wrapper)
-    if pre_parsed is None:
-        from mnemo.parsing import pre_parse_metadata
-
-        try:
-            pre_parsed = pre_parse_metadata(path)
-        except Exception as e:
-            return f"Error: Failed to read file: {e}"
-
-    # Get own DB connection (thread safe — not shared with async caller)
-    init_db()
-    conn = get_connection()
-    try:
-        book_repo = BookRepository(conn)
-
-        # Check for hard duplicate (file hash match)
-        existing = book_repo.get_by_hash(pre_parsed.file_hash)
-
-        if existing and not force:
-            authors_str = ", ".join(existing.authors) if existing.authors else "Unknown"
-            return (
-                f'Error: Book already exists - "{existing.title}" '
-                f"by {authors_str} (ID: `{existing.id}`). "
-                f"Use force=true to re-index."
-            )
-
-        # Check for soft duplicate (similar title)
-        soft_warning = ""
-        if not existing:  # Only check soft dups if not a hash match
-            similar = book_repo.find_similar_title(pre_parsed.title)
-            if similar:
-                sim = similar[0]
-                sim_authors = ", ".join(sim.authors) if sim.authors else "Unknown"
-                soft_warning = (
-                    f'\nNote: Similar book exists - "{sim.title}" by {sim_authors} (ID: `{sim.id}`)'
-                )
-
-        # Ingest with embedding
-        from mnemo.ingest import EmbeddingFailed
-        from mnemo.ingest import ingest_book as pipeline_ingest
-        from mnemo.ingest import remove_book as pipeline_remove
-
-        embed_error: str | None = None
-        try:
-            book, chunk_count = pipeline_ingest(
-                path,
-                embed=True,
-                force=force,
-                chunker_config=chunker_config,
-                collection=collection,
-            )
-        except EmbeddingFailed as e:
-            # Book is committed and keyword-searchable — keep it, report the
-            # missing vectors rather than throwing away the parse.
-            book, chunk_count, embed_error = e.book, e.chunk_count, str(e)
-        except Exception as e:
-            # Clean up partial data: if book was stored before embedding failed,
-            # look it up by hash and remove it
-            try:
-                cleanup_conn = get_connection()
-                cleanup_repo = BookRepository(cleanup_conn)
-                partial = cleanup_repo.get_by_hash(pre_parsed.file_hash)
-                cleanup_conn.close()
-                if partial:
-                    pipeline_remove(partial.id)
-            except Exception:
-                pass  # Best effort cleanup
-            return f"Error: Failed to add book: {e}"
-
-        # Invalidate search cache
+    if outcome.status in ("added", "replaced"):
         make_search_service().invalidate_cache()
 
-        # Return success message
-        authors_str = ", ".join(book.authors) if book.authors else "Unknown"
-        result = f"Added: {book.title} by {authors_str} (ID: `{book.id}`) - {chunk_count} chunks"
-        if embed_error:
-            result += (
-                f"\nNote: embeddings were skipped ({embed_error}). "
+    return _render_intake(outcome)
+
+
+def _render_intake(outcome: "IntakeOutcome") -> str:
+    """Turn an IntakeOutcome into the markdown the MCP client sees."""
+    book = outcome.book
+
+    if outcome.status == "rejected":
+        if outcome.reason == "duplicate" and book is not None:
+            authors = ", ".join(book.authors) if book.authors else "Unknown"
+            return (
+                f'Error: Book already exists - "{book.title}" '
+                f"by {authors} (ID: `{book.id}`). "
+                f"Use force=true to re-index."
+            )
+        return f"Error: {outcome.message}"
+
+    assert book is not None, "a non-rejected outcome always carries its book"
+
+    if outcome.status == "already_indexed":
+        return f'Skipped (already indexed): "{book.title}" (ID: `{book.id}`)'
+
+    authors = ", ".join(book.authors) if book.authors else "Unknown"
+    lines = [f"Added: {book.title} by {authors} (ID: `{book.id}`) - {outcome.chunks} chunks"]
+    for note in outcome.notes:
+        if note.kind == "embeddings_skipped":
+            lines.append(
+                f"Note: embeddings were skipped ({note.message}). "
                 f"Keyword search works; run reindex_all_books to add semantic search."
             )
-        if soft_warning:
-            result += soft_warning
-
-        # Check ISBN checksum validity (local only, no network calls)
-        if book.isbn:
-            from mnemo.epub.enrich import validate_isbn
-
-            is_valid, _ = validate_isbn(book.isbn)
-            if not is_valid:
-                result += (
-                    f"\nNote: ISBN {book.isbn} may be invalid (bad checksum). "
-                    f"Use enrich_book to look up the correct ISBN."
-                )
-
-        return result
-    finally:
-        conn.close()
+        elif note.kind == "suspect_isbn":
+            lines.append(f"Note: {note.message}. Use enrich_book to look up the correct ISBN.")
+        else:
+            lines.append(f"Note: {note.message}")
+    return "\n".join(lines)
 
 
 def _remove_book_impl(
@@ -271,6 +200,23 @@ def _reindex_all_books_impl(search_service: SearchService | None = None) -> str:
         return f"Error: {e}"
 
 
+def _discard_timed_out_book(file_hash: str) -> None:
+    """Best-effort removal of a book left behind by a timed-out ingest."""
+    try:
+        init_db()
+        conn = get_connection()
+        try:
+            partial = BookRepository(conn).get_by_hash(file_hash)
+        finally:
+            conn.close()
+        if partial:
+            from mnemo.ingest import remove_book as pipeline_remove
+
+            pipeline_remove(partial.id)
+    except Exception:
+        logger.exception("Cleanup after a timed-out add_book did not complete")
+
+
 # MCP tool registrations (delegate to implementations)
 
 
@@ -285,6 +231,7 @@ async def add_book(
     chunk_min_tokens: int | None = None,
     chunk_max_tokens: int | None = None,
     collection: str | None = None,
+    skip_existing: bool = False,
     ctx: Context = CurrentContext(),  # noqa: B008
 ) -> str:
     """Add a book to your library.
@@ -303,6 +250,9 @@ async def add_book(
             ones (e.g., "ERCOT Nodal Protocols"). Only applied to fresh ingests;
             for duplicates without force=True, the existing book's collection is
             unchanged. Use update_book_metadata to retag an existing book.
+        skip_existing: If true, an already-indexed book is reported as skipped
+            instead of an error. For unattended batches. Cannot be combined
+            with force.
 
     Returns:
         Book details (ID, title, authors, chunk count) on success,
@@ -310,26 +260,15 @@ async def add_book(
     """
     await ctx.info(f"Adding book from {file_path}...")
 
-    # Validate + extract metadata BEFORE thread (available for timeout cleanup)
-    path = Path(file_path)
-    if not path.exists():
-        return f"Error: File not found: {file_path}"
-
-    from mnemo.parsing import SUPPORTED_FORMATS
-
-    if path.suffix.lower() not in SUPPORTED_FORMATS:
-        return (
-            f"Error: Unsupported format: {path.suffix} "
-            f"(supported: {', '.join(sorted(SUPPORTED_FORMATS))})"
-        )
-
-    # Pre-parse metadata for duplicate detection and timeout cleanup
+    # Hash the file before the thread starts: a timeout leaves no return value
+    # to clean up from, so the hash has to be captured up front. Validation
+    # itself belongs to intake, which reports a bad path as a rejection.
     from mnemo.parsing import pre_parse_metadata
 
     try:
-        pre_parsed = pre_parse_metadata(path)
-    except Exception as e:
-        return f"Error: Failed to read file: {e}"
+        file_hash: str | None = pre_parse_metadata(Path(file_path)).file_hash
+    except Exception:
+        file_hash = None
 
     try:
         result = await asyncio.wait_for(
@@ -337,27 +276,16 @@ async def add_book(
                 _add_book_impl,
                 file_path,
                 force,
-                pre_parsed,
                 chunk_min_tokens,
                 chunk_max_tokens,
                 collection,
+                skip_existing,
             ),
             timeout=300,  # 5 minutes
         )
     except TimeoutError:
-        # Best effort cleanup using pre_parsed.file_hash (no re-parsing needed)
-        try:
-            init_db()
-            conn = get_connection()
-            repo = BookRepository(conn)
-            partial = repo.get_by_hash(pre_parsed.file_hash)
-            conn.close()
-            if partial:
-                from mnemo.ingest import remove_book as pipeline_remove
-
-                pipeline_remove(partial.id)
-        except Exception:
-            pass
+        if file_hash is not None:
+            _discard_timed_out_book(file_hash)
         return (
             "Error: Book ingestion timed out after 5 minutes. "
             "The book may be too large or the embedding service may be slow. "
