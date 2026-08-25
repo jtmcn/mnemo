@@ -8,6 +8,7 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
+from mnemo.chunking.tokenizer import truncate_to_tokens
 from mnemo.embeddings.config import EmbeddingConfig
 
 
@@ -46,6 +47,11 @@ class Embedder:
         Args:
             texts: List of texts to embed (max 50 recommended)
 
+        Oversized inputs are truncated rather than rejected: the chunker keeps
+        code/math/table blocks whole no matter how long, and a provider 400s on
+        the whole batch for one long block. The full text stays in SQLite for
+        keyword search and display — only the vector sees the head of it.
+
         Returns:
             List of embedding vectors, one per input, in input order
 
@@ -55,6 +61,11 @@ class Embedder:
         """
         if not texts:
             raise ValueError("texts cannot be empty")
+
+        # ponytail: cl100k_base is OpenAI's tokenizer, so the count is an
+        # approximation for other providers — it errs short, which is safe.
+        # Set MNEMO_EMBED_MAX_TOKENS if a provider's real limit differs.
+        texts = [truncate_to_tokens(t, self.config.max_input_tokens) for t in texts]
 
         return self._embed_with_retry(texts)
 

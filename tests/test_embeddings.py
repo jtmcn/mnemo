@@ -145,6 +145,28 @@ class TestEmbedderWithMock:
             Embedder(EmbeddingConfig(base_url="http://localhost:11434/v1")).embed_batch(["t"])
             assert "Authorization" not in mock_client.post.call_args.kwargs["headers"]
 
+    def test_oversized_input_is_truncated(self, config, mock_response):
+        """A chunk over the model limit is trimmed, not sent whole.
+
+        The chunker keeps code/math/table blocks atomic at any length, and a
+        provider 400s the entire batch over one long block.
+        """
+        from mnemo.chunking.tokenizer import count_tokens
+
+        config.max_input_tokens = 100
+        with patch("httpx.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value.__enter__.return_value = mock_client
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = mock_response
+            mock_client.post.return_value = mock_resp
+
+            Embedder(config).embed_batch(["word " * 500, "short one"])
+            sent = mock_client.post.call_args.kwargs["json"]["input"]
+
+        assert count_tokens(sent[0]) <= 100
+        assert sent[1] == "short one"  # under the limit, untouched
+
     def test_embed_batch_maintains_order(self, config):
         """Embeddings are returned in input order even if API returns out of order."""
         response = {

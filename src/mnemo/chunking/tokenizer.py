@@ -28,6 +28,24 @@ def count_tokens(text: str) -> int:
     return len(_encoder.encode(text))
 
 
+def truncate_to_tokens(text: str, max_tokens: int) -> str:
+    """Truncate text to at most max_tokens, returning it unchanged if it fits.
+
+    Args:
+        text: Text to truncate
+        max_tokens: Maximum tokens to keep
+
+    Returns:
+        Text whose token count is <= max_tokens
+    """
+    if not text:
+        return text
+    tokens = _encoder.encode(text)
+    if len(tokens) <= max_tokens:
+        return text
+    return _encoder.decode(tokens[:max_tokens])
+
+
 def split_by_tokens(
     text: str,
     max_tokens: int,

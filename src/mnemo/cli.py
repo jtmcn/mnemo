@@ -20,6 +20,7 @@ from typing import Annotated, Any
 import httpx
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
@@ -169,33 +170,33 @@ def add(
             if not json_output:
                 authors_str = ", ".join(book.authors) if book.authors else "Unknown"
                 console.print(
-                    f"[green]Added:[/green] {book.title} by {authors_str} "
+                    f"[green]Added:[/green] {escape(book.title)} by {escape(authors_str)} "
                     f"({book.id}) - {chunk_count} chunks"
                 )
                 if embed_error:
                     console.print(
-                        f"[yellow]Embeddings skipped:[/yellow] {embed_error}\n"
+                        f"[yellow]Embeddings skipped:[/yellow] {escape(embed_error)}\n"
                         f"[yellow]Keyword search works now. Re-run "
-                        f"`mnemo add --force {path}` to add semantic search.[/yellow]"
+                        f"`mnemo add --force {escape(str(path))}` to add semantic search.[/yellow]"
                     )
 
         except FileNotFoundError as e:
             if json_output:
                 print(json.dumps({"error": str(e)}))
             else:
-                console.print(f"[red]Error: {e}[/red]")
+                console.print(f"[red]Error: {escape(str(e))}[/red]")
             raise typer.Exit(1) from e
         except ValueError as e:
             if json_output:
                 print(json.dumps({"error": str(e)}))
             else:
-                console.print(f"[red]Error: {e}[/red]")
+                console.print(f"[red]Error: {escape(str(e))}[/red]")
             raise typer.Exit(1) from e
         except Exception as e:
             if json_output:
                 print(json.dumps({"error": f"Failed to add {path}: {e}"}))
             else:
-                console.print(f"[red]Failed to add {path}: {e}[/red]")
+                console.print(f"[red]Failed to add {escape(str(path))}: {escape(str(e))}[/red]")
             raise typer.Exit(1) from e
 
     if json_output:
@@ -281,7 +282,7 @@ def list_books(
 
     for book in books:
         authors_str = ", ".join(book.authors) if book.authors else "Unknown"
-        row = [book.id, book.title, authors_str]
+        row = [book.id, escape(book.title), escape(authors_str)]
         if check_embeddings:
             count = vectors.get(book.id, 0)
             row.append(str(count) if count else "[yellow]none[/yellow]")
@@ -325,7 +326,7 @@ def export(
         raise typer.Exit(1)
 
     output.write_text("\n".join(paths) + "\n")
-    console.print(f"[green]Exported {len(paths)} paths to {output}[/green]")
+    console.print(f"[green]Exported {len(paths)} paths to {escape(str(output))}[/green]")
 
 
 @app.command()
@@ -352,9 +353,9 @@ def remove(
         return
 
     if result:
-        console.print(f"[green]Removed:[/green] {book_id}")
+        console.print(f"[green]Removed:[/green] {escape(book_id)}")
     else:
-        console.print(f"[yellow]Book not found (already removed?): {book_id}[/yellow]")
+        console.print(f"[yellow]Book not found (already removed?): {escape(book_id)}[/yellow]")
 
 
 @app.command()
@@ -405,7 +406,7 @@ def search(
 
     for r in results:
         section = " > ".join(r.section_path) if r.section_path else "No section"
-        console.print(f"[bold]{r.book_title}[/bold] > {section}")
+        console.print(f"[bold]{escape(r.book_title)}[/bold] > {escape(section)}")
         console.print(r.content, highlight=False, markup=False)
         console.print()
 
@@ -467,7 +468,7 @@ def reindex(
         if json_output:
             print(json.dumps({"error": preflight_error}))
         else:
-            console.print(f"[red]Error: {preflight_error}[/red]")
+            console.print(f"[red]Error: {escape(preflight_error)}[/red]")
             console.print("[yellow]No books were changed.[/yellow]")
         raise typer.Exit(1)
 
@@ -568,13 +569,13 @@ def migrate_cosine(
         if json_output:
             print(json.dumps({"error": str(e)}))
         else:
-            console.print(f"[red]Migration failed: {e}[/red]")
+            console.print(f"[red]Migration failed: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e
     except Exception as e:
         if json_output:
             print(json.dumps({"error": str(e)}))
         else:
-            console.print(f"[red]Error: {e}[/red]")
+            console.print(f"[red]Error: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e
 
 
@@ -639,7 +640,7 @@ def backup(
         if json_output:
             print(json.dumps({"error": str(e)}))
         else:
-            console.print(f"[red]Backup failed: {e}[/red]")
+            console.print(f"[red]Backup failed: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e
 
 
@@ -704,14 +705,14 @@ def restore(
         if json_output:
             print(json.dumps({"error": str(e)}))
         else:
-            console.print(f"[red]Error: {e}[/red]")
+            console.print(f"[red]Error: {escape(str(e))}[/red]")
             console.print("[yellow]Use --force to overwrite existing data.[/yellow]")
         raise typer.Exit(1) from e
     except (ValueError, Exception) as e:
         if json_output:
             print(json.dumps({"error": str(e)}))
         else:
-            console.print(f"[red]Restore failed: {e}[/red]")
+            console.print(f"[red]Restore failed: {escape(str(e))}[/red]")
         raise typer.Exit(1) from e
 
 

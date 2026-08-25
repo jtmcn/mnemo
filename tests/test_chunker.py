@@ -662,3 +662,24 @@ class TestChunkerConfigValidation:
         assert chunks[-1].next_chunk_id is None
         for i in range(1, len(chunks)):
             assert chunks[i].prev_chunk_id == chunks[i - 1].id
+
+
+class TestTruncateToTokens:
+    """Tests for truncate_to_tokens."""
+
+    def test_leaves_short_text_alone(self):
+        from mnemo.chunking.tokenizer import truncate_to_tokens
+
+        assert truncate_to_tokens("a short line", 100) == "a short line"
+
+    def test_truncates_long_text(self):
+        from mnemo.chunking.tokenizer import count_tokens, truncate_to_tokens
+
+        out = truncate_to_tokens("word " * 500, 50)
+        assert count_tokens(out) == 50
+        assert "word" in out
+
+    def test_empty_text(self):
+        from mnemo.chunking.tokenizer import truncate_to_tokens
+
+        assert truncate_to_tokens("", 10) == ""
