@@ -51,6 +51,30 @@ CODE_CLASSES = {
     "prettyprint",
 }
 
+# Tags that mean an element is a container of other content, not a leaf.
+# A math node is a leaf: anything holding these is a chapter or section.
+BLOCK_LEVEL_TAGS = frozenset(
+    {
+        "p",
+        "div",
+        "section",
+        "article",
+        "pre",
+        "table",
+        "ul",
+        "ol",
+        "li",
+        "blockquote",
+        "figure",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+    }
+)
+
 # Classes that indicate ASCII diagrams
 DIAGRAM_CLASSES = {"ascii", "diagram", "ascii-diagram", "ascii-art"}
 
