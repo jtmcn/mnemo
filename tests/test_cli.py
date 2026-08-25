@@ -717,6 +717,62 @@ class TestSkipExisting:
         mock_ingest.assert_called_once()
 
 
+class TestDuplicateReporting:
+    """Both ways a duplicate is detected must report identically."""
+
+    def test_json_duplicate_carries_existing_id(self, tmp_path) -> None:
+        from mnemo.models import Book
+
+        epub = tmp_path / "book.epub"
+        epub.write_bytes(b"fake content")
+        already = Book(
+            id="abc123",
+            title="Already Here",
+            authors=["A"],
+            file_hash="a" * 64,
+            structure_source="toc",
+        )
+
+        with stub_intake(existing=already):
+            result = runner.invoke(app, ["add", str(epub), "--json"])
+
+        assert result.exit_code == 1
+        payload = json.loads(result.stdout)
+        assert payload["existing_id"] == "abc123"
+        # One piece of advice, not two: intake's message must not already
+        # carry it, or the user sees both force=True and --force.
+        assert payload["error"].count("force") == 1
+
+    def test_json_duplicate_raised_by_the_pipeline_matches(self, tmp_path) -> None:
+        """The race path reports the same shape as the pre-flight path."""
+        from mnemo.ingest import DuplicateBook
+        from mnemo.models import Book
+
+        epub = tmp_path / "book.epub"
+        epub.write_bytes(b"fake content")
+        raced = Book(
+            id="abc123",
+            title="Raced In",
+            authors=["A"],
+            file_hash="a" * 64,
+            structure_source="toc",
+        )
+
+        with (
+            stub_intake(),
+            patch(
+                "mnemo.ingest.ingest_book",
+                side_effect=DuplicateBook(raced, "Book already indexed (id: abc123)."),
+            ),
+        ):
+            result = runner.invoke(app, ["add", str(epub), "--json"])
+
+        assert result.exit_code == 1
+        payload = json.loads(result.stdout)
+        assert payload["existing_id"] == "abc123"
+        assert payload["error"].count("force") == 1
+
+
 class TestRichMarkupEscaping:
     """User data must survive Rich's markup parser intact.
 

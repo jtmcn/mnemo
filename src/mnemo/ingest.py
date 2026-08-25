@@ -38,6 +38,22 @@ class NothingToEmbed(ValueError):
     """
 
 
+class DuplicateBook(ValueError):
+    """The file hash is already indexed and force was not set.
+
+    Raised instead of a bare ValueError so callers can tell "already have it"
+    from "the pipeline broke" — pydantic's ValidationError is a ValueError
+    too, and a malformed book was being reported as a duplicate.
+
+    Subclasses ValueError because ingest_book has always documented this as
+    one; existing `except ValueError` callers keep working.
+    """
+
+    def __init__(self, book: Book, message: str) -> None:
+        super().__init__(message)
+        self.book = book
+
+
 class EmbeddingFailed(ValueError):
     """Book was stored and is keyword-searchable, but embedding did not run.
 
@@ -180,7 +196,7 @@ def ingest_book(
 
     Raises:
         FileNotFoundError: File doesn't exist
-        ValueError: Duplicate book (unless force=True)
+        DuplicateBook: Duplicate book (unless force=True). A ValueError subclass.
         EmbeddingFailed: Book was stored successfully but embedding failed. A
             ValueError subclass. The book is committed and keyword-searchable;
             only vectors are missing.
@@ -211,7 +227,9 @@ def ingest_book(
     existing = book_repo.get_by_hash(book.file_hash)
     if existing and not force:
         conn.close()
-        raise ValueError(f"Book already indexed (id: {existing.id}). Use force=True to re-index.")
+        raise DuplicateBook(
+            existing, f"Book already indexed (id: {existing.id}). Use force=True to re-index."
+        )
 
     # 5. If force and exists, delete old version (including vectors)
     if existing and force:

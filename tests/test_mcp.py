@@ -1518,6 +1518,44 @@ class TestAddBookAsync:
         assert "timed out" in result.lower()
         mock_pipeline_remove.assert_called_once_with("ppp001")
 
+    @pytest.mark.asyncio
+    async def test_add_book_timeout_with_force_keeps_the_existing_book(self, tmp_path):
+        """With force, the hash may still be the book that was already there.
+
+        The worker may not have reached ingest_book's own delete, so removing
+        by hash after a timeout would destroy a healthy book. Without force a
+        duplicate never reaches the pipeline, so that case stays safe.
+        """
+        from mnemo.mcp.tools_books import add_book
+
+        epub_file = tmp_path / "partial.epub"
+        epub_file.write_bytes(b"fake epub")
+        add_book_fn = add_book.fn
+
+        ctx = AsyncMock()
+        mock_pre = MagicMock()
+        mock_pre.file_hash = "c" * 64
+
+        mock_repo = MagicMock()
+        mock_repo.get_by_hash.return_value = MagicMock(id="ppp001")
+
+        async def fake_wait_for_timeout(*a, **kw):
+            raise TimeoutError
+
+        with (
+            patch("mnemo.epub.metadata.extract_metadata", return_value=mock_pre),
+            patch("mnemo.mcp.tools_books.asyncio.to_thread", lambda *a, **kw: "stub"),
+            patch("mnemo.mcp.tools_books.asyncio.wait_for", new=fake_wait_for_timeout),
+            patch("mnemo.mcp.tools_books.init_db"),
+            patch("mnemo.mcp.tools_books.get_connection", return_value=MagicMock()),
+            patch("mnemo.mcp.tools_books.BookRepository", return_value=mock_repo),
+            patch("mnemo.ingest.remove_book") as mock_pipeline_remove,
+        ):
+            result = await add_book_fn(str(epub_file), True, ctx=ctx)
+
+        assert "timed out" in result.lower()
+        mock_pipeline_remove.assert_not_called()
+
 
 class TestGetBookChunks:
     """Tests for get_book_chunks MCP tool."""

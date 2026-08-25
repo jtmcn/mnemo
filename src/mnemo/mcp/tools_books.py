@@ -284,7 +284,12 @@ async def add_book(
             timeout=300,  # 5 minutes
         )
     except TimeoutError:
-        if file_hash is not None:
+        # Same trap as intake's cleanup: with force=True the hash may still
+        # resolve to the book that was already there, since the worker may not
+        # have reached its own delete. Without force, intake would have
+        # rejected a duplicate before ingesting, so anything at this hash is
+        # ours to remove.
+        if file_hash is not None and not force:
             _discard_timed_out_book(file_hash)
         return (
             "Error: Book ingestion timed out after 5 minutes. "

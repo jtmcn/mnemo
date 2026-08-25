@@ -288,3 +288,77 @@ class TestEmbedding:
 
         assert outcome.status == "added"
         assert "embeddings_skipped" not in kinds(outcome)
+
+
+class TestCleanupIsNotDestructive:
+    """Cleanup must only ever remove a book this run could have created."""
+
+    def test_failed_replace_keeps_the_existing_book(self, sample_epub: Path, temp_db: Path):
+        """A re-parse that fails must not delete the healthy book it was replacing.
+
+        pre_parse_metadata only reads the OPF while parse_book walks the whole
+        spine, so a since-corrupted file passes the first and fails the second.
+        ingest_book deletes the old record at step 5, after the parse at step
+        3 — so on the failure path the hash still resolves to the good book.
+        """
+        first = intake(sample_epub, db_path=temp_db, embed=False)
+        assert first.status == "added"
+
+        with patch("mnemo.ingest.parse_book", side_effect=RuntimeError("corrupt spine")):
+            outcome = intake(sample_epub, db_path=temp_db, embed=False, on_duplicate="replace")
+
+        assert outcome.status == "rejected"
+        assert outcome.reason == "pipeline_error"
+
+        init_db(temp_db)
+        conn = get_connection(temp_db)
+        try:
+            assert [b.id for b in BookRepository(conn).list_all()] == [first.book.id]
+        finally:
+            conn.close()
+
+
+class TestFailureClassification:
+    """A broken book is a pipeline error, not a duplicate."""
+
+    def test_validation_error_is_not_a_duplicate(self, sample_epub: Path, temp_db: Path):
+        """pydantic.ValidationError subclasses ValueError, as does the duplicate guard."""
+        import pydantic
+
+        broken = pydantic.ValidationError.from_exception_data("Book", [])
+        with patch("mnemo.ingest.parse_book", side_effect=broken):
+            outcome = intake(sample_epub, db_path=temp_db, embed=False)
+
+        assert outcome.status == "rejected"
+        assert outcome.reason == "pipeline_error"
+
+    def test_duplicate_raised_by_the_pipeline_carries_its_book(
+        self, sample_epub: Path, temp_db: Path
+    ):
+        """A book indexed between the lookup and the pipeline is still a duplicate.
+
+        The front ends quote the existing id, so the outcome has to carry it
+        however the duplicate was detected.
+        """
+        from mnemo.ingest import DuplicateBook
+        from mnemo.models import Book
+
+        other = Book(
+            id="abcdef",
+            title="Raced In",
+            authors=["A"],
+            file_hash="f" * 64,
+            structure_source="toc",
+        )
+        with patch(
+            "mnemo.ingest.ingest_book",
+            side_effect=DuplicateBook(other, "Book already indexed (id: abcdef)."),
+        ):
+            outcome = intake(sample_epub, db_path=temp_db, embed=False)
+
+        assert outcome.status == "rejected"
+        assert outcome.reason == "duplicate"
+        assert outcome.book is not None
+        assert outcome.book.id == "abcdef"
+        # Advice is the front end's to add, so the message must not pre-empt it.
+        assert "force" not in outcome.message.lower()

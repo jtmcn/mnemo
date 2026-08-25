@@ -167,7 +167,7 @@ def intake(
             )
         )
 
-    from mnemo.ingest import EmbeddingFailed, ingest_book
+    from mnemo.ingest import DuplicateBook, EmbeddingFailed, ingest_book
 
     embed_note: Note | None = None
     # ponytail: ingest_book swallows NothingToEmbed and returns normally, so an
@@ -188,15 +188,18 @@ def intake(
         # Committed and keyword-searchable; only the vectors are missing.
         book, chunks, embedded = e.book, e.chunk_count, False
         embed_note = Note("embeddings_skipped", str(e))
+    except DuplicateBook as e:
+        # Indexed between our lookup and this call. Not ours to clean up.
+        return _rejected("duplicate", f"Book already indexed (id: {e.book.id}).", book=e.book)
     except FileNotFoundError as e:
         return _rejected("not_found", str(e))
-    except ValueError as e:
-        # ingest_book's only bare ValueError is its own duplicate guard, which
-        # can fire on a book indexed between our lookup and this call. That
-        # book is not ours to clean up.
-        return _rejected("duplicate", str(e))
     except Exception as e:
-        _discard_partial(pre_parsed.file_hash, db_path, chroma_path)
+        # Only clean up a book we could have created. On the replace path the
+        # hash still resolves to the user's existing, healthy book until
+        # ingest_book reaches its own delete — removing that would destroy a
+        # good book because a re-parse of a since-corrupted file failed.
+        if existing is None:
+            _discard_partial(pre_parsed.file_hash, db_path, chroma_path)
         return _rejected("pipeline_error", f"Failed to add {path}: {e}")
 
     if book.isbn:
