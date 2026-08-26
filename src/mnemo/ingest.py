@@ -239,13 +239,16 @@ def ingest_book(
             # Also delete vectors if they exist
             try:
                 from mnemo.vectors import VectorConfig, VectorStore
-
-                vector_config = VectorConfig(persist_path=chroma_path)
-                store = VectorStore(vector_config)
-                store.delete_by_book(existing.id)
-                store.close()
             except ImportError:
                 pass  # Vectors module not available
+            else:
+                # close() releases Chroma's file descriptors, so it has to run
+                # even when the delete fails — same reason as the outer finally.
+                store = VectorStore(VectorConfig(persist_path=chroma_path))
+                try:
+                    store.delete_by_book(existing.id)
+                finally:
+                    store.close()
 
         # 6. Chunk content
         chunker = Chunker(chunker_config)

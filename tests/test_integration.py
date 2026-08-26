@@ -684,3 +684,31 @@ class TestConnectionLifetime:
 
         assert opened, "ingest_book opened no connection"
         assert all(self._is_closed(c) for c in opened)
+
+    def test_vector_delete_failure_closes_the_store(
+        self, sample_epub: Path, temp_db: Path, monkeypatch
+    ):
+        """A Chroma delete that fails on the force path still releases its fds.
+
+        Same exposure as the SQLite handle: reached from MCP add_book(force=True)
+        in a long-lived process.
+        """
+        ingest_book(sample_epub, temp_db)
+
+        closed: list[bool] = []
+
+        class ExplodingStore:
+            def __init__(self, _config): ...
+
+            def delete_by_book(self, _book_id):
+                raise RuntimeError("chroma is unhappy")
+
+            def close(self):
+                closed.append(True)
+
+        monkeypatch.setattr("mnemo.vectors.VectorStore", ExplodingStore)
+
+        with pytest.raises(RuntimeError, match="chroma is unhappy"):
+            ingest_book(sample_epub, temp_db, force=True)
+
+        assert closed == [True]
