@@ -5,12 +5,14 @@ Tests the full flow: EPUB parsing -> chunking -> storage -> search.
 
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 from pathlib import Path
 
 import pytest
 
-from mnemo.ingest import ingest_book, reindex_all_books, remove_book
+from mnemo import ingest as mnemo_ingest
+from mnemo.ingest import DuplicateBook, ingest_book, reindex_all_books, remove_book
 from mnemo.models import ContentType
 from mnemo.storage import ChunkRepository, get_connection, init_db
 
@@ -626,3 +628,87 @@ class TestEmbeddingFailureIsPartialSuccess:
             pytest.raises(ValueError),
         ):
             ingest_book(sample_epub, temp_db, embed=True)
+
+
+class TestConnectionLifetime:
+    """ingest_book must not leak its SQLite handle when a step raises."""
+
+    @staticmethod
+    def _capture(monkeypatch) -> list[sqlite3.Connection]:
+        """Record every connection ingest_book opens."""
+        opened: list[sqlite3.Connection] = []
+        real = mnemo_ingest.get_connection
+
+        def spy(*args, **kwargs):
+            conn = real(*args, **kwargs)
+            opened.append(conn)
+            return conn
+
+        monkeypatch.setattr(mnemo_ingest, "get_connection", spy)
+        return opened
+
+    @staticmethod
+    def _is_closed(conn: sqlite3.Connection) -> bool:
+        try:
+            conn.execute("SELECT 1")
+        except sqlite3.ProgrammingError:
+            return True
+        return False
+
+    def test_parse_failure_closes_the_connection(
+        self, sample_epub: Path, temp_db: Path, monkeypatch
+    ):
+        """A book that fails to parse must not leave the handle open.
+
+        The connection is opened before parsing, and the MCP server is
+        long-lived, so leaked handles accumulate across add_book calls.
+        """
+        opened = self._capture(monkeypatch)
+        monkeypatch.setattr(
+            mnemo_ingest, "parse_book", lambda _: (_ for _ in ()).throw(ValueError("bad epub"))
+        )
+
+        with pytest.raises(ValueError, match="bad epub"):
+            ingest_book(sample_epub, temp_db)
+
+        assert opened, "ingest_book opened no connection"
+        assert all(self._is_closed(c) for c in opened)
+
+    def test_duplicate_closes_the_connection(self, sample_epub: Path, temp_db: Path, monkeypatch):
+        """The DuplicateBook path closes too, now that finally owns the handle."""
+        ingest_book(sample_epub, temp_db)
+
+        opened = self._capture(monkeypatch)
+        with pytest.raises(DuplicateBook):
+            ingest_book(sample_epub, temp_db)
+
+        assert opened, "ingest_book opened no connection"
+        assert all(self._is_closed(c) for c in opened)
+
+    def test_vector_delete_failure_closes_the_store(
+        self, sample_epub: Path, temp_db: Path, monkeypatch
+    ):
+        """A Chroma delete that fails on the force path still releases its fds.
+
+        Same exposure as the SQLite handle: reached from MCP add_book(force=True)
+        in a long-lived process.
+        """
+        ingest_book(sample_epub, temp_db)
+
+        closed: list[bool] = []
+
+        class ExplodingStore:
+            def __init__(self, _config): ...
+
+            def delete_by_book(self, _book_id):
+                raise RuntimeError("chroma is unhappy")
+
+            def close(self):
+                closed.append(True)
+
+        monkeypatch.setattr("mnemo.vectors.VectorStore", ExplodingStore)
+
+        with pytest.raises(RuntimeError, match="chroma is unhappy"):
+            ingest_book(sample_epub, temp_db, force=True)
+
+        assert closed == [True]

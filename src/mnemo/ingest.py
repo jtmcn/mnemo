@@ -212,48 +212,54 @@ def ingest_book(
     book_repo = BookRepository(conn)
     chunk_repo = ChunkRepository(conn)
 
-    # 3. Parse book (dispatches to format-specific parser)
-    book, content_blocks = parse_book(book_path)
+    # parse_book and chunker.chunk both fail on real-world files, and the MCP
+    # server is long-lived, so a leaked handle here accumulates.
+    try:
+        # 3. Parse book (dispatches to format-specific parser)
+        book, content_blocks = parse_book(book_path)
 
-    # 3b. Store resolved absolute file_path and optional collection
-    updates: dict[str, str] = {"file_path": str(book_path.resolve())}
-    # Empty string is treated as no collection at ingest (no existing value to clear).
-    # This differs from BookRepository.update where collection="" clears to NULL.
-    if collection:
-        updates["collection"] = collection
-    book = book.model_copy(update=updates)
+        # 3b. Store resolved absolute file_path and optional collection
+        updates: dict[str, str] = {"file_path": str(book_path.resolve())}
+        # Empty string is treated as no collection at ingest (no existing value to clear).
+        # This differs from BookRepository.update where collection="" clears to NULL.
+        if collection:
+            updates["collection"] = collection
+        book = book.model_copy(update=updates)
 
-    # 4. Check for duplicate
-    existing = book_repo.get_by_hash(book.file_hash)
-    if existing and not force:
+        # 4. Check for duplicate
+        existing = book_repo.get_by_hash(book.file_hash)
+        if existing and not force:
+            raise DuplicateBook(
+                existing, f"Book already indexed (id: {existing.id}). Use force=True to re-index."
+            )
+
+        # 5. If force and exists, delete old version (including vectors)
+        if existing and force:
+            book_repo.delete(existing.id)
+            # Also delete vectors if they exist
+            try:
+                from mnemo.vectors import VectorConfig, VectorStore
+            except ImportError:
+                pass  # Vectors module not available
+            else:
+                # close() releases Chroma's file descriptors, so it has to run
+                # even when the delete fails — same reason as the outer finally.
+                store = VectorStore(VectorConfig(persist_path=chroma_path))
+                try:
+                    store.delete_by_book(existing.id)
+                finally:
+                    store.close()
+
+        # 6. Chunk content
+        chunker = Chunker(chunker_config)
+        chunks = chunker.chunk(book.id, content_blocks)
+
+        # 7. Store
+        book_repo.add(book)
+        chunk_repo.add_many(chunks)
+        conn.commit()
+    finally:
         conn.close()
-        raise DuplicateBook(
-            existing, f"Book already indexed (id: {existing.id}). Use force=True to re-index."
-        )
-
-    # 5. If force and exists, delete old version (including vectors)
-    if existing and force:
-        book_repo.delete(existing.id)
-        # Also delete vectors if they exist
-        try:
-            from mnemo.vectors import VectorConfig, VectorStore
-
-            vector_config = VectorConfig(persist_path=chroma_path)
-            store = VectorStore(vector_config)
-            store.delete_by_book(existing.id)
-            store.close()
-        except ImportError:
-            pass  # Vectors module not available
-
-    # 6. Chunk content
-    chunker = Chunker(chunker_config)
-    chunks = chunker.chunk(book.id, content_blocks)
-
-    # 7. Store
-    book_repo.add(book)
-    chunk_repo.add_many(chunks)
-    conn.commit()
-    conn.close()
 
     # 8. Optionally embed. The book is already committed at this point, so an
     # embedding failure is partial success, not an ingest failure.
