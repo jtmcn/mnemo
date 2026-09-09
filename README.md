@@ -1,81 +1,206 @@
 # Mnemo
 
-![CI](https://github.com/joel-eq/mnemo/actions/workflows/ci.yml/badge.svg)
+[![CI](https://github.com/jtmcn/mnemo/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jtmcn/mnemo/actions/workflows/ci.yml)
+[![Python versions](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](pyproject.toml)
+[![License: MIT](https://img.shields.io/github/license/jtmcn/mnemo)](LICENSE)
 
 Personal technical book library with semantic search via MCP.
 
-## Overview
+Mnemo indexes EPUB and DOCX books you already own — keeping code, math and table
+blocks intact — and exposes them to Claude Code and Claude Desktop as MCP tools,
+so an answer arrives with the book and section it came from. The same library is
+searchable from the terminal with `mnemo search`.
 
-Mnemo parses technical EPUB books, preserves code blocks and structure, generates embeddings, and exposes semantic search through an MCP server for Claude Desktop and Claude Code.
+## Demo
 
-## Installation
+Real output, reproducible from this repo's test fixture with no embedding
+endpoint configured (keyword-only mode):
 
-```bash
-pip install -e ".[dev]"
+```console
+$ mnemo add tests/fixtures/sample.epub
+Added: Python Testing Guide by Test Author (10b05d) - 8 chunks
+Note: ISBN 9781234567890 may be invalid (bad checksum)
+Embeddings skipped: MNEMO_EMBED_BASE_URL must be set to an OpenAI-compatible endpoint
+(e.g. https://api.openai.com/v1), along with MNEMO_EMBED_API_KEY unless the provider
+needs no auth.
+Keyword search works now. Re-run `mnemo add --force tests/fixtures/sample.epub` to add
+semantic search.
+
+$ mnemo search test_addition -n 2
+Python Testing Guide > Chapter 2: Code Examples
+def test_addition():
+    assert 1 + 1 == 2
+    assert 2 + 2 == 4
+
+def test_subtraction():
+    assert 5 - 3 == 2
+    assert 10 - 7 == 3
 ```
 
-## Configuration
+## Features
 
-Semantic search needs an OpenAI-compatible embeddings endpoint — OpenAI, Voyage,
-Together, a local Ollama, anything serving `POST {base_url}/embeddings`:
+- **Structure-preserving parsing** — EPUB and DOCX, with code, math and table
+  blocks never split across chunks, so a listing arrives whole.
+- **Hybrid retrieval** — SQLite FTS5 keyword search and ChromaDB vectors merged
+  with reciprocal rank fusion; force one side with `mode="keyword"` or
+  `mode="semantic"`.
+- **Degrades honestly** — with no embedding endpoint configured, books still
+  index and search falls back to keyword-only. A *configured* endpoint that
+  fails raises instead of silently returning worse results.
+- **10 MCP tools** — search, section outlines, contiguous chunk reads, add /
+  remove / reindex, metadata edits, and enrichment from Google Books and Open
+  Library.
+- **Collections** — group related books (`--collection "ERCOT Nodal Protocols"`)
+  and scope searches to one group.
+- **Intake checks** — duplicate detection by file hash, ISBN checksum
+  validation, similar-title warnings before you index the same book twice.
+- **Portable library** — `mnemo backup` writes one `.tar.gz` of database plus
+  vectors; `mnemo restore` recreates it.
 
-```bash
+## Requirements
+
+- **Python 3.11, 3.12 or 3.13** — all three are covered by CI. Python 3.14 is
+  excluded in `requires-python`, because ChromaDB's Pydantic v1 shim fails there.
+- **For semantic search (optional):** any OpenAI-compatible embeddings endpoint —
+  anything serving `POST {base_url}/embeddings` (OpenAI, Voyage, Together, a
+  local Ollama).
+
+## Install
+
+```sh
+uv tool install git+https://github.com/jtmcn/mnemo
+```
+
+Or with pip:
+
+```sh
+pip install "git+https://github.com/jtmcn/mnemo"
+```
+
+> [!WARNING]
+> Don't `pip install mnemo` — the PyPI name belongs to an unrelated project.
+> This tool is installed from git.
+
+From source, for development:
+
+```sh
+git clone git@github.com:jtmcn/mnemo.git
+cd mnemo
+uv sync --all-extras
+uv run mnemo --help
+```
+
+## Configure embeddings
+
+```sh
 export MNEMO_EMBED_BASE_URL=https://api.openai.com/v1
 export MNEMO_EMBED_API_KEY=sk-...
-export MNEMO_EMBED_MODEL=text-embedding-3-small  # optional, this is the default
+export MNEMO_EMBED_MODEL=text-embedding-3-small   # optional, this is the default
 ```
 
-Code, math, and table blocks are never split, so a long listing can exceed a
-provider's per-input limit. Inputs are truncated to `MNEMO_EMBED_MAX_TOKENS`
-(default 8192, matching text-embedding-3) before embedding — lower it for a
-shorter-context model, raise it for a longer one. The full text is always kept
-for keyword search and display.
+Mnemo does not read `.env` itself — use direnv, dotenv, or `source` it. See
+[.env.example](.env.example) for every variable, including
+`MNEMO_EMBED_MAX_TOKENS` (default 8192, the truncation ceiling per input) and
+`MNEMO_LOG_LEVEL` (MCP server only).
 
-Without these, `add` still stores books and `search` falls back to keyword-only
-(SQLite FTS5) — that is a supported mode, so it stays quiet. But a *configured*
-endpoint that fails (bad key, wrong model, host down) raises instead of quietly
-returning worse results, since a silent downgrade is indistinguishable from a
-thin library. `mode="semantic"` also raises when embeddings are unavailable
-rather than returning an empty list, which would read as "no matching content". See `.env.example` for the full list. Switching embedding models
-changes the vector dimension, which ChromaDB locks on first insert, so re-embed
-from scratch after a switch:
+Switching embedding models changes the vector dimension, which ChromaDB locks on
+first insert. Re-embed from scratch after a switch:
 
-```bash
+```sh
 rm -rf ~/.mnemo/chroma && mnemo reindex
 ```
 
-## Usage
+## CLI
 
-```bash
-# Add a book
-mnemo add path/to/book.epub
-
-# List books
-mnemo list
-
-# List books, flagging any that have no embeddings (keyword search only)
-mnemo list --check-embeddings
-
-# Remove a book
-mnemo remove <book-id>
+```sh
+mnemo add book.epub other.docx        # index one or more books
+mnemo add *.epub --collection "SRE"   # tag a batch; --skip-existing for unattended runs
+mnemo list --check-embeddings         # which books have vectors (none = keyword-only)
+mnemo search "consistent hashing" -n 10 --book 10b05d
+mnemo remove 10b05d
+mnemo reindex                         # re-parse and re-embed everything
+mnemo export book-paths.txt           # one source path per line, for re-import
+mnemo backup ~/mnemo-backup.tar.gz
+mnemo restore ~/mnemo-backup.tar.gz --force
+mnemo serve                           # MCP server over STDIO (blocks)
 ```
+
+Every command except `export` and `serve` takes `--json`; `mnemo <command> --help`
+has the full flag list. `mnemo migrate-cosine` moves an older vector collection from
+L2 to cosine distance without re-embedding, and is idempotent.
+
+## Use from Claude
+
+Register the STDIO server with Claude Code:
+
+```sh
+claude mcp add mnemo \
+  -e MNEMO_EMBED_BASE_URL=https://api.openai.com/v1 \
+  -e MNEMO_EMBED_API_KEY=sk-... \
+  -- mnemo serve
+```
+
+For Claude Desktop, add it to `claude_desktop_config.json` (on macOS,
+`~/Library/Application Support/Claude/`). Use the absolute path from
+`which mnemo` — Claude Desktop does not inherit your shell's `PATH`:
+
+```json
+{
+  "mcpServers": {
+    "mnemo": {
+      "command": "/Users/you/.local/bin/mnemo",
+      "args": ["serve"],
+      "env": {
+        "MNEMO_EMBED_BASE_URL": "https://api.openai.com/v1",
+        "MNEMO_EMBED_API_KEY": "sk-..."
+      }
+    }
+  }
+}
+```
+
+The server exposes ten tools: `search_books`, `get_book_structure`,
+`get_book_chunks`, `list_available_books`, `get_book_info`, `add_book`,
+`remove_book`, `reindex_all_books`, `update_book_metadata`, `enrich_book`.
+
+## Data
+
+Created on first run, not currently configurable:
+
+| Path | Contents |
+| --- | --- |
+| `~/.mnemo/mnemo.db` | SQLite: books, chunks, FTS5 index |
+| `~/.mnemo/chroma` | ChromaDB vectors |
+
+Source book files are read in place and never copied or modified; `mnemo remove`
+leaves them alone. Because the library stores absolute paths, `mnemo reindex`
+skips books whose files have moved.
 
 ## Development
 
-```bash
-# Install dev dependencies
-pip install -e ".[dev]"
-
-# Run tests
-pytest
-
-# Type checking
-mypy src/mnemo
-
-# Linting
-ruff check src/mnemo
+```sh
+make ci         # exactly what CI gates on: lint, format check, mypy, tests with 80% coverage floor
+make all        # the fuller local run (adds integration tests)
+make format     # ruff fix + format
 ```
+
+Every target runs `uv sync --locked --all-extras --dev` first, so a fresh clone
+needs no setup step. `.python-version` pins local work to 3.12.
+
+Integration tests need embedding credentials; deselect them with
+`pytest -m 'not integration'`.
+
+## Contributing
+
+Issues and pull requests: <https://github.com/jtmcn/mnemo/issues>. Run `make ci`
+before pushing.
 
 ## License
 
-MIT
+[MIT](LICENSE) © 2026 Joel McNierney
+
+---
+
+Working on mnemo with an agent? [CLAUDE.md](CLAUDE.md) holds the project
+instructions and [CONTEXT.md](CONTEXT.md) defines the domain vocabulary
+(Book, Chunk, Intake, Intake Outcome).
