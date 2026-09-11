@@ -902,12 +902,12 @@ class TestAddBookValidation:
         assert "epub" in result.lower()
 
     def test_add_book_not_epub_case_insensitive(self, tmp_path):
-        """PDF file (not EPUB) should return extension validation error."""
+        """Unsupported extension in upper case should still be rejected."""
         from mnemo.mcp.tools_books import _add_book_impl
 
-        pdf_file = tmp_path / "book.PDF"
-        pdf_file.write_bytes(b"fake pdf content")
-        result = _add_book_impl(str(pdf_file))
+        mobi_file = tmp_path / "book.MOBI"
+        mobi_file.write_bytes(b"fake mobi content")
+        result = _add_book_impl(str(mobi_file))
         assert "Error" in result
 
 

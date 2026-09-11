@@ -6,8 +6,8 @@
 
 Personal technical book library with semantic search via MCP.
 
-Mnemo indexes EPUB and DOCX books you already own — keeping code, math and table
-blocks intact — and exposes them to Claude Code and Claude Desktop as MCP tools,
+Mnemo indexes EPUB, DOCX and PDF books you already own — keeping code, math and
+table blocks intact — and exposes them to Claude Code and Claude Desktop as MCP tools,
 so an answer arrives with the book and section it came from. The same library is
 searchable from the terminal with `mnemo search`.
 
@@ -41,6 +41,9 @@ def test_subtraction():
 
 - **Structure-preserving parsing** — EPUB and DOCX, with code, math and table
   blocks never split across chunks, so a listing arrives whole.
+- **PDF** — born-digital PDFs, sectioned by their bookmark outline, with
+  monospace blocks kept whole as code. No OCR: a scan without a text layer is
+  rejected, and tables and math inside a PDF are indexed as plain text.
 - **Hybrid retrieval** — SQLite FTS5 keyword search and ChromaDB vectors merged
   with reciprocal rank fusion; force one side with `mode="keyword"` or
   `mode="semantic"`.
@@ -113,7 +116,7 @@ rm -rf ~/.mnemo/chroma && mnemo reindex
 ## CLI
 
 ```sh
-mnemo add book.epub other.docx        # index one or more books
+mnemo add book.epub other.docx paper.pdf   # index one or more books
 mnemo add *.epub --collection "SRE"   # tag a batch; --skip-existing for unattended runs
 mnemo list --check-embeddings         # which books have vectors (none = keyword-only)
 mnemo search "consistent hashing" -n 10 --book 10b05d

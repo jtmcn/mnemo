@@ -103,7 +103,7 @@ def intake(
     """Take one book file into the library and report what happened.
 
     Args:
-        path: Book file to take in (.epub, .docx)
+        path: Book file to take in (.epub, .docx, .pdf)
         on_duplicate: What to do when the file hash is already indexed —
             "reject" (default) rejects with reason "duplicate", "skip" reports
             "already_indexed" without touching anything, "replace" re-indexes

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mnemo"
-version = "2.4.4"
+version = "2.5.0"
 description = "Personal technical book library with semantic search via MCP"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
@@ -13,7 +13,7 @@ license-files = ["LICENSE"]
 authors = [
     { name = "Joel" }
 ]
-keywords = ["epub", "docx", "ebook", "semantic-search", "mcp", "embeddings"]
+keywords = ["epub", "docx", "pdf", "ebook", "semantic-search", "mcp", "embeddings"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Programming Language :: Python :: 3.11",
@@ -36,6 +36,7 @@ dependencies = [
     "typer>=0.12",
     "rich>=13.0",
     "python-docx>=1.0",
+    "pdfminer-six>=20250506",
 ]
 
 [project.optional-dependencies]
@@ -45,6 +46,7 @@ dev = [
     "pytest-cov>=4.0",
     "ruff>=0.1",
     "mypy>=1.8",
+    "reportlab>=4.0",
 ]
 
 [project.scripts]

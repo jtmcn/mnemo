@@ -9,6 +9,7 @@ import pytest
 from mnemo.parsing.dispatch import SUPPORTED_FORMATS, parse_book
 from tests.fixtures.docx_factory import create_test_docx
 from tests.fixtures.epub_factory import create_test_epub
+from tests.fixtures.pdf_factory import create_test_pdf
 
 
 class TestParseBook:
@@ -28,6 +29,12 @@ class TestParseBook:
         docx_path = create_test_docx(tmp_path / "test.docx")
         book, blocks = parse_book(docx_path)
         assert book.title == "Test DOCX Book"
+        assert len(blocks) > 0
+
+    def test_routes_pdf(self, tmp_path: Path) -> None:
+        pdf_path = create_test_pdf(tmp_path / "test.pdf", title="Dispatch PDF")
+        book, blocks = parse_book(pdf_path)
+        assert book.title == "Dispatch PDF"
         assert len(blocks) > 0
 
     def test_rejects_unsupported_format(self, tmp_path: Path) -> None:

@@ -8,7 +8,7 @@ from pathlib import Path
 from mnemo.models import Book
 from mnemo.parsing.models import ContentBlock
 
-SUPPORTED_FORMATS = {".epub", ".docx"}
+SUPPORTED_FORMATS = {".epub", ".docx", ".pdf"}
 
 
 def pre_parse_metadata(file_path: Path | str) -> Book:
@@ -18,7 +18,7 @@ def pre_parse_metadata(file_path: Path | str) -> Book:
     For other formats, computes a file hash and builds a stub Book from the filename.
 
     Args:
-        file_path: Path to the book file (.epub, .docx)
+        file_path: Path to the book file (.epub, .docx, .pdf)
 
     Returns:
         Book model with at least id, title, and file_hash populated
@@ -58,7 +58,7 @@ def parse_book(file_path: Path | str) -> tuple[Book, list[ContentBlock]]:
     Routes to the correct parser based on file extension.
 
     Args:
-        file_path: Path to the book file (.epub, .docx)
+        file_path: Path to the book file (.epub, .docx, .pdf)
 
     Returns:
         Tuple of (Book metadata, list of ContentBlocks)
@@ -81,6 +81,10 @@ def parse_book(file_path: Path | str) -> tuple[Book, list[ContentBlock]]:
         from mnemo.docx import DocxParser
 
         return DocxParser().parse(file_path)
+    elif suffix == ".pdf":
+        from mnemo.pdf import PdfParser
+
+        return PdfParser().parse(file_path)
     else:
         raise ValueError(
             f"Unsupported file format: {suffix} (supported: {', '.join(sorted(SUPPORTED_FORMATS))})"

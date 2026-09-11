@@ -13,6 +13,7 @@ from docx.text.paragraph import Paragraph
 
 from mnemo.models import Book, ContentType
 from mnemo.parsing.models import ContentBlock
+from mnemo.parsing.text import is_monospace_font, split_authors
 
 # Word styles that indicate code blocks
 _CODE_STYLES = {
@@ -111,17 +112,7 @@ class DocxParser:
         props = doc.core_properties
 
         title = props.title or file_path.stem
-        authors: list[str] = []
-        if props.author:
-            # Split on semicolons or commas (common multi-author separators)
-            raw = props.author
-            if ";" in raw:
-                authors = [a.strip() for a in raw.split(";") if a.strip()]
-            elif "," in raw:
-                authors = [a.strip() for a in raw.split(",") if a.strip()]
-            else:
-                authors = [raw.strip()]
-
+        authors = split_authors(props.author or "")
         first_author = authors[0] if authors else None
         book_id = Book.generate_id(file_bytes, title, first_author)
 
@@ -240,10 +231,7 @@ class DocxParser:
         # Check for monospace font as a code indicator
         if para.runs:
             font = para.runs[0].font
-            if font.name and any(
-                mono in font.name.lower()
-                for mono in ("courier", "consolas", "mono", "menlo", "source code")
-            ):
+            if font.name and is_monospace_font(font.name):
                 return True
 
         return False
