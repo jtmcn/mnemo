@@ -1336,7 +1336,7 @@ requires-dist = [
     { name = "lxml", specifier = ">=5.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8" },
     { name = "numpy", specifier = ">=1.26" },
-    { name = "pdfminer-six", specifier = ">=20250506" },
+    { name = "pdfminer-six", specifier = ">=20251230" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },

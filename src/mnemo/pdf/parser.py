@@ -3,15 +3,22 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 import re
+import statistics
 from bisect import bisect_right
 from pathlib import Path
 from typing import Any
 
 from pdfminer.converter import PDFPageAggregator
-from pdfminer.layout import LAParams, LTChar, LTTextBox, LTTextLine
-from pdfminer.pdfdocument import PDFDestinationNotFound, PDFDocument, PDFNoOutlines
+from pdfminer.layout import LAParams, LTChar, LTPage, LTTextBox, LTTextLine
+from pdfminer.pdfdocument import (
+    PDFDestinationNotFound,
+    PDFDocument,
+    PDFNoOutlines,
+    PDFPasswordIncorrect,
+)
 from pdfminer.pdfinterp import PDFPageInterpreter, PDFResourceManager
 from pdfminer.pdfpage import PDFPage
 from pdfminer.pdfparser import PDFParser
@@ -22,6 +29,8 @@ from pdfminer.utils import decode_text
 from mnemo.models import Book, ContentType
 from mnemo.parsing.models import ContentBlock
 from mnemo.parsing.text import is_monospace_font, split_authors
+
+logger = logging.getLogger(__name__)
 
 # A word broken across lines has lowercase on both sides of the hyphen; capitals or
 # digits ("LLM-\ndriven", "2023-\n2025") mark a real compound and are kept.
@@ -39,9 +48,9 @@ _TOP_OPERAND: dict[str | bytes, int] = {"XYZ": 3, "FitH": 2, "FitBH": 2}
 class PdfParser:
     """Parser for born-digital PDFs via pdfminer.six.
 
-    Sections come from the bookmark outline; a PDF without one yields
-    unsectioned blocks. There is no OCR, so a scan without a text layer is
-    rejected.
+    Sections come from the bookmark outline; a PDF without a readable one
+    yields unsectioned blocks. There is no OCR, so a scan without a text
+    layer is rejected.
     """
 
     SUPPORTED_EXTENSIONS = {".pdf"}
@@ -51,7 +60,7 @@ class PdfParser:
 
         Raises:
             FileNotFoundError: If file doesn't exist
-            ValueError: If the PDF has no extractable text
+            ValueError: If the PDF is password-protected or has no extractable text
         """
         file_path = Path(file_path)
         if not file_path.exists():
@@ -61,7 +70,10 @@ class PdfParser:
 
         # pdfminer reads objects lazily, so everything that touches doc stays in here.
         with file_path.open("rb") as f:
-            doc = PDFDocument(PDFParser(f))
+            try:
+                doc = PDFDocument(PDFParser(f))
+            except PDFPasswordIncorrect as e:
+                raise ValueError(f"{file_path.name} is password-protected") from e
             pages = list(PDFPage.create_pages(doc))
             outline = self._resolve_outline(doc, {page.pageid: i for i, page in enumerate(pages)})
             blocks = self._extract_content(pages, outline)
@@ -97,6 +109,11 @@ class PdfParser:
         try:
             raw = list(doc.get_outlines())
         except PDFNoOutlines:
+            return []
+        except Exception as e:
+            # pdfminer recurses per sibling, so a cyclic or ~1000-long /Next chain
+            # raises RecursionError; losing sections beats losing the book.
+            logger.warning("Ignoring unreadable PDF outline (%s: %s)", type(e).__name__, e)
             return []
 
         entries: list[tuple[_Position, list[str]]] = []
@@ -153,16 +170,27 @@ class PdfParser:
 
         blocks: list[ContentBlock] = []
         text_run: list[str] = []
+        code_run: list[LTTextLine] = []
         run_path: list[str] = []
 
-        def _flush_text() -> None:
+        def _flush() -> None:
             if text_run:
-                blocks.append(ContentBlock(content="\n\n".join(text_run), section_path=run_path))
+                blocks.append(
+                    ContentBlock(content="\n\n".join(text_run), section_path=list(run_path))
+                )
                 text_run.clear()
+            if code_run:
+                blocks.append(
+                    ContentBlock(
+                        content=_listing_text(code_run),
+                        content_type=ContentType.CODE,
+                        section_path=list(run_path),
+                    )
+                )
+                code_run.clear()
 
         for page_number, page in enumerate(pages):
-            interpreter.process_page(page)
-            for box in device.get_result():
+            for box in self._upright_layout(interpreter, device, page):
                 if not isinstance(box, LTTextBox) or not box.get_text().strip():
                     continue
 
@@ -175,26 +203,54 @@ class PdfParser:
                 i = bisect_right(starts, (page_number, -(box.y0 + box.y1) / 2)) - 1
                 path = outline[i][1] if i >= 0 else []
                 if path != run_path:
-                    _flush_text()
+                    _flush()
                     run_path = path
 
                 if chars and 2 * sum(is_monospace_font(c.fontname) for c in chars) > len(chars):
-                    _flush_text()
-                    lines = [line.rstrip() for line in box.get_text().split("\n")]
-                    blocks.append(
-                        ContentBlock(
-                            content="\n".join(lines).strip("\n"),
-                            content_type=ContentType.CODE,
-                            section_path=list(path),
-                        )
-                    )
+                    # Consecutive code boxes are one listing: indented lines often land in
+                    # boxes of their own.
+                    if text_run:
+                        _flush()
+                    code_run.extend(line for line in box if isinstance(line, LTTextLine))
                 else:
+                    if code_run:
+                        _flush()
                     text = _SOFT_HYPHEN_BREAK.sub("", box.get_text())
                     text = _KEPT_HYPHEN_BREAK.sub("-", text)
                     text_run.append(_WHITESPACE.sub(" ", text).strip())
 
-        _flush_text()
+        _flush()
         return blocks
+
+    def _upright_layout(
+        self, interpreter: PDFPageInterpreter, device: PDFPageAggregator, page: PDFPage
+    ) -> LTPage:
+        """Lay out a rotated page with its /Rotate or without, whichever reads upright.
+
+        /Rotate alone doesn't say which way text runs: pdflscape pre-rotates content
+        to cancel it, while a page turned in a viewer keeps its content as drawn.
+        """
+        interpreter.process_page(page)
+        layout = device.get_result()
+        upright, total = self._upright_counts(layout)
+        if not page.rotate or 2 * upright >= total:
+            return layout
+
+        original, page.rotate = page.rotate, 0
+        interpreter.process_page(page)
+        unrotated = device.get_result()
+        page.rotate = original
+        return unrotated if self._upright_counts(unrotated)[0] > upright else layout
+
+    def _upright_counts(self, layout: LTPage) -> tuple[int, int]:
+        """(upright, total) visible characters across the page's text boxes."""
+        chars = [
+            char
+            for box in layout
+            if isinstance(box, LTTextBox)
+            for char in self._visible_chars(box)
+        ]
+        return sum(char.upright for char in chars), len(chars)
 
     @staticmethod
     def _visible_chars(box: LTTextBox) -> list[LTChar]:
@@ -206,3 +262,19 @@ class PdfParser:
             for char in line
             if isinstance(char, LTChar) and not char.get_text().isspace()
         ]
+
+
+def _listing_text(lines: list[LTTextLine]) -> str:
+    """Rebuild a code listing, turning each line's x-offset into leading spaces.
+
+    pdfminer only emits spaces that exist as glyphs, and typeset listings usually
+    indent by position instead.
+    """
+    left = min(line.x0 for line in lines)
+    widths = [char.width for line in lines for char in line if isinstance(char, LTChar)]
+    char_width = statistics.median(widths) if widths else 0.0
+    rebuilt = []
+    for line in lines:
+        indent = round((line.x0 - left) / char_width) if char_width else 0
+        rebuilt.append(" " * indent + line.get_text().rstrip())
+    return "\n".join(rebuilt)

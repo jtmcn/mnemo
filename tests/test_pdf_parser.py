@@ -16,6 +16,8 @@ from tests.fixtures.pdf_factory import (
     Para,
     Stamp,
     create_blank_pdf,
+    create_cyclic_outline_pdf,
+    create_landscape_pdf,
     create_named_dest_pdf,
     create_test_pdf,
 )
@@ -57,6 +59,10 @@ class TestPdfMetadata:
         with pytest.raises(FileNotFoundError):
             parser.parse(Path("/nonexistent/book.pdf"))
 
+    def test_password_protected_pdf_says_so(self, parser: PdfParser, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="password-protected"):
+            parser.parse(create_test_pdf(tmp_path / "locked.pdf", encrypt="secret"))
+
 
 class TestPdfSections:
     def test_text_lands_under_the_outline_entry_above_it(
@@ -86,12 +92,31 @@ class TestPdfSections:
         assert _block_containing(blocks, "Second body").section_path == ["Chapter 1", "1.2 Second"]
 
     def test_hyperref_named_destinations_resolve(self, parser: PdfParser, tmp_path: Path) -> None:
-        # GoTo actions to named destinations; the third bookmark's target is missing.
+        # GoTo actions to named destinations: Intro is /XYZ, Methods /FitH, Missing unresolvable.
         book, blocks = parser.parse(create_named_dest_pdf(tmp_path / "paper.pdf"))
         assert book.title == "Named Dest Paper"
         assert book.structure_source == "toc"
         assert _block_containing(blocks, "Intro body").section_path == ["Intro"]
         assert _block_containing(blocks, "Methods body").section_path == ["Methods"]
+        # Above every real bookmark; it would pick up "Missing" if that resolved to page top.
+        assert _block_containing(blocks, "Preamble").section_path == []
+
+    def test_viewer_rotated_page_keeps_its_text(self, parser: PdfParser, tmp_path: Path) -> None:
+        # /Rotate 90 over ordinary content, e.g. a page turned in a PDF viewer.
+        items = [Heading("Chapter 1"), Para(["Landscape table notes."])]
+        path = create_test_pdf(tmp_path / "wide.pdf", items=items, rotation=90)
+        _, blocks = parser.parse(path)
+        assert _block_containing(blocks, "Landscape table notes").section_path == ["Chapter 1"]
+
+    def test_landscape_page_keeps_its_text(self, parser: PdfParser, tmp_path: Path) -> None:
+        # pdflscape: /Rotate 90 over content pre-rotated to read upright once rotated.
+        _, blocks = parser.parse(create_landscape_pdf(tmp_path / "landscape.pdf"))
+        assert _block_containing(blocks, "Landscape caption").section_path == ["Chapter 1"]
+
+    def test_broken_outline_falls_back_to_inferred(self, parser: PdfParser, tmp_path: Path) -> None:
+        book, blocks = parser.parse(create_cyclic_outline_pdf(tmp_path / "loop.pdf"))
+        assert book.structure_source == "inferred"
+        assert [(b.content, b.section_path) for b in blocks] == [("Body text.", [])]
 
     def test_no_outline_is_inferred_with_empty_paths(
         self, parser: PdfParser, tmp_path: Path
@@ -132,12 +157,19 @@ class TestPdfText:
         _, blocks = parser.parse(create_test_pdf(tmp_path / "book.pdf", items=items))
         code = _block_containing(blocks, "def hello")
         assert code.content_type == ContentType.CODE
-        assert [line.strip() for line in code.content.splitlines()] == [
-            "def hello():",
-            "print('hi')",
-        ]
+        assert code.content == "def hello():\n    print('hi')"
         assert code.section_path == ["Chapter 1"]
         assert _block_containing(blocks, "Text after").content_type == ContentType.TEXT
+
+    def test_positionally_indented_code_stays_one_indented_block(
+        self, parser: PdfParser, tmp_path: Path
+    ) -> None:
+        lines = ["def hello():", "    print('hi')", "hello()"]
+        items = [Heading("Chapter 1"), Code(lines, positional_indent=True)]
+        _, blocks = parser.parse(create_test_pdf(tmp_path / "book.pdf", items=items))
+        code = _block_containing(blocks, "def hello")
+        assert code.content_type == ContentType.CODE
+        assert code.content == "def hello():\n    print('hi')\nhello()"
 
     def test_rotated_margin_stamp_is_dropped(self, parser: PdfParser, tmp_path: Path) -> None:
         items = [Stamp("arXiv:2510.25445v1 [cs.AI] 29 Oct 2025"), Heading("Intro"), Para(["Body."])]

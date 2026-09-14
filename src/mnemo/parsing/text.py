@@ -15,6 +15,10 @@ _MONOSPACE_FONT_HINTS = (
     "cmtt",
     "nimbusmon",
     "inconsolata",
+    "sftt",
+    "txtt",
+    "lucidaconsole",
+    "firacode",
 )
 
 
