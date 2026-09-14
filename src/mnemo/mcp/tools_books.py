@@ -242,7 +242,7 @@ async def add_book(
     use force=true to re-index.
 
     Args:
-        file_path: Absolute path to the book file (.epub, .docx)
+        file_path: Absolute path to the book file (.epub, .docx, .pdf)
         force: If true, re-indexes even if the book already exists
         chunk_min_tokens: Minimum tokens per chunk (default 400, min 100)
         chunk_max_tokens: Maximum tokens per chunk (default 800, max 2000)

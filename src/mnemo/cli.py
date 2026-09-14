@@ -1,7 +1,7 @@
 """Command-line interface for Mnemo.
 
 Provides commands to manage the book library and MCP server:
-- add: Add book files (.epub, .docx) to the library
+- add: Add book files (.epub, .docx, .pdf) to the library
 - remove: Remove a book by ID
 - list: List all indexed books
 - search: Search books for content
@@ -52,7 +52,7 @@ def add(
     paths: Annotated[
         list[Path],
         typer.Argument(
-            help="Book file(s) to add (.epub, .docx)",
+            help="Book file(s) to add (.epub, .docx, .pdf)",
             exists=False,  # We validate manually for better error messages
             readable=False,  # Avoid os.access() which fails on macOS TCC-protected dirs
         ),
@@ -90,7 +90,7 @@ def add(
     """Add book file(s) to the library.
 
     Parses the book, chunks content, generates embeddings, and stores
-    everything for search. Supports .epub and .docx files.
+    everything for search. Supports .epub, .docx and .pdf files.
     """
     if force and skip_existing:
         # Directly contradictory for a duplicate, and guessing wrong means

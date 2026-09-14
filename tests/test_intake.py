@@ -17,6 +17,7 @@ import pytest
 from mnemo.services.book_service import IntakeOutcome, intake
 from mnemo.storage import BookRepository, get_connection, init_db
 from tests.fixtures.epub_factory import create_test_epub
+from tests.fixtures.pdf_factory import create_blank_pdf, create_test_pdf
 
 
 @pytest.fixture
@@ -68,6 +69,13 @@ class TestRejections:
         assert outcome.reason == "parse_failed"
         assert outcome.book is None
 
+    def test_pdf_without_text_is_rejected(self, tmp_path: Path, temp_db: Path):
+        outcome = intake(create_blank_pdf(tmp_path / "scan.pdf"), db_path=temp_db, embed=False)
+
+        assert outcome.status == "rejected"
+        assert outcome.reason == "pipeline_error"
+        assert "no extractable text" in outcome.message
+
     def test_pipeline_failure_is_reported_not_raised(self, sample_epub: Path, temp_db: Path):
         with patch("mnemo.ingest.ingest_book", side_effect=RuntimeError("disk gone")):
             outcome = intake(sample_epub, db_path=temp_db, embed=False)
@@ -107,6 +115,14 @@ class TestFreshIntake:
         assert outcome.reason is None
         assert outcome.book is not None
         assert outcome.book.title == "Python Testing Guide"
+        assert outcome.chunks > 0
+
+    def test_added_pdf(self, tmp_path: Path, temp_db: Path):
+        outcome = intake(create_test_pdf(tmp_path / "book.pdf"), db_path=temp_db, embed=False)
+
+        assert outcome.status == "added"
+        assert outcome.book is not None
+        assert outcome.book.title == "Test PDF Book"
         assert outcome.chunks > 0
 
     def test_collection_is_applied(self, sample_epub: Path, temp_db: Path):

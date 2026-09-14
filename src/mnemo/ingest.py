@@ -180,7 +180,7 @@ def ingest_book(
     generates embeddings for vector search.
 
     Args:
-        book_path: Path to book file (.epub, .docx)
+        book_path: Path to book file (.epub, .docx, .pdf)
         db_path: Database path (default: ~/.mnemo/mnemo.db)
         chunker_config: Chunking configuration
         force: If True, re-ingest even if duplicate detected
