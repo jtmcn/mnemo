@@ -11,7 +11,7 @@
 
 Extend mnemo's MCP server with book management tools so Claude can add, remove, and edit ebook metadata directly from the chat interface. Today, book lifecycle operations require the CLI (`mnemo add`, `mnemo remove`). This PRD adds MCP tools that let Claude orchestrate ingestion and metadata cleanup without the user leaving the conversation.
 
-**Scope:** EPUB only (PDF deferred). Metadata changes apply to mnemo's SQLite/ChromaDB records only — source `.epub` files are never modified.
+**Scope:** EPUB only (PDF was deferred here; it has since shipped in v2.5.0 — see README). Metadata changes apply to mnemo's SQLite/ChromaDB records only — source `.epub` files are never modified.
 
 ---
 
@@ -34,7 +34,7 @@ Managing the mnemo library currently requires context-switching to a terminal. A
 
 ### Non-Goals
 
-- PDF support (future phase)
+- PDF support (future phase — since shipped in v2.5.0)
 - Modifying source `.epub` files
 - Adding a new database (SQLite + ChromaDB are sufficient)
 - Tag/genre/comment fields (future phase)
@@ -263,7 +263,7 @@ These are explicitly deferred but inform the design:
 
 | Feature | Why deferred | Design consideration |
 |---------|-------------|---------------------|
-| PDF support | Different parser needed | `add_book` accepts `file_path`; parser selection can be based on extension |
+| ~~PDF support~~ | Shipped in v2.5.0 | Parser chosen by extension in `parsing/dispatch.py`; `pdf/parser.py` uses pdfminer.six |
 | Tags & comments | Needs schema migration | Add columns to `books` table; new `update_book_metadata` params |
 | Metadata lookup (Open Library, Google Books) | API dependency | New tool `lookup_book_metadata(isbn)` that returns suggestions; user confirms before `update_book_metadata` |
 | Bulk import | Depends on `add_book` working well | New tool `scan_books_dir()` that lists unindexed epubs |

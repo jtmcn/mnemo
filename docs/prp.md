@@ -41,7 +41,7 @@ Technical professionals accumulate domain knowledge in EPUB books (AI/ML, data e
 - Follow Python 2026 best practices (uv, ruff, mypy, pytest)
 
 ### Non-Goals
-- PDF or other format support (EPUB only)
+- PDF or other format support (EPUB only — DOCX and PDF have since shipped; PDF in v2.5.0)
 - Real-time sync with external sources
 - Multi-user authentication
 - Web UI (CLI only for management)
@@ -645,7 +645,7 @@ uv run pytest tests/integration/ -v
 
 ## 14. Future Enhancements (Out of Scope)
 
-- PDF support via marker or pymupdf4llm
+- ~~PDF support via marker or pymupdf4llm~~ — shipped in v2.5.0 using pdfminer.six (marker is GPL and PyMuPDF is AGPL, so both were ruled out)
 - Incremental chapter updates (partial re-embedding)
 - Multiple embedding model support
 - Hybrid search (semantic + keyword)
