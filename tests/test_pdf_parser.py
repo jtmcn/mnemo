@@ -174,6 +174,37 @@ class TestPdfPageFurniture:
         _, blocks = parser.parse(create_test_pdf(tmp_path / "book.pdf", items=items[:-1]))
         assert sum("Key terms" in b.content for b in blocks) == 3
 
+    def test_roman_page_numbers_are_ignored(self, parser: PdfParser, tmp_path: Path) -> None:
+        items = [Para(["Preface one."]), PageBreak(), Para(["Preface two."])]
+        path = create_test_pdf(tmp_path / "book.pdf", items=items, header="Contents \u2022 {roman}")
+        _, blocks = parser.parse(path)
+        assert "Contents" not in "\n".join(b.content for b in blocks)
+
+    def test_one_off_numeric_margin_line_is_kept(self, parser: PdfParser, tmp_path: Path) -> None:
+        # Page numbers repeat, but a table row of numbers in the margin is content.
+        items = [Para(["Body one."]), Footnote("1024 2048 4096"), PageBreak(), Para(["Body two."])]
+        path = create_test_pdf(tmp_path / "book.pdf", items=items, header="{page}")
+        _, blocks = parser.parse(path)
+        assert "1024 2048 4096" in "\n".join(b.content for b in blocks)
+
+    def test_repeated_code_in_margin_is_kept(self, parser: PdfParser, tmp_path: Path) -> None:
+        # A listing's closing brace can land at the foot of several pages.
+        items: list[Item] = [Para(["Body one."]), Footnote("}", font="Courier")]
+        items += [PageBreak(), Para(["Body two."]), Footnote("}", font="Courier")]
+        _, blocks = parser.parse(create_test_pdf(tmp_path / "book.pdf", items=items))
+        assert sum(b.content == "}" for b in blocks if b.content_type == ContentType.CODE) == 2
+
+    def test_margin_text_repeated_far_apart_is_kept(
+        self, parser: PdfParser, tmp_path: Path
+    ) -> None:
+        # Running heads recur on nearby pages; the same line 8 pages later is content.
+        items: list[Item] = [Para(["Page 1."]), Footnote("Summary of results.")]
+        for n in range(2, 10):
+            items += [PageBreak(), Para([f"Page {n}."])]
+        items.append(Footnote("Summary of results."))
+        _, blocks = parser.parse(create_test_pdf(tmp_path / "book.pdf", items=items))
+        assert "\n".join(b.content for b in blocks).count("Summary of results.") == 2
+
 
 class TestPdfText:
     def _parse_para(self, parser: PdfParser, tmp_path: Path, lines: list[str]) -> str:

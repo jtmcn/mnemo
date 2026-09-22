@@ -8,6 +8,7 @@ import math
 import re
 import statistics
 from bisect import bisect_right
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -37,12 +38,14 @@ logger = logging.getLogger(__name__)
 _SOFT_HYPHEN_BREAK = re.compile(r"(?<=[a-z])-\n(?=[a-z])")
 _KEPT_HYPHEN_BREAK = re.compile(r"(?<=\S)-\n")
 _WHITESPACE = re.compile(r"\s+")
-_DIGITS_AND_SPACE = re.compile(r"[\d\s]+")
-_EDGE_ROMAN_NUMERALS = re.compile(r"^[ivxlcdm]+|[ivxlcdm]+$")
+_PAGE_NUMBER_TOKEN = re.compile(r"\b(?:\d+|[ivx]+)\b", re.IGNORECASE)
+_PAGE_NUMBER = re.compile(r"\d{1,4}|[ivx]{1,7}", re.IGNORECASE)
 
 # Running headers, footers and watermarks sit in the outer tenth of the page and
-# repeat on other pages with only the page number changing.
+# recur within a few pages with only the page number changing. Comparing nearby
+# pages only also keeps memory flat: a page is emitted once its neighbours are laid out.
 _MARGIN_FRACTION = 0.1
+_FURNITURE_WINDOW = 3
 
 # (page index, negated y) so that ascending order is reading order.
 _Position = tuple[int, float]
@@ -195,17 +198,24 @@ class PdfParser:
                 )
                 code_run.clear()
 
-        layouts = [self._upright_layout(interpreter, device, page) for page in pages]
-        furniture = _furniture_keys(layouts)
+        margin_keys: list[set[str]] = []
+        pending: deque[tuple[int, LTPage]] = deque()
 
-        for page_number, layout in enumerate(layouts):
+        def _emit(page_number: int, layout: LTPage) -> None:
+            nonlocal run_path
+            nearby = range(
+                max(0, page_number - _FURNITURE_WINDOW),
+                min(len(margin_keys), page_number + _FURNITURE_WINDOW + 1),
+            )
+            furniture = set().union(*(margin_keys[j] for j in nearby if j != page_number))
+
             for box in layout:
                 if not isinstance(box, LTTextBox) or not box.get_text().strip():
                     continue
                 if _in_margin(box, layout) and _furniture_key(box) in furniture:
                     continue
 
-                chars = self._visible_chars(box)
+                chars = _visible_chars(box)
                 # Sideways text is margin furniture (arXiv's identifier stamp), not content.
                 if 2 * sum(not char.upright for char in chars) > len(chars):
                     continue
@@ -217,7 +227,7 @@ class PdfParser:
                     _flush()
                     run_path = path
 
-                if chars and 2 * sum(is_monospace_font(c.fontname) for c in chars) > len(chars):
+                if _is_monospace(chars):
                     # Consecutive code boxes are one listing: indented lines often land in
                     # boxes of their own.
                     if text_run:
@@ -229,6 +239,15 @@ class PdfParser:
                     text = _SOFT_HYPHEN_BREAK.sub("", box.get_text())
                     text = _KEPT_HYPHEN_BREAK.sub("-", text)
                     text_run.append(_WHITESPACE.sub(" ", text).strip())
+
+        for page_number, page in enumerate(pages):
+            layout = self._upright_layout(interpreter, device, page)
+            margin_keys.append(_margin_keys(layout))
+            pending.append((page_number, layout))
+            if len(pending) > _FURNITURE_WINDOW:
+                _emit(*pending.popleft())
+        while pending:
+            _emit(*pending.popleft())
 
         _flush()
         return blocks
@@ -256,23 +275,24 @@ class PdfParser:
     def _upright_counts(self, layout: LTPage) -> tuple[int, int]:
         """(upright, total) visible characters across the page's text boxes."""
         chars = [
-            char
-            for box in layout
-            if isinstance(box, LTTextBox)
-            for char in self._visible_chars(box)
+            char for box in layout if isinstance(box, LTTextBox) for char in _visible_chars(box)
         ]
         return sum(char.upright for char in chars), len(chars)
 
-    @staticmethod
-    def _visible_chars(box: LTTextBox) -> list[LTChar]:
-        """The box's non-whitespace glyphs, which carry font and orientation."""
-        return [
-            char
-            for line in box
-            if isinstance(line, LTTextLine)
-            for char in line
-            if isinstance(char, LTChar) and not char.get_text().isspace()
-        ]
+
+def _visible_chars(box: LTTextBox) -> list[LTChar]:
+    """The box's non-whitespace glyphs, which carry font and orientation."""
+    return [
+        char
+        for line in box
+        if isinstance(line, LTTextLine)
+        for char in line
+        if isinstance(char, LTChar) and not char.get_text().isspace()
+    ]
+
+
+def _is_monospace(chars: list[LTChar]) -> bool:
+    return bool(chars) and 2 * sum(is_monospace_font(c.fontname) for c in chars) > len(chars)
 
 
 def _in_margin(box: LTTextBox, page: LTPage) -> bool:
@@ -280,23 +300,27 @@ def _in_margin(box: LTTextBox, page: LTPage) -> bool:
     return box.y0 >= page.y1 - band or box.y1 <= page.y0 + band
 
 
-def _furniture_key(box: LTTextBox) -> str:
-    """Box text without page numbers or spacing, so "Contents • iv" matches "Contents • v"."""
-    return _EDGE_ROMAN_NUMERALS.sub("", _DIGITS_AND_SPACE.sub("", box.get_text()).lower())
+def _furniture_key(box: LTTextBox) -> str | None:
+    """Box text without page numbers or spacing, so "Contents • iv" matches "Contents • v".
+
+    A bare page number keys as ""; code and number-only text such as a table row
+    are never furniture and key as None.
+    """
+    if _is_monospace(_visible_chars(box)):
+        return None
+    text = box.get_text()
+    if _PAGE_NUMBER.fullmatch(_WHITESPACE.sub("", text)):
+        return ""
+    return _WHITESPACE.sub("", _PAGE_NUMBER_TOKEN.sub("", text)).lower() or None
 
 
-def _furniture_keys(layouts: list[LTPage]) -> set[str]:
-    """Keys of margin text repeated across pages; "" catches bare page numbers."""
-    pages_with: dict[str, int] = {}
-    for layout in layouts:
-        keys = {
-            _furniture_key(box)
-            for box in layout
-            if isinstance(box, LTTextBox) and _in_margin(box, layout)
-        }
-        for key in keys:
-            pages_with[key] = pages_with.get(key, 0) + 1
-    return {key for key, count in pages_with.items() if count >= 2}
+def _margin_keys(layout: LTPage) -> set[str]:
+    keys = {
+        _furniture_key(box)
+        for box in layout
+        if isinstance(box, LTTextBox) and _in_margin(box, layout)
+    }
+    return {key for key in keys if key is not None}
 
 
 def _listing_text(lines: list[LTTextLine]) -> str:
