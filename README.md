@@ -42,7 +42,8 @@ def test_subtraction():
 - **Structure-preserving parsing** — EPUB and DOCX, with code, math and table
   blocks never split across chunks, so a listing arrives whole.
 - **PDF** — born-digital PDFs, sectioned by their bookmark outline, with
-  monospace blocks kept whole as code. No OCR: a scan without a text layer is
+  monospace blocks kept whole as code, and running headers, footers and
+  watermarks repeated in the page margins dropped. No OCR: a scan without a text layer is
   rejected, and tables and math inside a PDF are indexed as plain text.
 - **Hybrid retrieval** — SQLite FTS5 keyword search and ChromaDB vectors merged
   with reciprocal rank fusion; force one side with `mode="keyword"` or

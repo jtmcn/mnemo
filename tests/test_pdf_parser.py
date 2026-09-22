@@ -12,7 +12,10 @@ from mnemo.parsing.models import ContentBlock
 from mnemo.pdf import PdfParser
 from tests.fixtures.pdf_factory import (
     Code,
+    Footnote,
     Heading,
+    Item,
+    PageBreak,
     Para,
     Stamp,
     create_blank_pdf,
@@ -125,6 +128,51 @@ class TestPdfSections:
         assert book.structure_source == "inferred"
         assert blocks
         assert all(b.section_path == [] for b in blocks)
+
+
+class TestPdfPageFurniture:
+    def test_repeated_margin_text_is_dropped(self, parser: PdfParser, tmp_path: Path) -> None:
+        items = [
+            Heading("Chapter 1"),
+            Para(["First page body."]),
+            PageBreak(),
+            Para(["Second page body."]),
+            PageBreak(),
+            Para(["Third page body."]),
+        ]
+        path = create_test_pdf(
+            tmp_path / "book.pdf",
+            items=items,
+            header="C H A P T E R  O N E  \u2022  {page}",
+            footer="Licensed to A. Reader. For personal use only.",
+        )
+        _, blocks = parser.parse(path)
+        text = "\n".join(b.content for b in blocks)
+        assert "Licensed to" not in text
+        assert "C H A P T E R" not in text
+        assert all(f"{n} page body" in text for n in ("First", "Second", "Third"))
+
+    def test_bare_page_numbers_are_dropped(self, parser: PdfParser, tmp_path: Path) -> None:
+        items = [Para(["Body one."]), PageBreak(), Para(["Body two."])]
+        path = create_test_pdf(tmp_path / "book.pdf", items=items, footer="{page}")
+        _, blocks = parser.parse(path)
+        assert [b.content for b in blocks] == ["Body one.\n\nBody two."]
+
+    def test_margin_text_on_one_page_is_kept(self, parser: PdfParser, tmp_path: Path) -> None:
+        # Margin text that doesn't repeat (a first-page copyright line) is content.
+        items = [Para(["Abstract."]), Footnote("Copyright 2026 the authors.")]
+        items += [PageBreak(), Para(["Body two."]), PageBreak(), Para(["Body three."])]
+        path = create_test_pdf(tmp_path / "paper.pdf", items=items)
+        _, blocks = parser.parse(path)
+        assert "Copyright 2026" in "\n".join(b.content for b in blocks)
+
+    def test_repeated_body_text_is_kept(self, parser: PdfParser, tmp_path: Path) -> None:
+        # The same subheading under several chapters is content, not furniture.
+        items: list[Item] = []
+        for n in range(3):
+            items += [Heading(f"Chapter {n}"), Para(["Key terms"]), PageBreak()]
+        _, blocks = parser.parse(create_test_pdf(tmp_path / "book.pdf", items=items[:-1]))
+        assert sum("Key terms" in b.content for b in blocks) == 3
 
 
 class TestPdfText:

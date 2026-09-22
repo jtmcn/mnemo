@@ -37,6 +37,12 @@ logger = logging.getLogger(__name__)
 _SOFT_HYPHEN_BREAK = re.compile(r"(?<=[a-z])-\n(?=[a-z])")
 _KEPT_HYPHEN_BREAK = re.compile(r"(?<=\S)-\n")
 _WHITESPACE = re.compile(r"\s+")
+_DIGITS_AND_SPACE = re.compile(r"[\d\s]+")
+_EDGE_ROMAN_NUMERALS = re.compile(r"^[ivxlcdm]+|[ivxlcdm]+$")
+
+# Running headers, footers and watermarks sit in the outer tenth of the page and
+# repeat on other pages with only the page number changing.
+_MARGIN_FRACTION = 0.1
 
 # (page index, negated y) so that ascending order is reading order.
 _Position = tuple[int, float]
@@ -189,9 +195,14 @@ class PdfParser:
                 )
                 code_run.clear()
 
-        for page_number, page in enumerate(pages):
-            for box in self._upright_layout(interpreter, device, page):
+        layouts = [self._upright_layout(interpreter, device, page) for page in pages]
+        furniture = _furniture_keys(layouts)
+
+        for page_number, layout in enumerate(layouts):
+            for box in layout:
                 if not isinstance(box, LTTextBox) or not box.get_text().strip():
+                    continue
+                if _in_margin(box, layout) and _furniture_key(box) in furniture:
                     continue
 
                 chars = self._visible_chars(box)
@@ -262,6 +273,30 @@ class PdfParser:
             for char in line
             if isinstance(char, LTChar) and not char.get_text().isspace()
         ]
+
+
+def _in_margin(box: LTTextBox, page: LTPage) -> bool:
+    band = page.height * _MARGIN_FRACTION
+    return box.y0 >= page.y1 - band or box.y1 <= page.y0 + band
+
+
+def _furniture_key(box: LTTextBox) -> str:
+    """Box text without page numbers or spacing, so "Contents • iv" matches "Contents • v"."""
+    return _EDGE_ROMAN_NUMERALS.sub("", _DIGITS_AND_SPACE.sub("", box.get_text()).lower())
+
+
+def _furniture_keys(layouts: list[LTPage]) -> set[str]:
+    """Keys of margin text repeated across pages; "" catches bare page numbers."""
+    pages_with: dict[str, int] = {}
+    for layout in layouts:
+        keys = {
+            _furniture_key(box)
+            for box in layout
+            if isinstance(box, LTTextBox) and _in_margin(box, layout)
+        }
+        for key in keys:
+            pages_with[key] = pages_with.get(key, 0) + 1
+    return {key for key, count in pages_with.items() if count >= 2}
 
 
 def _listing_text(lines: list[LTTextLine]) -> str:
