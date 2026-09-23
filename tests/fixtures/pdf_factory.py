@@ -38,11 +38,19 @@ class Stamp:
     text: str
 
 
+@dataclass
+class Footnote:
+    """Text in the bottom margin of the current page only."""
+
+    text: str
+    font: str = "Times-Roman"
+
+
 class PageBreak:
     pass
 
 
-Item = Heading | Para | Code | Stamp | PageBreak
+Item = Heading | Para | Code | Stamp | Footnote | PageBreak
 
 DEFAULT_ITEMS: list[Item] = [
     Heading("Chapter 1: Basics"),
@@ -63,21 +71,36 @@ def create_test_pdf(
     outline: bool = True,
     rotation: int = 0,
     encrypt: str | None = None,
+    header: str | None = None,
+    footer: str | None = None,
 ) -> Path:
     """Draw items top-down, one line per string; headings become bookmarks when outline=True.
 
-    rotation sets /Rotate on every page; encrypt sets a user password.
+    rotation sets /Rotate on every page; encrypt sets a user password. header and
+    footer go in the page margins on every page, with {page} or {roman} as the
+    page number.
     """
     canvas = Canvas(str(output_path), encrypt=encrypt)
     canvas.setTitle(title)
     canvas.setAuthor(author)
     canvas.setPageRotation(rotation)
-    top = 770.0
+    # Body starts below the top tenth of an A4 page, where headers are treated as furniture.
+    top = 740.0
     y = top
+    page = 1
+
+    def _furniture() -> None:
+        canvas.setFont("Times-Roman", 8)
+        if header:
+            canvas.drawString(72, 770, header.format(page=page, roman=_roman(page)))
+        if footer:
+            canvas.drawString(72, 20, footer.format(page=page, roman=_roman(page)))
 
     for n, item in enumerate(items if items is not None else DEFAULT_ITEMS):
         if isinstance(item, PageBreak):
+            _furniture()
             canvas.showPage()
+            page += 1
             canvas.setPageRotation(rotation)
             y = top
         elif isinstance(item, Stamp):
@@ -87,6 +110,9 @@ def create_test_pdf(
             canvas.rotate(90)
             canvas.drawString(0, 0, item.text)
             canvas.restoreState()
+        elif isinstance(item, Footnote):
+            canvas.setFont(item.font, 8)
+            canvas.drawString(72, 20, item.text)
         elif isinstance(item, Heading):
             y -= 10
             canvas.setFont("Times-Bold", 14)
@@ -114,8 +140,18 @@ def create_test_pdf(
                 y -= 14
             y -= 16
 
+    _furniture()
     canvas.save()
     return output_path
+
+
+def _roman(n: int) -> str:
+    numerals = [(10, "x"), (9, "ix"), (5, "v"), (4, "iv"), (1, "i")]
+    out = ""
+    for value, numeral in numerals:
+        count, n = divmod(n, value)
+        out += numeral * count
+    return out
 
 
 def create_blank_pdf(output_path: Path) -> Path:
