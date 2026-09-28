@@ -1,0 +1,112 @@
+#!/usr/bin/env python3
+"""Every legacy schema, once migrated, matches a fresh one -> the gate contract.
+
+mnemo's `migrations` gate. A column added to `_SCHEMA_SQL` without its
+migration reaches no existing library, and the suite builds fresh databases.
+"""
+
+import json
+import sqlite3
+import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path.cwd() / "src"))
+
+# The books table before migration 1. It is history, so it never changes.
+V0_BOOKS = """CREATE TABLE books (
+    id TEXT PRIMARY KEY, title TEXT NOT NULL, authors TEXT NOT NULL, isbn TEXT,
+    file_hash TEXT UNIQUE NOT NULL, default_language TEXT,
+    structure_source TEXT NOT NULL, added_at TEXT NOT NULL)"""
+ROW = ("abc123", "T", "[]", "h", "toc", "2026-01-01T00:00:00")
+# The last level before `schema_version` existed. An unversioned library is at
+# most this, and `_infer_legacy_version` reads no further.
+PRE_VERSIONING = 6
+# Migration 5 leaves it in place, by design.
+LEGACY_ONLY = {"epub_path"}
+FILE = "src/mnemo/storage/migrations.py"
+
+
+def emit(status, summary, tool=None, failures=()):
+    print(json.dumps({"gate": "migrations", "status": status, "tool": tool,
+                      "summary": summary, "failures": list(failures)}))
+
+
+def columns(path):
+    with sqlite3.connect(path) as conn:
+        rows = conn.execute("PRAGMA table_info(books)").fetchall()
+    return {r[1]: (r[2], r[3], r[5]) for r in rows if r[1] not in LEGACY_ONLY}
+
+
+def legacy(path, level, migrations, stamped):
+    conn = sqlite3.connect(path)
+    conn.execute(V0_BOOKS)
+    for version, migrate in migrations:
+        if version <= level:
+            migrate(conn)
+    if stamped:
+        conn.execute("CREATE TABLE schema_version (version INTEGER NOT NULL)")
+        conn.execute("INSERT INTO schema_version (version) VALUES (?)", (level,))
+    conn.execute("INSERT INTO books (id, title, authors, file_hash, structure_source,"
+                 " added_at) VALUES (?, ?, ?, ?, ?, ?)", ROW)
+    conn.commit()
+    conn.close()
+
+
+def check_level(tmp, level, stamped, expected, init_db, migrations, latest):
+    label = f"{'stamped' if stamped else 'unversioned'} v{level}"
+    path = tmp / f"{label.replace(' ', '-')}.db"
+    legacy(path, level, migrations, stamped)
+    try:
+        init_db(path)
+    except Exception as exc:
+        return [f"{label}: init_db raised {exc!r}"]
+    got = columns(path)
+    problems = [f"{label}: no column {c}" for c in sorted(expected.keys() - got.keys())]
+    problems += [f"{label}: extra column {c}" for c in sorted(got.keys() - expected.keys())]
+    problems += [
+        f"{label}: column {c} is {got[c]}, fresh is {expected[c]}"
+        for c in sorted(expected.keys() & got.keys())
+        if got[c] != expected[c]
+    ]
+    with sqlite3.connect(path) as conn:
+        version = conn.execute("SELECT version FROM schema_version").fetchone()
+        rows = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
+    if version != (latest,):
+        problems.append(f"{label}: stamped {version}, not {latest}")
+    if rows != 1:
+        problems.append(f"{label}: {rows} books after migrating, not 1")
+    return problems
+
+
+def main():
+    try:
+        from mnemo.storage.database import init_db
+        from mnemo.storage.migrations import LATEST_VERSION, MIGRATIONS
+    except Exception as exc:
+        emit("error", f"mnemo.storage could not be imported: {exc!r}")
+        return 0
+    tool = f"mnemo-migrations {LATEST_VERSION} (sqlite {sqlite3.sqlite_version})"
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp = Path(tmp_dir)
+        init_db(tmp / "fresh.db")
+        expected = columns(tmp / "fresh.db")
+        cases = [(level, True) for level in range(LATEST_VERSION + 1)]
+        cases += [(level, False) for level in range(min(PRE_VERSIONING, LATEST_VERSION) + 1)]
+        problems = []
+        for level, stamped in cases:
+            problems += check_level(
+                tmp, level, stamped, expected, init_db, MIGRATIONS, LATEST_VERSION
+            )
+
+    if not problems:
+        emit("pass", f"{len(cases)} legacy schemas migrate to the fresh one", tool)
+        return 0
+    failures = [{"file": FILE, "code": "schema-drift", "message": p} for p in problems]
+    emit("fail", f"{len(problems)} differences from the fresh schema", tool, failures)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

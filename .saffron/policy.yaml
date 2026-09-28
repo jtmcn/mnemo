@@ -1,0 +1,53 @@
+# What Saffron reads from mnemo (Saffron DESIGN.md §5.4, §5.6).
+gates:
+  format:     { blocking: true }
+  lint:       { blocking: true }
+  types:      { blocking: true }
+  tests:      { blocking: true }
+  # A schema column added without its migration breaks every existing library.
+  migrations: { blocking: true }
+  # Advisory at every tier: its cheapest satisfaction is a test that asserts nothing.
+  coverage:   { blocking: false }
+
+elevate_on:
+  - src/mnemo/storage/**
+
+protected:
+  - uv.lock
+  - .saffron/**
+
+# Parsed and not read yet.
+envelope_default: []
+
+integrity:
+  test_paths: ["tests/**"]
+  suppressions:
+    - "@pytest.mark.skip"
+    - "pytest.skip("
+    - "xfail"
+    - "importorskip"
+    - "unittest.skip"
+    - "SkipTest"
+    - "skipTest"
+    - "# type: ignore"
+    - "# noqa"
+    - "# pragma: no cover"
+  # pyproject.toml carries the ruff, mypy, pytest and coverage settings.
+  gate_config:
+    - .saffron/**
+    - "**/pyproject.toml"
+    - "**/conftest.py"
+    - "**/ruff.toml"
+    - "**/.ruff.toml"
+    - "**/mypy.ini"
+    - "**/.mypy.ini"
+    - "**/pytest.ini"
+    - "**/setup.cfg"
+    - "**/.coveragerc"
+    - "**/.gitignore"
+
+# A cell has one CPU, and numpy's BLAS sizes its pool from the host's count.
+thread_env:
+  OMP_NUM_THREADS: "1"
+  OPENBLAS_NUM_THREADS: "1"
+  MKL_NUM_THREADS: "1"
