@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""Total line coverage against CI's 80% floor -> the gate contract. Advisory.
+
+mnemo's `coverage` gate. A failing test is the `tests` gate's finding, so this
+one judges only the total.
+"""
+
+import json
+import subprocess
+import sys
+
+FLOOR = 80.0
+RUN = ["pytest", "-q", "-m", "not integration", "--color=no", "-p", "no:cacheprovider",
+       "--cov=mnemo", "--cov-report="]
+
+
+def emit(status, summary, tool=None, failures=()):
+    print(json.dumps({"gate": "coverage", "status": status, "tool": tool,
+                      "summary": summary, "failures": list(failures)}))
+
+
+def main():
+    try:
+        version = subprocess.run(["coverage", "--version"], capture_output=True,
+                                 text=True, check=True)
+    except (OSError, subprocess.CalledProcessError) as exc:
+        emit("error", f"coverage could not run: {exc}")
+        return 0
+    tool = version.stdout.strip().splitlines()[0]
+
+    done = subprocess.run(RUN, capture_output=True, text=True)
+    if done.returncode not in (0, 1):
+        emit("error", f"pytest exited {done.returncode}", tool)
+        return 0
+    total = subprocess.run(["coverage", "report", "--format=total"],
+                           capture_output=True, text=True)
+    try:
+        percent = float(total.stdout.strip())
+    except ValueError:
+        emit("error", f"coverage report printed {total.stdout.strip()!r}", tool)
+        return 0
+    if percent >= FLOOR:
+        emit("pass", f"{percent:.0f}% of lines covered", tool)
+        return 0
+    message = f"total coverage {percent:.0f}% is under the {FLOOR:.0f}% floor"
+    emit("fail", message, tool, [{"file": "src/mnemo", "code": "coverage-floor",
+                                  "message": message}])
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
