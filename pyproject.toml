@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mnemo"
-version = "2.5.3"
+version = "2.5.4"
 description = "Personal technical book library with semantic search via MCP"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
@@ -78,3 +78,7 @@ python_version = "3.11"
 strict = true
 warn_return_any = true
 warn_unused_ignores = true
+
+[tool.uv]
+# numpy 2.5 dropped 3.11; its stubs break mypy's py311 target. Lift when 3.11 is dropped.
+constraint-dependencies = ["numpy<2.5"]
