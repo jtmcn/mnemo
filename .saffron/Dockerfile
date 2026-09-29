@@ -1,4 +1,4 @@
-# The toolchain a cell of mnemo runs (Saffron DESIGN.md §5.1.2).
+# The toolchain a cell of mnemo runs.
 FROM saffron/cell-base:python
 
 # Pinned to the uv that wrote uv.lock. Bump the two together.
@@ -25,5 +25,4 @@ RUN python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')"
 # Run every gate's tool, never merely locate it.
 RUN ruff --version && mypy --version && pytest --version && coverage --version \
  && git --version \
- && python -c "import importlib.metadata as m; print('mnemo', m.version('mnemo'))" \
- && python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')"
+ && python -c "import importlib.metadata as m; print('mnemo', m.version('mnemo'))"

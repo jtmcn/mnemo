@@ -13,12 +13,24 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path.cwd() / "src"))
 
-# The books table before migration 1. It is history, so it never changes.
+# The books table before migration 1, and each shipped migration after it. They
+# are history, so they never change: an edited old migration reaches no library.
 V0_BOOKS = """CREATE TABLE books (
     id TEXT PRIMARY KEY, title TEXT NOT NULL, authors TEXT NOT NULL, isbn TEXT,
     file_hash TEXT UNIQUE NOT NULL, default_language TEXT,
     structure_source TEXT NOT NULL, added_at TEXT NOT NULL)"""
-ROW = ("abc123", "T", "[]", "h", "toc", "2026-01-01T00:00:00")
+SHIPPED = [
+    ["ALTER TABLE books ADD COLUMN epub_path TEXT"],
+    ["ALTER TABLE books ADD COLUMN publisher TEXT"],
+    ["ALTER TABLE books ADD COLUMN year TEXT"],
+    ["ALTER TABLE books ADD COLUMN description TEXT"],
+    ["ALTER TABLE books ADD COLUMN file_path TEXT",
+     "UPDATE books SET file_path = epub_path WHERE epub_path IS NOT NULL"],
+    ["ALTER TABLE books ADD COLUMN collection TEXT"],
+]
+BOOK = {"id": "abc123", "title": "T", "authors": "[]", "file_hash": "h",
+        "structure_source": "toc", "added_at": "2026-01-01T00:00:00"}
+BOOK_PATH = "/library/t.epub"
 # The last level before `schema_version` existed. An unversioned library is at
 # most this, and `_infer_legacy_version` reads no further.
 PRE_VERSIONING = 6
@@ -35,20 +47,31 @@ def emit(status, summary, tool=None, failures=()):
 def columns(path):
     with sqlite3.connect(path) as conn:
         rows = conn.execute("PRAGMA table_info(books)").fetchall()
-    return {r[1]: (r[2], r[3], r[5]) for r in rows if r[1] not in LEGACY_ONLY}
+    return {r[1]: (r[2], r[3], r[4], r[5]) for r in rows if r[1] not in LEGACY_ONLY}
 
 
-def legacy(path, level, migrations, stamped):
+def build_legacy_db(path, level, stamped, migrations):
     conn = sqlite3.connect(path)
     conn.execute(V0_BOOKS)
-    for version, migrate in migrations:
-        if version <= level:
-            migrate(conn)
+    book = dict(BOOK)
+    for version in range(1, level + 1):
+        if version <= len(SHIPPED):
+            for sql in SHIPPED[version - 1]:
+                conn.execute(sql)
+        else:
+            dict(migrations)[version](conn)
+        # The row a library at this level holds: the path moves at migration 5.
+        if version == 1:
+            book = {**book, "epub_path": BOOK_PATH}
+        if version == 5:
+            book = {k: v for k, v in book.items() if k != "epub_path"}
+            book["file_path"] = BOOK_PATH
     if stamped:
         conn.execute("CREATE TABLE schema_version (version INTEGER NOT NULL)")
         conn.execute("INSERT INTO schema_version (version) VALUES (?)", (level,))
-    conn.execute("INSERT INTO books (id, title, authors, file_hash, structure_source,"
-                 " added_at) VALUES (?, ?, ?, ?, ?, ?)", ROW)
+    # Also keeps an unversioned v6 off `_is_fresh_database`, which wants no rows.
+    conn.execute(f"INSERT INTO books ({', '.join(book)}) VALUES "
+                 f"({', '.join('?' * len(book))})", tuple(book.values()))
     conn.commit()
     conn.close()
 
@@ -56,7 +79,7 @@ def legacy(path, level, migrations, stamped):
 def check_level(tmp, level, stamped, expected, init_db, migrations, latest):
     label = f"{'stamped' if stamped else 'unversioned'} v{level}"
     path = tmp / f"{label.replace(' ', '-')}.db"
-    legacy(path, level, migrations, stamped)
+    build_legacy_db(path, level, stamped, migrations)
     try:
         init_db(path)
     except Exception as exc:
@@ -69,13 +92,14 @@ def check_level(tmp, level, stamped, expected, init_db, migrations, latest):
         for c in sorted(expected.keys() & got.keys())
         if got[c] != expected[c]
     ]
+    want = {**BOOK, "file_path": BOOK_PATH if level else None}
     with sqlite3.connect(path) as conn:
         version = conn.execute("SELECT version FROM schema_version").fetchone()
-        rows = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
+        rows = conn.execute(f"SELECT {', '.join(want)} FROM books").fetchall()
     if version != (latest,):
         problems.append(f"{label}: stamped {version}, not {latest}")
-    if rows != 1:
-        problems.append(f"{label}: {rows} books after migrating, not 1")
+    if rows != [tuple(want.values())]:
+        problems.append(f"{label}: books holds {rows}, want [{tuple(want.values())}]")
     return problems
 
 

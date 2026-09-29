@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""The test runner's output -> the gate contract (DESIGN.md §5.4).
+"""The test runner's output -> the gate contract.
 
-mnemo's `tests` gate, from Saffron's setup-saffron template. Any arguments are
-test node ids, and only those run. Integration tests need credentials a cell never has.
+mnemo's `tests` gate. Any arguments are test node ids, and only those run.
+Integration tests need credentials a cell never has.
 """
 
 import json
@@ -63,7 +63,7 @@ def main():
         emit("error", "collection broke", tool)
         return 0
     collected = [n for n in subset if n in every] if subset else every
-    # A handed name the runner cannot find is reported, not run (SA-0127).
+    # A handed name the runner cannot find is reported, not run.
     uncollected = [n for n in subset if n not in collected]
     if subset and not collected:
         emit(
