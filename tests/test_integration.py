@@ -264,6 +264,28 @@ class TestReindexAllBooks:
         assert len(books) == 1
         assert books[0].collection == "ERCOT Nodal Protocols"
 
+    def test_reindex_replaces_book_whose_file_changed(self, sample_epub: Path, temp_db: Path):
+        """A source file edited since ingest is replaced, not duplicated."""
+        import shutil
+        import zipfile
+
+        from mnemo.storage import BookRepository
+
+        copy_path = temp_db.parent / "sample.epub"
+        shutil.copy(sample_epub, copy_path)
+        old_book, _ = ingest_book(copy_path, temp_db)
+        with zipfile.ZipFile(copy_path, "a") as zf:
+            zf.writestr("extra.txt", "edited after ingest")
+
+        results = reindex_all_books(db_path=temp_db, embed=False)
+
+        conn = get_connection(temp_db)
+        books = BookRepository(conn).list_all()
+        conn.close()
+        assert len(books) == 1
+        assert books[0].id != old_book.id
+        assert results[0]["book_id"] == books[0].id
+
 
 class TestFTS:
     """Tests for full-text search functionality."""

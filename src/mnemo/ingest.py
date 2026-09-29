@@ -173,6 +173,7 @@ def ingest_book(
     embed: bool = False,
     chroma_path: Path | None = None,
     collection: str | None = None,
+    replaces: str | None = None,
 ) -> tuple[Book, int]:
     """Ingest a book file into the database.
 
@@ -190,6 +191,8 @@ def ingest_book(
             string is treated the same as None (no collection). Only applied to
             fresh ingests; for duplicates without force=True, the existing book's
             collection is unchanged.
+        replaces: Book id this ingest supersedes, deleted along with any hash
+            match. Reindex passes it because an edited file hashes differently.
 
     Returns:
         Tuple of (Book, chunk_count)
@@ -233,9 +236,14 @@ def ingest_book(
                 existing, f"Book already indexed (id: {existing.id}). Use force=True to re-index."
             )
 
-        # 5. If force and exists, delete old version (including vectors)
-        if existing and force:
-            book_repo.delete(existing.id)
+        # 5. Delete the old version (including vectors): the hash match under
+        # force, and the replaced book whose file may since have changed.
+        stale_ids = {existing.id} if existing and force else set()
+        if replaces:
+            stale_ids.add(replaces)
+        for stale_id in stale_ids:
+            book_repo.delete(stale_id)
+        if stale_ids:
             # Also delete vectors if they exist
             try:
                 from mnemo.vectors import VectorConfig, VectorStore
@@ -246,7 +254,8 @@ def ingest_book(
                 # even when the delete fails — same reason as the outer finally.
                 store = VectorStore(VectorConfig(persist_path=chroma_path))
                 try:
-                    store.delete_by_book(existing.id)
+                    for stale_id in stale_ids:
+                        store.delete_by_book(stale_id)
                 finally:
                     store.close()
 
@@ -342,7 +351,7 @@ def reindex_all_books(
             continue
 
         try:
-            _, chunk_count = ingest_book(
+            new_book, chunk_count = ingest_book(
                 Path(book_file),
                 db_path=db_path,
                 chroma_path=chroma_path,
@@ -350,11 +359,12 @@ def reindex_all_books(
                 force=True,
                 embed=embed,
                 collection=book.collection,
+                replaces=book.id,
             )
             results.append(
                 {
-                    "book_id": book.id,
-                    "title": book.title,
+                    "book_id": new_book.id,
+                    "title": new_book.title,
                     "status": "success",
                     "chunks": chunk_count,
                     "error": None,
@@ -364,8 +374,8 @@ def reindex_all_books(
             # Re-parsed, re-chunked and committed; only the vectors are missing.
             results.append(
                 {
-                    "book_id": book.id,
-                    "title": book.title,
+                    "book_id": e.book.id,
+                    "title": e.book.title,
                     "status": "partial",
                     "chunks": e.chunk_count,
                     "error": str(e),
