@@ -513,14 +513,14 @@ class TestReindex:
                 "title": "Old",
                 "status": "merged",
                 "chunks": 0,
-                "error": "same content as bbb222",
+                "error": "same file as bbb222",
             },
             {"book_id": "bbb222", "title": "New", "status": "success", "chunks": 3, "error": None},
         ]
         result = runner.invoke(app, ["reindex", "--verbose"])
         assert result.exit_code == 0
         assert "1 merged" in result.stdout
-        assert "same content as bbb222" in result.stdout
+        assert "same file as bbb222" in result.stdout
 
     @patch("mnemo.ingest.reindex_all_books")
     @patch("mnemo.storage.BookRepository.list_all")

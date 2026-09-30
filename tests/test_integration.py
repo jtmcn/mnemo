@@ -216,37 +216,82 @@ class TestReindexAllBooks:
         assert results[0]["chunks"] == original_count
         assert results[0]["error"] is None
 
-    def test_reindex_reports_a_folded_entry_as_merged(self, tmp_path: Path, temp_db: Path):
-        """An edited file that now matches another entry folds into it, visibly."""
+    @staticmethod
+    def _epub(tmp_path: Path, name: str, title: str, body: str) -> Path:
+        return create_test_epub(
+            title=title,
+            chapters=[{"title": "One", "content": f"<p>{body}</p>"}],
+            output_path=tmp_path / f"{name}.epub",
+        )
 
-        def make(name: str, body: str) -> Path:
-            return create_test_epub(
-                title=name,
-                chapters=[{"title": "One", "content": f"<p>{body}</p>"}],
-                output_path=tmp_path / f"{name}.epub",
-            )
-
-        older = make("Older", "Body text for the older book.")
-        newer = make("Newer", "Body text for the newer book.")
-        first, _ = ingest_book(older, temp_db)
-        second, _ = ingest_book(newer, temp_db)
-        # Rewrite the older file so its content now equals the newer book's.
-        make("Older", "Body text for the newer book.")
+    def test_reindex_keeps_same_content_entries_apart(self, tmp_path: Path, temp_db: Path):
+        """Reindex never folds a different entry by content, so edits survive."""
+        body = "Body text shared by both copies of the book."
+        older_file = self._epub(tmp_path, "older", "Older", body)
+        older, _ = ingest_book(older_file, temp_db)
+        conn = get_connection(temp_db)
+        # A pre-2.7.0 row has no content hash, so the same text could be added twice.
+        conn.execute("UPDATE books SET content_hash = NULL WHERE id = ?", (older.id,))
+        BookRepository(conn).update(older.id, title="Hand-Fixed Title")
+        conn.commit()
+        conn.close()
+        newer, _ = ingest_book(self._epub(tmp_path, "newer", "Newer", body), temp_db)
+        reindex_all_books(db_path=temp_db, embed=False)  # the upgrade: both now share a hash
+        self._epub(tmp_path, "newer", "Newer, Retitled", body)
 
         results = reindex_all_books(db_path=temp_db, embed=False)
 
         conn = get_connection(temp_db)
-        remaining = {b.id for b in BookRepository(conn).list_all()}
+        books = {b.id: b.title for b in BookRepository(conn).list_all()}
         conn.close()
-        assert len(remaining) == 1
-        survivor = remaining.pop()
-        assert survivor in (first.id, second.id)
-        assert len(results) == 2
-        merged = [r for r in results if r["status"] == "merged"]
-        assert len(merged) == 1
-        assert merged[0]["book_id"] != survivor
-        assert merged[0]["error"] == f"same content as {survivor}"
-        assert all(r["book_id"] == survivor for r in results if r["status"] == "success")
+        assert books == {older.id: "Hand-Fixed Title", newer.id: "Newer"}
+        assert sorted((r["book_id"], r["status"]) for r in results) == sorted(
+            [(older.id, "success"), (newer.id, "success")]
+        )
+
+    def test_reindex_folds_a_byte_identical_newer_entry_into_the_older(
+        self, tmp_path: Path, temp_db: Path
+    ):
+        import shutil
+
+        older_file = self._epub(tmp_path, "older", "Older", "Older body text.")
+        newer_file = self._epub(tmp_path, "newer", "Newer", "Newer body text.")
+        older, _ = ingest_book(older_file, temp_db)
+        newer, _ = ingest_book(newer_file, temp_db)
+        shutil.copy(newer_file, older_file)
+
+        results = reindex_all_books(db_path=temp_db, embed=False)
+
+        conn = get_connection(temp_db)
+        remaining = [b.id for b in BookRepository(conn).list_all()]
+        conn.close()
+        assert remaining == [older.id]
+        by_id = {r["book_id"]: r for r in results}
+        assert by_id[older.id]["status"] == "success"
+        assert by_id[newer.id]["status"] == "merged"
+        assert by_id[newer.id]["error"] == f"same file as {older.id}"
+
+    def test_reindex_folds_a_byte_identical_older_entry_into_the_newer(
+        self, tmp_path: Path, temp_db: Path
+    ):
+        import shutil
+
+        older_file = self._epub(tmp_path, "older", "Older", "Older body text.")
+        newer_file = self._epub(tmp_path, "newer", "Newer", "Newer body text.")
+        older, _ = ingest_book(older_file, temp_db)
+        newer, _ = ingest_book(newer_file, temp_db)
+        shutil.copy(older_file, newer_file)
+
+        results = reindex_all_books(db_path=temp_db, embed=False)
+
+        conn = get_connection(temp_db)
+        remaining = [b.id for b in BookRepository(conn).list_all()]
+        conn.close()
+        assert remaining == [newer.id]
+        by_id = {r["book_id"]: r for r in results}
+        assert by_id[newer.id]["status"] == "success"
+        assert by_id[older.id]["status"] == "merged"
+        assert by_id[older.id]["error"] == f"same file as {newer.id}"
 
     def test_reindex_skips_missing_epub(self, sample_epub: Path, temp_db: Path):
         """Reindex skips books whose EPUB no longer exists on disk."""

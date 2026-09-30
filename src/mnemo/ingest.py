@@ -222,9 +222,10 @@ def ingest_book(
             string is treated the same as None (no collection). Only applied to
             fresh ingests; for duplicates without force=True, the existing book's
             collection is unchanged.
-        replaces: Book id this ingest supersedes, deleted along with any hash
-            or content match. The resulting book keeps this id. Reindex passes
-            it because an edited file hashes differently.
+        replaces: Book id this ingest supersedes, deleted along with any
+            byte-identical file match. The resulting book keeps this id, and
+            no content match is looked up. Reindex passes it because an edited
+            file hashes differently.
         force_metadata: On a replace, take title/authors/etc. from the file
             instead of keeping the existing book's.
 
@@ -263,9 +264,11 @@ def ingest_book(
             updates["collection"] = collection
         book = book.model_copy(update=updates)
 
-        # 4. Check for duplicate: same bytes, or same content under edited metadata
+        # 4. Check for duplicate: same bytes, or (outside reindex) same content
+        # under edited metadata. Reindex keeps each entry in place, so it never
+        # folds away a different, possibly hand-edited, book by content.
         existing = book_repo.get_by_hash(book.file_hash)
-        if existing is None and book.content_hash:
+        if existing is None and book.content_hash and not replaces:
             existing = book_repo.get_by_content_hash(book.content_hash)
         if existing and not force:
             raise DuplicateBook(
@@ -336,8 +339,9 @@ def reindex_all_books(
     Returns:
         List of result dicts with keys: book_id, title, status, chunks, error.
         status is "partial" for a book that was re-indexed but not re-embedded,
-        and "merged" for an entry whose re-parsed content matched another
-        entry and was folded into it (error names the surviving id).
+        and "merged" for an entry whose file is now byte-identical to another
+        entry's and was folded into it (error names the surviving id). Entries
+        that merely share content are each kept in place.
         The first embedding failure stops the run: reindexing deletes a book's
         vectors before rewriting them, so the remaining books are left alone
         and reported as "skipped".
@@ -364,7 +368,7 @@ def reindex_all_books(
     conn.close()
 
     results: list[ReindexResult] = []
-    content_hashes: dict[str, str | None] = {}
+    file_hashes: dict[str, str] = {}
 
     for index, book in enumerate(books):
         book_file = book.file_path
@@ -391,7 +395,7 @@ def reindex_all_books(
                 collection=book.collection,
                 replaces=book.id,
             )
-            content_hashes[new_book.id] = new_book.content_hash
+            file_hashes[new_book.id] = new_book.file_hash
             if new_book.id != book.id:
                 # An earlier iteration already folded this entry into new_book.id.
                 results.append(
@@ -400,7 +404,7 @@ def reindex_all_books(
                         "title": book.title,
                         "status": "merged",
                         "chunks": 0,
-                        "error": f"same content as {new_book.id}",
+                        "error": f"same file as {new_book.id}",
                     }
                 )
                 continue
@@ -452,14 +456,14 @@ def reindex_all_books(
                 }
             )
 
-    _mark_merged(results, content_hashes, db_path)
+    _mark_merged(results, file_hashes, db_path)
     return results
 
 
 def _mark_merged(
-    results: list[ReindexResult], content_hashes: dict[str, str | None], db_path: Path | None
+    results: list[ReindexResult], file_hashes: dict[str, str], db_path: Path | None
 ) -> None:
-    """Relabel rows whose book a later entry with the same content deleted."""
+    """Relabel rows whose book a later entry with the same file deleted."""
     conn = get_connection(db_path)
     try:
         library = BookRepository(conn).list_all()
@@ -469,13 +473,11 @@ def _mark_merged(
     for row in results:
         if row["status"] not in ("success", "partial") or row["book_id"] in live:
             continue
-        digest = content_hashes.get(row["book_id"])
-        survivor = next((b.id for b in library if digest and b.content_hash == digest), None)
+        digest = file_hashes.get(row["book_id"])
+        survivor = next((b.id for b in library if b.file_hash == digest), None)
         row["status"] = "merged"
         row["chunks"] = 0
-        row["error"] = (
-            f"same content as {survivor}" if survivor else "same content as another entry"
-        )
+        row["error"] = f"same file as {survivor}" if survivor else "same file as another entry"
 
 
 def remove_book(

@@ -2278,7 +2278,7 @@ class TestReindexAllBooks:
                 "title": "A",
                 "status": "merged",
                 "chunks": 0,
-                "error": "same content as bbb222",
+                "error": "same file as bbb222",
             },
             {"book_id": "bbb222", "title": "B", "status": "success", "chunks": 3, "error": None},
         ]
@@ -2287,7 +2287,7 @@ class TestReindexAllBooks:
 
         assert "1 merged" in result
         assert "0 failed" in result
-        assert "same content as bbb222" in result
+        assert "same file as bbb222" in result
 
     def test_reindex_success(self):
         """Reindex with successful books returns markdown summary."""
