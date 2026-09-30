@@ -52,6 +52,17 @@ def pre_parse_metadata(file_path: Path | str) -> Book:
     )
 
 
+def content_hash(blocks: list[ContentBlock]) -> str:
+    """SHA-256 over each block's type and content, independent of file metadata."""
+    hasher = hashlib.sha256()
+    for block in blocks:
+        hasher.update(block.content_type.value.encode())
+        hasher.update(b"\0")
+        hasher.update(block.content.encode("utf-8"))
+        hasher.update(b"\0")
+    return hasher.hexdigest()
+
+
 def parse_book(file_path: Path | str) -> tuple[Book, list[ContentBlock]]:
     """Parse a book file into metadata and content blocks.
 
@@ -76,16 +87,18 @@ def parse_book(file_path: Path | str) -> tuple[Book, list[ContentBlock]]:
     if suffix == ".epub":
         from mnemo.epub import EPUBParser
 
-        return EPUBParser().parse(file_path)
+        book, blocks = EPUBParser().parse(file_path)
     elif suffix == ".docx":
         from mnemo.docx import DocxParser
 
-        return DocxParser().parse(file_path)
+        book, blocks = DocxParser().parse(file_path)
     elif suffix == ".pdf":
         from mnemo.pdf import PdfParser
 
-        return PdfParser().parse(file_path)
+        book, blocks = PdfParser().parse(file_path)
     else:
         raise ValueError(
             f"Unsupported file format: {suffix} (supported: {', '.join(sorted(SUPPORTED_FORMATS))})"
         )
+
+    return book.model_copy(update={"content_hash": content_hash(blocks)}), blocks
