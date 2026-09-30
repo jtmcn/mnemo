@@ -48,7 +48,10 @@ def _looks_like_filename(title: str, stem: str) -> bool:
     """A spaceless title that reads as a file name, not a hyphenated one like "Catch-22"."""
     if not title or re.search(r"\s", title):
         return False
-    return "_" in title or title.count("-") >= 2 or _slug_key(title) == _slug_key(stem)
+    if "_" in title or title.count("-") >= 2:
+        return True
+    # A one-word title ("Dune") in Dune.pdf is just a well-named file.
+    return "-" in title and _slug_key(title) == _slug_key(stem)
 
 
 @dataclass(frozen=True)

@@ -528,6 +528,16 @@ class TestSuspectMetadata:
 
         assert "suspect_metadata" not in kinds(outcome)
 
+    @pytest.mark.parametrize("title", ["Dune", "Neuromancer"])
+    def test_one_word_title_named_after_its_file_is_quiet(
+        self, title: str, tmp_path: Path, temp_db: Path
+    ):
+        outcome = intake(
+            create_test_pdf(tmp_path / f"{title}.pdf", title=title), db_path=temp_db, embed=False
+        )
+
+        assert "suspect_metadata" not in kinds(outcome)
+
 
 class TestEmptyContent:
     def test_textless_books_are_not_duplicates(self, tmp_path: Path, temp_db: Path):
