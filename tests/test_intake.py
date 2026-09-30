@@ -426,6 +426,28 @@ class TestContentDuplicates:
         assert outcome.book is not None and outcome.book.title == "Ontology-Pipeline"
         assert "suspect_metadata" in kinds(outcome)
 
+    def test_replace_does_not_point_a_similar_note_at_itself(self, tmp_path: Path, temp_db: Path):
+        # EPUB metadata is read before parsing, so similar-title matching sees the new title.
+        original = create_test_epub(title="The Ontology Pipeline", output_path=tmp_path / "a.epub")
+        edited = create_test_epub(title="Ontology-Pipeline", output_path=tmp_path / "b.epub")
+        first = intake(original, db_path=temp_db, embed=False)
+
+        outcome = intake(edited, db_path=temp_db, embed=False, on_duplicate="replace")
+
+        assert outcome.status == "replaced"
+        assert outcome.book is not None and outcome.book.id == first.book.id
+        assert "similar_title" not in kinds(outcome)
+
+    def test_kept_slug_title_is_still_flagged(self, tmp_path: Path, temp_db: Path):
+        slug = create_test_pdf(tmp_path / "slug.pdf", title="Ontology-Pipeline")
+        proper = create_test_pdf(tmp_path / "proper.pdf", title="The Ontology Pipeline")
+        intake(slug, db_path=temp_db, embed=False)
+
+        outcome = intake(proper, db_path=temp_db, embed=False, on_duplicate="replace")
+
+        assert outcome.book is not None and outcome.book.title == "Ontology-Pipeline"
+        assert "suspect_metadata" in kinds(outcome)
+
 
 class TestSuspectMetadata:
     @pytest.mark.parametrize("title", ["Ontology-Pipeline", "designing_data_apps", "my-book-v2"])

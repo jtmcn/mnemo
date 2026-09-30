@@ -39,7 +39,7 @@ class NothingToEmbed(ValueError):
 
 
 class DuplicateBook(ValueError):
-    """The file hash is already indexed and force was not set.
+    """The file hash or parsed content is already indexed and force was not set.
 
     Raised instead of a bare ValueError so callers can tell "already have it"
     from "the pipeline broke" — pydantic's ValidationError is a ValueError
@@ -209,7 +209,8 @@ def ingest_book(
             fresh ingests; for duplicates without force=True, the existing book's
             collection is unchanged.
         replaces: Book id this ingest supersedes, deleted along with any hash
-            match. Reindex passes it because an edited file hashes differently.
+            or content match. The resulting book keeps this id. Reindex passes
+            it because an edited file hashes differently.
         force_metadata: On a replace, take title/authors/etc. from the file
             instead of keeping the existing book's.
 

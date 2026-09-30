@@ -439,6 +439,29 @@ class TestGetByContentHash:
         assert book_repo.get_by_content_hash("") is None
         assert book_repo.get_by_content_hash("c" * 64) is None
 
+    def test_oldest_entry_wins(self, book_repo: BookRepository, sample_book: Book):
+        old = sample_book.model_copy(
+            update={
+                "id": "bbbbbb",
+                "content_hash": "c" * 64,
+                "added_at": datetime(2020, 1, 1, tzinfo=UTC),
+            }
+        )
+        new = sample_book.model_copy(
+            update={
+                "id": "aaaaaa",
+                "file_hash": "b" * 64,
+                "content_hash": "c" * 64,
+                "added_at": datetime(2024, 1, 1, tzinfo=UTC),
+            }
+        )
+        book_repo.add(new)
+        book_repo.add(old)
+
+        found = book_repo.get_by_content_hash("c" * 64)
+
+        assert found is not None and found.id == "bbbbbb"
+
 
 class TestBookRepository:
     """Tests for BookRepository CRUD operations."""

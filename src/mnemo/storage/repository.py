@@ -102,7 +102,7 @@ class BookRepository:
         if not content_hash:
             return None
         row = self.conn.execute(
-            "SELECT * FROM books WHERE content_hash = ? LIMIT 1", (content_hash,)
+            "SELECT * FROM books WHERE content_hash = ? ORDER BY added_at LIMIT 1", (content_hash,)
         ).fetchone()
         return self._row_to_book(row) if row else None
 

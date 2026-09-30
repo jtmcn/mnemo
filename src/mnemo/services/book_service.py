@@ -114,7 +114,7 @@ def intake(
 
     Args:
         path: Book file to take in (.epub, .docx, .pdf)
-        on_duplicate: What to do when the file hash is already indexed —
+        on_duplicate: What to do when the file hash or content is already indexed —
             "reject" (default) rejects with reason "duplicate", "skip" reports
             "already_indexed" without touching anything, "replace" re-indexes
             over the existing book.
@@ -169,15 +169,6 @@ def intake(
             )
 
     notes: list[Note] = []
-    if similar:
-        first = similar[0]
-        authors = ", ".join(first.authors) if first.authors else "Unknown"
-        notes.append(
-            Note(
-                "similar_title",
-                f'Similar book exists — "{first.title}" by {authors} (id: {first.id})',
-            )
-        )
 
     from mnemo.ingest import DuplicateBook, EmbeddingFailed, ingest_book
 
@@ -232,6 +223,18 @@ def intake(
             _discard_partial(pre_parsed.file_hash, db_path, chroma_path)
         return _rejected("pipeline_error", f"Failed to add {path}: {e}")
 
+    # A content match replaces a book under its own id, so it is not "similar" to itself.
+    others = [b for b in similar if b.id != book.id]
+    if others:
+        first = others[0]
+        authors = ", ".join(first.authors) if first.authors else "Unknown"
+        notes.append(
+            Note(
+                "similar_title",
+                f'Similar book exists — "{first.title}" by {authors} (id: {first.id})',
+            )
+        )
+
     if book.isbn:
         from mnemo.epub.enrich import validate_isbn
 
@@ -241,7 +244,7 @@ def intake(
 
     # A content match is only found inside the pipeline; a replaced book keeps its added_at.
     replaced = existing is not None or book.added_at < started
-    if (force_metadata or not replaced) and _looks_like_filename(book.title):
+    if _looks_like_filename(book.title):
         notes.append(
             Note("suspect_metadata", f'Title "{book.title}" looks like a file name, not a title')
         )

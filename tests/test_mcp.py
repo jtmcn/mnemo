@@ -1019,6 +1019,29 @@ class TestAddBookIntegration:
         assert "eee111" in result
         assert "force=true" in result.lower()
 
+    def test_render_intake_keeps_same_content_wording(self):
+        from mnemo.mcp.tools_books import _render_intake
+        from mnemo.services.book_service import IntakeOutcome
+
+        book = self._make_mock_book(id="eee111", title="Existing Book", authors=["Old Author"])
+        outcome = IntakeOutcome(
+            status="rejected",
+            book=book,
+            chunks=0,
+            embedded=False,
+            notes=(),
+            reason="duplicate",
+            message="Book already indexed (id: eee111) with the same content "
+            "but different file metadata.",
+        )
+
+        result = _render_intake(outcome)
+
+        assert "same content" in result
+        assert "different file metadata" in result
+        assert "eee111" in result
+        assert "force=true" in result.lower()
+
     def test_add_book_force_reindex(self, tmp_path, temp_db):
         """force=True allows re-indexing of duplicate book."""
         from mnemo.mcp.tools_books import _add_book_impl

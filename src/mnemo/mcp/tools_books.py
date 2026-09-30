@@ -83,8 +83,13 @@ def _render_intake(outcome: "IntakeOutcome") -> str:
     if outcome.status == "rejected":
         if outcome.reason == "duplicate" and book is not None:
             authors = ", ".join(book.authors) if book.authors else "Unknown"
+            what = (
+                "Book with the same content but different file metadata already exists"
+                if "same content" in outcome.message
+                else "Book already exists"
+            )
             return (
-                f'Error: Book already exists - "{book.title}" '
+                f'Error: {what} - "{book.title}" '
                 f"by {authors} (ID: `{book.id}`). "
                 f"Use force=true to re-index."
             )
