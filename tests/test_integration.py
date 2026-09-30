@@ -226,7 +226,7 @@ class TestReindexAllBooks:
 
     def test_reindex_keeps_same_content_entries_apart(self, tmp_path: Path, temp_db: Path):
         """Reindex never folds a different entry by content, so edits survive."""
-        body = "Body text shared by both copies of the book."
+        body = "Body text shared by both copies of the book. " * 6
         older_file = self._epub(tmp_path, "older", "Older", body)
         older, _ = ingest_book(older_file, temp_db)
         conn = get_connection(temp_db)

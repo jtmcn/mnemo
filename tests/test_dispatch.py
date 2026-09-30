@@ -9,7 +9,7 @@ import pytest
 from mnemo.parsing.dispatch import SUPPORTED_FORMATS, parse_book
 from tests.fixtures.docx_factory import create_test_docx
 from tests.fixtures.epub_factory import create_test_epub
-from tests.fixtures.pdf_factory import create_test_pdf
+from tests.fixtures.pdf_factory import Para, create_test_pdf
 
 
 class TestParseBook:
@@ -47,7 +47,21 @@ class TestParseBook:
         assert book.content_hash is None
 
     def test_content_hash_is_set_with_text(self, tmp_path: Path) -> None:
-        book, _ = parse_book(create_test_epub(output_path=tmp_path / "t.epub"))
+        body = "<p>" + "A chapter with enough prose to fingerprint. " * 6 + "</p>"
+        epub_path = create_test_epub(
+            chapters=[{"title": "One", "content": body}], output_path=tmp_path / "t.epub"
+        )
+        book, _ = parse_book(epub_path)
+        assert book.content_hash
+
+    def test_content_hash_is_none_for_a_watermark_only_scan(self, tmp_path: Path) -> None:
+        pdf = create_test_pdf(tmp_path / "scan.pdf", items=[Para(["Scanned with CamScanner"])])
+        book, blocks = parse_book(pdf)
+        assert blocks
+        assert book.content_hash is None
+
+    def test_content_hash_is_set_for_a_pdf_with_real_text(self, tmp_path: Path) -> None:
+        book, _ = parse_book(create_test_pdf(tmp_path / "book.pdf"))
         assert book.content_hash
 
     def test_rejects_unsupported_format(self, tmp_path: Path) -> None:

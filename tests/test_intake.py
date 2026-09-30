@@ -17,7 +17,7 @@ import pytest
 from mnemo.services.book_service import IntakeOutcome, intake
 from mnemo.storage import BookRepository, get_connection, init_db
 from tests.fixtures.epub_factory import create_test_epub
-from tests.fixtures.pdf_factory import create_blank_pdf, create_test_pdf
+from tests.fixtures.pdf_factory import Para, create_blank_pdf, create_test_pdf
 
 
 @pytest.fixture
@@ -465,8 +465,13 @@ class TestContentDuplicates:
 
     def test_replace_does_not_point_a_similar_note_at_itself(self, tmp_path: Path, temp_db: Path):
         # EPUB metadata is read before parsing, so similar-title matching sees the new title.
-        original = create_test_epub(title="The Ontology Pipeline", output_path=tmp_path / "a.epub")
-        edited = create_test_epub(title="Ontology-Pipeline", output_path=tmp_path / "b.epub")
+        chapters = [{"title": "One", "content": "<p>" + "Ontologies, step by step. " * 10 + "</p>"}]
+        original = create_test_epub(
+            title="The Ontology Pipeline", chapters=chapters, output_path=tmp_path / "a.epub"
+        )
+        edited = create_test_epub(
+            title="Ontology-Pipeline", chapters=chapters, output_path=tmp_path / "b.epub"
+        )
         first = intake(original, db_path=temp_db, embed=False)
 
         outcome = intake(edited, db_path=temp_db, embed=False, on_duplicate="replace")
@@ -522,3 +527,17 @@ class TestEmptyContent:
         assert second.status == "added"
         assert first.book is not None and second.book is not None
         assert first.book.id != second.book.id
+
+    def test_watermark_only_scans_are_not_duplicates(self, tmp_path: Path, temp_db: Path):
+        first, second = (
+            create_test_pdf(
+                tmp_path / f"{name}.pdf", title=name, items=[Para(["Scanned with CamScanner"])]
+            )
+            for name in ("Receipts 2024", "Tax Letter")
+        )
+
+        outcomes = [intake(p, db_path=temp_db, embed=False) for p in (first, second)]
+
+        assert [o.status for o in outcomes] == ["added", "added"]
+        assert outcomes[0].book is not None and outcomes[1].book is not None
+        assert outcomes[0].book.id != outcomes[1].book.id

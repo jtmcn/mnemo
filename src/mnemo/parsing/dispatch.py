@@ -52,6 +52,10 @@ def pre_parse_metadata(file_path: Path | str) -> Book:
     )
 
 
+# Below this, text is a watermark or stray caption that distinct scans share.
+MIN_HASHED_TEXT_CHARS = 200
+
+
 def content_hash(blocks: list[ContentBlock]) -> str:
     """SHA-256 over each block's type and content, independent of file metadata."""
     hasher = hashlib.sha256()
@@ -101,8 +105,8 @@ def parse_book(file_path: Path | str) -> tuple[Book, list[ContentBlock]]:
             f"Unsupported file format: {suffix} (supported: {', '.join(sorted(SUPPORTED_FORMATS))})"
         )
 
-    # No text means no fingerprint: every empty book would otherwise hash alike.
-    has_text = any(block.content.strip() for block in blocks)
+    text_chars = sum(len("".join(block.content.split())) for block in blocks)
+    enough = text_chars >= MIN_HASHED_TEXT_CHARS
     return book.model_copy(
-        update={"content_hash": content_hash(blocks) if has_text else None}
+        update={"content_hash": content_hash(blocks) if enough else None}
     ), blocks
