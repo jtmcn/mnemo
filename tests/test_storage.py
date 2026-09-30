@@ -165,25 +165,25 @@ class TestSchemaVersion:
         conn.close()
 
     def test_fresh_db_at_latest_version(self, db_path: Path):
-        """Fresh database should be stamped at version 6 after init_db."""
+        """Fresh database should be stamped at version 7 after init_db."""
         import sqlite3
 
         init_db(db_path)
         conn = sqlite3.connect(db_path)
         row = conn.execute("SELECT version FROM schema_version").fetchone()
         assert row is not None
-        assert row[0] == 6
+        assert row[0] == 7
         conn.close()
 
     def test_versioned_db_idempotent(self, db_path: Path):
-        """Calling init_db twice should leave schema_version = 6 with exactly one row."""
+        """Calling init_db twice should leave schema_version = 7 with exactly one row."""
         import sqlite3
 
         init_db(db_path)
         init_db(db_path)
         conn = sqlite3.connect(db_path)
         version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
-        assert version == 6
+        assert version == 7
         count = conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0]
         assert count == 1
         conn.close()
@@ -221,7 +221,7 @@ class TestSchemaVersion:
         init_db(db_path)
         conn = sqlite3.connect(db_path)
         version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
-        assert version == 6
+        assert version == 7
         conn.close()
 
     def test_partial_legacy_db_migrated(self, db_path: Path):
@@ -276,7 +276,7 @@ class TestSchemaVersion:
         assert "description" in columns
         assert "collection" in columns
         version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
-        assert version == 6
+        assert version == 7
         conn.close()
 
     def test_migration_005_copies_epub_path_to_file_path(self, db_path: Path):
@@ -341,7 +341,7 @@ class TestSchemaVersion:
         row = conn.execute("SELECT file_path FROM books WHERE id = 'abc123'").fetchone()
         assert row[0] == "/path/to/book.epub"
         version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
-        assert version == 6
+        assert version == 7
         conn.close()
 
 
@@ -386,6 +386,58 @@ class TestMigration006Collection:
         assert row[0] is None
 
         conn.close()
+
+
+class TestMigration007ContentHash:
+    """Tests for migration 007: content_hash column."""
+
+    def test_fresh_db_has_content_hash_column(self, db_path: Path):
+        init_db(db_path)
+        conn = get_connection(db_path)
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(books)")}
+        conn.close()
+        assert "content_hash" in cols
+
+    def test_empty_unversioned_v6_db_gets_the_column(self, db_path: Path):
+        """An empty pre-versioning library must not be mistaken for a fresh one."""
+        import sqlite3
+
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            """CREATE TABLE books (id TEXT PRIMARY KEY, title TEXT NOT NULL,
+               authors TEXT NOT NULL, isbn TEXT, file_hash TEXT UNIQUE NOT NULL,
+               default_language TEXT, structure_source TEXT NOT NULL,
+               added_at TEXT NOT NULL, epub_path TEXT, publisher TEXT, year TEXT,
+               description TEXT, file_path TEXT, collection TEXT)"""
+        )
+        conn.commit()
+        conn.close()
+
+        init_db(db_path)
+
+        conn = get_connection(db_path)
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(books)")}
+        conn.close()
+        assert "content_hash" in cols
+
+
+class TestGetByContentHash:
+    def test_round_trip(self, book_repo: BookRepository, sample_book: Book):
+        book = sample_book.model_copy(update={"content_hash": "c" * 64})
+        book_repo.add(book)
+
+        found = book_repo.get_by_content_hash("c" * 64)
+
+        assert found is not None
+        assert found.id == book.id
+        assert found.content_hash == "c" * 64
+
+    def test_get_by_content_hash_ignores_null(self, book_repo: BookRepository, sample_book: Book):
+        book_repo.add(sample_book)  # content_hash is None
+
+        assert book_repo.get_by_content_hash("") is None
+        assert book_repo.get_by_content_hash("c" * 64) is None
 
 
 class TestBookRepository:

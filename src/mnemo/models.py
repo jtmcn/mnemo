@@ -88,6 +88,7 @@ class Book(BaseModel):
         default_language: Default programming language for untagged code blocks
         structure_source: How chapter structure was determined
         added_at: When the book was indexed
+        content_hash: SHA256 of parsed content, for dedup across metadata edits
     """
 
     id: str = Field(min_length=6, max_length=6, pattern=r"^[0-9a-f]{6}$")
@@ -103,6 +104,8 @@ class Book(BaseModel):
     year: str | None = None
     description: str | None = None
     collection: str | None = None
+    # Hash of the parsed content: survives a metadata-only edit of the file.
+    content_hash: str | None = None
 
     @staticmethod
     def generate_id(content_bytes: bytes, title: str, author: str | None = None) -> str:

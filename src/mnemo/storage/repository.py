@@ -46,8 +46,8 @@ class BookRepository:
             """
             INSERT INTO books (id, title, authors, isbn, file_hash,
                              default_language, structure_source, added_at,
-                             file_path, publisher, year, description, collection)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                             file_path, publisher, year, description, collection, content_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 book.id,
@@ -63,6 +63,7 @@ class BookRepository:
                 book.year,
                 book.description,
                 book.collection,
+                book.content_hash,
             ),
         )
         self.conn.commit()
@@ -95,6 +96,15 @@ class BookRepository:
         if row is None:
             return None
         return self._row_to_book(row)
+
+    def get_by_content_hash(self, content_hash: str) -> Book | None:
+        """Find a book whose parsed content matches, whatever its file metadata."""
+        if not content_hash:
+            return None
+        row = self.conn.execute(
+            "SELECT * FROM books WHERE content_hash = ? LIMIT 1", (content_hash,)
+        ).fetchone()
+        return self._row_to_book(row) if row else None
 
     def list_all(self) -> list[Book]:
         """List all books in the database.
@@ -251,6 +261,7 @@ class BookRepository:
             year=row["year"],
             description=row["description"],
             collection=row["collection"],
+            content_hash=row["content_hash"],
         )
 
 

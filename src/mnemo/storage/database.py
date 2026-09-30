@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS books (
     year TEXT,
     description TEXT,
     collection TEXT,                 -- optional group label (e.g. "ERCOT Nodal Protocols")
-    file_path TEXT                   -- absolute path to source file
+    file_path TEXT,                  -- absolute path to source file
+    content_hash TEXT                -- SHA256 of parsed content, for dedup
 );
 
 -- Chunks table with FK cascade
