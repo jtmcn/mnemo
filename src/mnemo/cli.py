@@ -86,6 +86,15 @@ def add(
             ),
         ),
     ] = None,
+    force_metadata: Annotated[
+        bool,
+        typer.Option(
+            "--force-metadata",
+            help="Only when re-indexing a known book (--force, or confirming the "
+            "re-index prompt): take title/authors from the file instead of "
+            "keeping the library's (possibly hand-edited) values",
+        ),
+    ] = False,
 ) -> None:
     """Add book file(s) to the library.
 
@@ -108,14 +117,14 @@ def add(
     results = []
 
     for path in paths:
-        outcome = _intake_with_spinner(path, policy, collection, json_output)
+        outcome = _intake_with_spinner(path, policy, collection, json_output, force_metadata)
 
         if outcome.status == "already_indexed" and interactive and not skip_existing:
             assert outcome.book is not None
             if not typer.confirm(f"Book already indexed (id: {outcome.book.id}). Re-index?"):
                 console.print("[yellow]Skipped[/yellow]")
                 continue
-            outcome = _intake_with_spinner(path, "replace", collection, json_output)
+            outcome = _intake_with_spinner(path, "replace", collection, json_output, force_metadata)
 
         if outcome.status == "rejected":
             extra = (
@@ -144,6 +153,7 @@ def _intake_with_spinner(
     policy: DuplicatePolicy,
     collection: str | None,
     json_output: bool,
+    force_metadata: bool,
 ) -> IntakeOutcome:
     """Run one intake behind a transient spinner."""
     from mnemo.services.book_service import intake
@@ -156,7 +166,9 @@ def _intake_with_spinner(
         transient=True,  # erase the spinner line so it can't outlive the run
     ) as progress:
         progress.add_task(description="Parsing and indexing...", total=None)
-        return intake(path, on_duplicate=policy, collection=collection)
+        return intake(
+            path, on_duplicate=policy, collection=collection, force_metadata=force_metadata
+        )
 
 
 def _emit_error(message: str, json_output: bool, extra: dict[str, Any] | None = None) -> None:
@@ -500,6 +512,7 @@ def reindex(
     partial = sum(1 for r in results if r["status"] == "partial")
     skipped = sum(1 for r in results if r["status"] == "skipped")
     failed = sum(1 for r in results if r["status"] == "failed")
+    merged = sum(1 for r in results if r["status"] == "merged")
 
     if json_output:
         print(
@@ -508,6 +521,7 @@ def reindex(
                     "results": results,
                     "success": success,
                     "partial": partial,
+                    "merged": merged,
                     "skipped": skipped,
                     "failed": failed,
                 }
@@ -527,6 +541,11 @@ def reindex(
                     f"  [yellow]PARTIAL[/yellow] {escape(str(r['title']))} ({r['book_id']}) - "
                     f"{r['chunks']} chunks, no embeddings: {escape(str(r['error']))}"
                 )
+            elif r["status"] == "merged":
+                console.print(
+                    f"  [yellow]MERGED[/yellow] {escape(str(r['title']))} ({r['book_id']}) - "
+                    f"{escape(str(r['error']))}"
+                )
             elif r["status"] == "skipped":
                 console.print(
                     f"  [yellow]SKIP[/yellow] {escape(str(r['title']))} ({r['book_id']}) - "
@@ -541,6 +560,8 @@ def reindex(
     summary = f"[green]{success} succeeded[/green], "
     if partial:
         summary += f"[yellow]{partial} without embeddings[/yellow], "
+    if merged:
+        summary += f"[yellow]{merged} merged[/yellow], "
     summary += f"[yellow]{skipped} skipped[/yellow], [red]{failed} failed[/red]"
     console.print(summary)
 

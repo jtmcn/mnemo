@@ -17,7 +17,7 @@ import pytest
 from mnemo.services.book_service import IntakeOutcome, intake
 from mnemo.storage import BookRepository, get_connection, init_db
 from tests.fixtures.epub_factory import create_test_epub
-from tests.fixtures.pdf_factory import create_blank_pdf, create_test_pdf
+from tests.fixtures.pdf_factory import Para, create_blank_pdf, create_test_pdf
 
 
 @pytest.fixture
@@ -314,8 +314,8 @@ class TestCleanupIsNotDestructive:
 
         pre_parse_metadata only reads the OPF while parse_book walks the whole
         spine, so a since-corrupted file passes the first and fails the second.
-        ingest_book deletes the old record at step 5, after the parse at step
-        3 — so on the failure path the hash still resolves to the good book.
+        ingest_book swaps the old record out in one transaction after parsing
+        and chunking, so on the failure path the hash still resolves to the good book.
         """
         first = intake(sample_epub, db_path=temp_db, embed=False)
         assert first.status == "added"
@@ -332,6 +332,43 @@ class TestCleanupIsNotDestructive:
             assert [b.id for b in BookRepository(conn).list_all()] == [first.book.id]
         finally:
             conn.close()
+
+    def test_failed_replace_keeps_the_edited_title(self, sample_epub: Path, temp_db: Path):
+        first = intake(sample_epub, db_path=temp_db, embed=False)
+        assert first.book is not None
+        conn = get_connection(temp_db)
+        BookRepository(conn).update(first.book.id, title="Hand-Fixed Title")
+        conn.commit()
+        conn.close()
+
+        with patch("mnemo.ingest.Chunker.chunk", side_effect=RuntimeError("chunker broke")):
+            outcome = intake(sample_epub, db_path=temp_db, embed=False, on_duplicate="replace")
+
+        assert outcome.reason == "pipeline_error"
+        conn = get_connection(temp_db)
+        try:
+            books = BookRepository(conn).list_all()
+        finally:
+            conn.close()
+        assert [(b.id, b.title) for b in books] == [(first.book.id, "Hand-Fixed Title")]
+
+    def test_committed_content_replace_is_not_discarded(self, tmp_path: Path, temp_db: Path):
+        """A vector cleanup failure after the commit must not remove the replacement."""
+        original = create_test_pdf(tmp_path / "a.pdf", title="The Ontology Pipeline")
+        edited = create_test_pdf(tmp_path / "b.pdf", title="Ontology-Pipeline")
+        first = intake(original, db_path=temp_db, embed=False)
+        assert first.book is not None
+
+        with patch("mnemo.vectors.VectorStore", side_effect=RuntimeError("chroma down")):
+            outcome = intake(edited, db_path=temp_db, embed=False, on_duplicate="replace")
+
+        assert outcome.reason == "pipeline_error"
+        conn = get_connection(temp_db)
+        try:
+            books = BookRepository(conn).list_all()
+        finally:
+            conn.close()
+        assert [(b.id, b.title) for b in books] == [(first.book.id, "The Ontology Pipeline")]
 
 
 class TestFailureClassification:
@@ -378,3 +415,157 @@ class TestFailureClassification:
         assert outcome.book.id == "abcdef"
         # Advice is the front end's to add, so the message must not pre-empt it.
         assert "force" not in outcome.message.lower()
+
+
+class TestContentDuplicates:
+    """Same content under edited metadata is handled like a hash duplicate."""
+
+    @pytest.fixture
+    def indexed(self, tmp_path: Path, temp_db: Path):
+        original = create_test_pdf(tmp_path / "orig.pdf", title="The Ontology Pipeline")
+        edited = create_test_pdf(tmp_path / "Ontology-Pipeline.pdf", title="Ontology-Pipeline")
+        first = intake(original, db_path=temp_db, embed=False)
+        assert first.status == "added"
+        return first, edited
+
+    def test_reject(self, indexed, temp_db: Path):
+        first, edited = indexed
+        outcome = intake(edited, db_path=temp_db, embed=False)
+
+        assert outcome.status == "rejected"
+        assert outcome.reason == "duplicate"
+        assert outcome.book is not None and outcome.book.id == first.book.id
+        assert "same content" in outcome.message
+
+    def test_skip(self, indexed, temp_db: Path):
+        first, edited = indexed
+        outcome = intake(edited, db_path=temp_db, embed=False, on_duplicate="skip")
+
+        assert outcome.status == "already_indexed"
+        assert outcome.book is not None and outcome.book.id == first.book.id
+
+    def test_replace_reports_replaced_and_keeps_title(self, indexed, temp_db: Path):
+        first, edited = indexed
+        outcome = intake(edited, db_path=temp_db, embed=False, on_duplicate="replace")
+
+        assert outcome.status == "replaced"
+        assert outcome.book is not None
+        assert outcome.book.id == first.book.id
+        assert outcome.book.title == "The Ontology Pipeline"
+        assert "suspect_metadata" not in kinds(outcome)
+
+    def test_force_metadata_passes_through(self, indexed, temp_db: Path):
+        first, edited = indexed
+        outcome = intake(
+            edited, db_path=temp_db, embed=False, on_duplicate="replace", force_metadata=True
+        )
+
+        assert outcome.book is not None and outcome.book.title == "Ontology-Pipeline"
+        assert "suspect_metadata" in kinds(outcome)
+
+    def test_replace_does_not_point_a_similar_note_at_itself(self, tmp_path: Path, temp_db: Path):
+        # EPUB metadata is read before parsing, so similar-title matching sees the new title.
+        chapters = [{"title": "One", "content": "<p>" + "Ontologies, step by step. " * 10 + "</p>"}]
+        original = create_test_epub(
+            title="The Ontology Pipeline", chapters=chapters, output_path=tmp_path / "a.epub"
+        )
+        edited = create_test_epub(
+            title="Ontology-Pipeline", chapters=chapters, output_path=tmp_path / "b.epub"
+        )
+        first = intake(original, db_path=temp_db, embed=False)
+
+        outcome = intake(edited, db_path=temp_db, embed=False, on_duplicate="replace")
+
+        assert outcome.status == "replaced"
+        assert outcome.book is not None and outcome.book.id == first.book.id
+        assert "similar_title" not in kinds(outcome)
+
+    def test_kept_slug_title_is_still_flagged(self, tmp_path: Path, temp_db: Path):
+        slug = create_test_pdf(tmp_path / "slug.pdf", title="ontology_pipeline")
+        proper = create_test_pdf(tmp_path / "proper.pdf", title="The Ontology Pipeline")
+        intake(slug, db_path=temp_db, embed=False)
+
+        outcome = intake(proper, db_path=temp_db, embed=False, on_duplicate="replace")
+
+        assert outcome.book is not None and outcome.book.title == "ontology_pipeline"
+        assert "suspect_metadata" in kinds(outcome)
+
+
+class TestSuspectMetadata:
+    @pytest.mark.parametrize(
+        ("title", "filename"),
+        [
+            ("Ontology-Pipeline", "Ontology-Pipeline.pdf"),
+            ("Ontology-Pipeline", "ontology_pipeline.pdf"),
+            ("designing_data_apps", "x.pdf"),
+            ("my-book-v2", "x.pdf"),
+        ],
+    )
+    def test_slug_title_is_flagged(self, title: str, filename: str, tmp_path: Path, temp_db: Path):
+        outcome = intake(
+            create_test_pdf(tmp_path / filename, title=title), db_path=temp_db, embed=False
+        )
+
+        assert "suspect_metadata" in kinds(outcome)
+
+    @pytest.mark.parametrize(
+        "title",
+        [
+            "The Ontology Pipeline",
+            "Designing Data-Intensive Applications",
+            "Python",
+            "Catch-22",
+            "Self-Reliance",
+            "Spider-Man",
+            "X-Men",
+            "Ontology-Pipeline",
+        ],
+    )
+    def test_real_title_is_quiet(self, title: str, tmp_path: Path, temp_db: Path):
+        outcome = intake(
+            create_test_pdf(tmp_path / "x.pdf", title=title), db_path=temp_db, embed=False
+        )
+
+        assert "suspect_metadata" not in kinds(outcome)
+
+    @pytest.mark.parametrize("title", ["Dune", "Neuromancer"])
+    def test_one_word_title_named_after_its_file_is_quiet(
+        self, title: str, tmp_path: Path, temp_db: Path
+    ):
+        outcome = intake(
+            create_test_pdf(tmp_path / f"{title}.pdf", title=title), db_path=temp_db, embed=False
+        )
+
+        assert "suspect_metadata" not in kinds(outcome)
+
+
+class TestEmptyContent:
+    def test_textless_books_are_not_duplicates(self, tmp_path: Path, temp_db: Path):
+        def plates(title: str) -> Path:
+            return create_test_epub(
+                title=title,
+                chapters=[{"title": title, "content": '<img src="plate.png"/>'}],
+                output_path=tmp_path / f"{title}.epub",
+            )
+
+        first = intake(plates("Alpha"), db_path=temp_db, embed=False)
+        second = intake(plates("Beta"), db_path=temp_db, embed=False)
+
+        assert first.status == "added"
+        assert second.status == "added"
+        assert first.book is not None and second.book is not None
+        assert first.book.id != second.book.id
+
+    def test_watermark_only_scans_are_not_duplicates(self, tmp_path: Path, temp_db: Path):
+        first, second = (
+            create_test_pdf(
+                tmp_path / f"{name}.pdf", title=name, items=[Para(["Scanned with CamScanner"])]
+            )
+            for name in ("Receipts 2024", "Tax Letter")
+        )
+
+        outcomes = [intake(p, db_path=temp_db, embed=False) for p in (first, second)]
+
+        assert [o.status for o in outcomes] == ["added", "added"]
+        assert outcomes[0].book is not None and outcomes[1].book is not None
+        assert outcomes[0].book.id != outcomes[1].book.id

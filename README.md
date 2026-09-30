@@ -18,7 +18,7 @@ endpoint configured (keyword-only mode):
 
 ```console
 $ mnemo add tests/fixtures/sample.epub
-Added: Python Testing Guide by Test Author (10b05d) - 8 chunks
+Added: Python Testing Guide by Test Author (10b05d) - 5 chunks
 Note: ISBN 9781234567890 may be invalid (bad checksum)
 Embeddings skipped: MNEMO_EMBED_BASE_URL must be set to an OpenAI-compatible endpoint
 (e.g. https://api.openai.com/v1), along with MNEMO_EMBED_API_KEY unless the provider
@@ -28,6 +28,8 @@ semantic search.
 
 $ mnemo search test_addition -n 2
 Python Testing Guide > Chapter 2: Code Examples
+Here is a simple test function:
+
 def test_addition():
     assert 1 + 1 == 2
     assert 2 + 2 == 4
@@ -114,11 +116,27 @@ first insert. Re-embed from scratch after a switch:
 rm -rf ~/.mnemo/chroma && mnemo reindex
 ```
 
+## Upgrading
+
+- **2.6.0** changes chunk boundaries: headings and tiny code fragments no
+  longer stand alone. Run `mnemo reindex` to rebuild existing books.
+- **2.7.0** recognises a book whose file metadata was edited (same content,
+  new title/author) as the book already in the library when you `mnemo add`
+  it, and keeps its ID and hand-edited metadata across `mnemo add --force`.
+  `mnemo reindex` keeps every entry in place with the library's metadata; it
+  does not merge entries that share content, so same-content duplicates
+  already in the library stay until you remove one. `--force-metadata` is an
+  `mnemo add` option that takes the file's values instead. Existing books get
+  a content fingerprint on their next `mnemo reindex`. Reindex skips books
+  whose source file is missing, so they keep their old chunks and get no
+  fingerprint until re-added.
+
 ## CLI
 
 ```sh
 mnemo add book.epub other.docx paper.pdf   # index one or more books
 mnemo add *.epub --collection "SRE"   # tag a batch; --skip-existing for unattended runs
+mnemo add --force --force-metadata book.pdf   # re-read title/author from the file
 mnemo list --check-embeddings         # which books have vectors (none = keyword-only)
 mnemo search "consistent hashing" -n 10 --book 10b05d
 mnemo remove 10b05d

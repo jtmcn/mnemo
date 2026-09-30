@@ -32,6 +32,7 @@ def _add_book_impl(
     chunk_max_tokens: int | None = None,
     collection: str | None = None,
     skip_existing: bool = False,
+    force_metadata: bool = False,
 ) -> str:
     """Add book implementation - see add_book for docs.
 
@@ -54,9 +55,10 @@ def _add_book_impl(
 
     chunker_config = None
     if chunk_min_tokens is not None or chunk_max_tokens is not None:
+        defaults = ChunkerConfig()
         chunker_config = ChunkerConfig(
-            min_tokens=chunk_min_tokens or 400,
-            max_tokens=chunk_max_tokens or 800,
+            min_tokens=defaults.min_tokens if chunk_min_tokens is None else chunk_min_tokens,
+            max_tokens=defaults.max_tokens if chunk_max_tokens is None else chunk_max_tokens,
         )
 
     policy: DuplicatePolicy = "replace" if force else "skip" if skip_existing else "reject"
@@ -65,6 +67,7 @@ def _add_book_impl(
         on_duplicate=policy,
         collection=collection,
         chunker_config=chunker_config,
+        force_metadata=force_metadata,
     )
 
     if outcome.status in ("added", "replaced"):
@@ -80,8 +83,13 @@ def _render_intake(outcome: "IntakeOutcome") -> str:
     if outcome.status == "rejected":
         if outcome.reason == "duplicate" and book is not None:
             authors = ", ".join(book.authors) if book.authors else "Unknown"
+            what = (
+                "Book with the same content but different file metadata already exists"
+                if "same content" in outcome.message
+                else "Book already exists"
+            )
             return (
-                f'Error: Book already exists - "{book.title}" '
+                f'Error: {what} - "{book.title}" '
                 f"by {authors} (ID: `{book.id}`). "
                 f"Use force=true to re-index."
             )
@@ -102,6 +110,8 @@ def _render_intake(outcome: "IntakeOutcome") -> str:
             )
         elif note.kind == "suspect_isbn":
             lines.append(f"Note: {note.message}. Use enrich_book to look up the correct ISBN.")
+        elif note.kind == "suspect_metadata":
+            lines.append(f"Note: {note.message}. Use update_book_metadata to correct it.")
         else:
             lines.append(f"Note: {note.message}")
     return "\n".join(lines)
@@ -173,10 +183,13 @@ def _reindex_all_books_impl(search_service: SearchService | None = None) -> str:
         partial = sum(1 for r in results if r["status"] == "partial")
         skipped = sum(1 for r in results if r["status"] == "skipped")
         failed = sum(1 for r in results if r["status"] == "failed")
+        merged = sum(1 for r in results if r["status"] == "merged")
 
         headline = f"Reindex complete: {success} succeeded"
         if partial:
             headline += f", {partial} without embeddings"
+        if merged:
+            headline += f", {merged} merged"
         headline += f", {skipped} skipped, {failed} failed\n"
         lines = [headline]
 
@@ -188,6 +201,8 @@ def _reindex_all_books_impl(search_service: SearchService | None = None) -> str:
                     f"- **{r['title']}** (`{r['book_id']}`): {r['chunks']} chunks, "
                     f"no embeddings — {r['error']}"
                 )
+            elif r["status"] == "merged":
+                lines.append(f"- **{r['title']}** (`{r['book_id']}`): merged — {r['error']}")
             elif r["status"] == "skipped":
                 lines.append(f"- **{r['title']}** (`{r['book_id']}`): skipped — {r['error']}")
             else:
@@ -232,20 +247,23 @@ async def add_book(
     chunk_max_tokens: int | None = None,
     collection: str | None = None,
     skip_existing: bool = False,
+    force_metadata: bool = False,
     ctx: Context = CurrentContext(),  # noqa: B008
 ) -> str:
     """Add a book to your library.
 
     Parses the book, chunks the content, generates embeddings, and makes it
-    searchable. Supports EPUB and DOCX formats. May take 1-5 minutes for
-    large books due to embedding generation. Detects duplicates by file hash;
+    searchable. Supports EPUB, DOCX and PDF formats. May take 1-5 minutes for
+    large books due to embedding generation. Detects duplicates by file hash
+    and by parsed content, so a copy with edited metadata is recognised;
     use force=true to re-index.
 
     Args:
         file_path: Absolute path to the book file (.epub, .docx, .pdf)
         force: If true, re-indexes even if the book already exists
         chunk_min_tokens: Minimum tokens per chunk (default 400, min 100)
-        chunk_max_tokens: Maximum tokens per chunk (default 800, max 2000)
+        chunk_max_tokens: Maximum tokens per chunk (default 800, max 2000);
+            must exceed chunk_min_tokens, defaulted or not
         collection: Optional collection name to group this book with related
             ones (e.g., "ERCOT Nodal Protocols"). Only applied to fresh ingests;
             for duplicates without force=True, the existing book's collection is
@@ -253,6 +271,8 @@ async def add_book(
         skip_existing: If true, an already-indexed book is reported as skipped
             instead of an error. For unattended batches. Cannot be combined
             with force.
+        force_metadata: With force, take title/authors from the file instead
+            of keeping the library's values
 
     Returns:
         Book details (ID, title, authors, chunk count) on success,
@@ -280,15 +300,15 @@ async def add_book(
                 chunk_max_tokens,
                 collection,
                 skip_existing,
+                force_metadata,
             ),
             timeout=300,  # 5 minutes
         )
     except TimeoutError:
-        # Same trap as intake's cleanup: with force=True the hash may still
-        # resolve to the book that was already there, since the worker may not
-        # have reached its own delete. Without force, intake would have
-        # rejected a duplicate before ingesting, so anything at this hash is
-        # ours to remove.
+        # With force=True the hash may resolve to the book that was already
+        # there, or to its replacement carrying that book's id and edits. Without
+        # force, intake rejects a duplicate before ingesting, so anything at this
+        # hash is ours to remove.
         if file_hash is not None and not force:
             _discard_timed_out_book(file_hash)
         return (

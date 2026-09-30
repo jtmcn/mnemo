@@ -1019,6 +1019,29 @@ class TestAddBookIntegration:
         assert "eee111" in result
         assert "force=true" in result.lower()
 
+    def test_render_intake_keeps_same_content_wording(self):
+        from mnemo.mcp.tools_books import _render_intake
+        from mnemo.services.book_service import IntakeOutcome
+
+        book = self._make_mock_book(id="eee111", title="Existing Book", authors=["Old Author"])
+        outcome = IntakeOutcome(
+            status="rejected",
+            book=book,
+            chunks=0,
+            embedded=False,
+            notes=(),
+            reason="duplicate",
+            message="Book already indexed (id: eee111) with the same content "
+            "but different file metadata.",
+        )
+
+        result = _render_intake(outcome)
+
+        assert "same content" in result
+        assert "different file metadata" in result
+        assert "eee111" in result
+        assert "force=true" in result.lower()
+
     def test_add_book_force_reindex(self, tmp_path, temp_db):
         """force=True allows re-indexing of duplicate book."""
         from mnemo.mcp.tools_books import _add_book_impl
@@ -1105,9 +1128,11 @@ class TestAddBookIntegration:
 
         # Simulate ingest_book storing a partial book record before failing
         # during embedding. The side_effect adds the book to the DB then raises.
-        partial_book = self._make_mock_book(id="bbb001", file_hash="f" * 64, title="Partial Book")
-
         def ingest_side_effect(*args, **kwargs):
+            # Added during this run, so newer than intake's start.
+            partial_book = self._make_mock_book(
+                id="bbb001", file_hash="f" * 64, title="Partial Book", added_at=datetime.now(UTC)
+            )
             book_repo = BookRepository(temp_db["conn"])
             book_repo.add(partial_book)
             raise Exception("Embedding failed")
@@ -1265,6 +1290,51 @@ class TestAddBookCollection:
                 _add_book_impl(str(epub_file), False)
 
         assert mock_ingest.call_args.kwargs.get("collection") is None
+
+
+class TestAddBookForceMetadata:
+    """force_metadata and the suspect_metadata note in the MCP add path."""
+
+    @staticmethod
+    def _book() -> Book:
+        return Book(
+            id="abc123", title="a-b", authors=[], file_hash="a" * 64, structure_source="toc"
+        )
+
+    def test_render_suspect_metadata_points_at_update_tool(self):
+        from mnemo.mcp.tools_books import _render_intake
+        from mnemo.services.book_service import IntakeOutcome, Note
+
+        outcome = IntakeOutcome(
+            status="added",
+            book=self._book(),
+            chunks=3,
+            embedded=True,
+            notes=(Note("suspect_metadata", 'Title "a-b" looks like a file name, not a title'),),
+            reason=None,
+        )
+
+        assert "update_book_metadata" in _render_intake(outcome)
+
+    def test_add_book_impl_passes_force_metadata(self, tmp_path):
+        from mnemo.mcp.tools_books import _add_book_impl
+        from mnemo.services.book_service import IntakeOutcome
+
+        outcome = IntakeOutcome(
+            status="replaced",
+            book=self._book(),
+            chunks=3,
+            embedded=True,
+            notes=(),
+            reason=None,
+        )
+        with (
+            patch("mnemo.services.book_service.intake", return_value=outcome) as mock_intake,
+            patch("mnemo.mcp.tools_books.make_search_service", return_value=MagicMock()),
+        ):
+            _add_book_impl(str(tmp_path / "b.pdf"), force=True, force_metadata=True)
+
+        assert mock_intake.call_args.kwargs["force_metadata"] is True
 
 
 class TestLifecycle:
@@ -1661,6 +1731,8 @@ class TestAddBookChunkParams:
         mock_book.title = "Test"
         mock_book.authors = ["Author"]
         mock_book.file_hash = "a" * 64
+        # A fresh book, added after intake started.
+        mock_book.added_at = datetime.max.replace(tzinfo=UTC)
 
         with (
             patch("mnemo.services.book_service.init_db"),
@@ -1712,6 +1784,17 @@ class TestAddBookChunkParams:
         assert "Error" in result
         assert "chunk_min_tokens" in result
 
+    def test_add_book_rejects_max_alone_below_default_min(self, tmp_path):
+        from mnemo.mcp.tools_books import _add_book_impl
+
+        epub_file = tmp_path / "test.epub"
+        epub_file.write_bytes(b"fake epub")
+
+        result = _add_book_impl(str(epub_file), force=False, chunk_max_tokens=300)
+
+        assert result.startswith("Error:")
+        assert "chunk_max_tokens (300)" in result
+
     def test_add_book_without_chunk_params_backward_compatible(self, tmp_path):
         """_add_book_impl without chunk params should pass chunker_config=None."""
         from mnemo.mcp.tools_books import _add_book_impl
@@ -1724,6 +1807,8 @@ class TestAddBookChunkParams:
         mock_book.title = "Test"
         mock_book.authors = ["Author"]
         mock_book.file_hash = "a" * 64
+        # A fresh book, added after intake started.
+        mock_book.added_at = datetime.max.replace(tzinfo=UTC)
 
         with (
             patch("mnemo.services.book_service.init_db"),
@@ -2183,6 +2268,26 @@ class TestReindexAllBooks:
             result = _reindex_all_books_impl()
 
         assert "no books" in result.lower()
+
+    def test_reindex_merged_is_not_a_failure(self):
+        from mnemo.mcp.tools_books import _reindex_all_books_impl
+
+        rows = [
+            {
+                "book_id": "aaa111",
+                "title": "A",
+                "status": "merged",
+                "chunks": 0,
+                "error": "same file as bbb222",
+            },
+            {"book_id": "bbb222", "title": "B", "status": "success", "chunks": 3, "error": None},
+        ]
+        with patch("mnemo.ingest.reindex_all_books", return_value=rows):
+            result = _reindex_all_books_impl()
+
+        assert "1 merged" in result
+        assert "0 failed" in result
+        assert "same file as bbb222" in result
 
     def test_reindex_success(self):
         """Reindex with successful books returns markdown summary."""

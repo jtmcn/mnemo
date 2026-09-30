@@ -52,11 +52,12 @@ class PageBreak:
 
 Item = Heading | Para | Code | Stamp | Footnote | PageBreak
 
+# Enough body text (200+ characters) for parse_book to fingerprint the content.
 DEFAULT_ITEMS: list[Item] = [
     Heading("Chapter 1: Basics"),
-    Para(["Intro text for the basics chapter."]),
+    Para(["Intro text for the basics chapter.", "It sets out the terms later chapters use."]),
     Heading("Chapter 2: Storage"),
-    Para(["Storage engines write data to disk."]),
+    Para(["Storage engines write data to disk.", "Logs and trees trade reads for writes."]),
     PageBreak(),
     Heading("2.1 Replication", level=2),
     Para(["Replication keeps copies of data on several nodes."]),

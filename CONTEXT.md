@@ -8,13 +8,21 @@ every noun in the codebase.
 
 One source file taken into the library, plus its metadata: title, authors,
 ISBN, language, collection, and the absolute path it was read from. Identified
-two ways, and the difference matters:
+three ways, and the difference matters:
 
 - **`id`** — a 6-character hex handle, what users and MCP tools pass around.
 - **`file_hash`** — SHA-256 of the file bytes, what duplicate detection uses.
+- **`content_hash`** — SHA-256 of the parsed content, which a metadata-only
+  edit of the file (macOS Preview rewriting a PDF's title) does not change.
+  Unset for a book with under 200 characters of text, such as a scan whose
+  only text is a watermark.
 
-Two files with identical bytes are the same Book. Two editions of the same
-work are different Books that a *similar title* note may connect.
+Two files with identical bytes are the same Book; so, on `add`, are two with
+identical parsed content. Reindex re-reads each Book in place and never folds
+one into another by content. Re-adding or reindexing a Book keeps its `id` and
+any metadata edited with `update_book_metadata`, unless `--force-metadata` is
+passed. Two editions of the same work are different Books that a *similar
+title* note may connect.
 
 ## Chunk
 
@@ -23,6 +31,11 @@ heading hierarchy it sits under) and its `sequence` within the Book. Chunks
 are what search returns and what gets embedded. Code, math and table blocks
 are never split across Chunks, which is why a single Chunk can exceed the
 embedding provider's per-input limit.
+Small blocks are merged instead: a heading, a short paragraph or a one-line
+code fragment joins its neighbour in the same section (or the first chunk of a
+child section) up to `max_tokens`, so no Chunk is a bare heading. A small
+lead before a paragraph that fits on its own joins it whole rather than
+splitting it, so such a Chunk can pass `max_tokens` by up to `min_tokens`.
 
 ## Collection
 
@@ -58,9 +71,10 @@ still lose its vectors, which one tag cannot express.
 ## Note
 
 An advisory finding attached to an Intake Outcome that does not change what
-happened — a similar title, a suspect ISBN, embeddings that were skipped. Each
-carries a `kind` for front ends to switch on and a pre-composed `message`, so
-the CLI and MCP cannot word the same finding differently.
+happened — a similar title, a suspect ISBN, a title that looks like a file
+name, embeddings that were skipped. Each carries a `kind` for front ends to
+switch on and a pre-composed `message`, so the CLI and MCP cannot word the
+same finding differently.
 
 ## Partial success
 

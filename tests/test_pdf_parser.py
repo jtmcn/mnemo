@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from mnemo.models import ContentType
+from mnemo.parsing import parse_book
 from mnemo.parsing.models import ContentBlock
 from mnemo.pdf import PdfParser
 from tests.fixtures.pdf_factory import (
@@ -258,3 +259,28 @@ class TestPdfText:
     def test_pdf_without_text_raises(self, parser: PdfParser, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="no extractable text"):
             parser.parse(create_blank_pdf(tmp_path / "scan.pdf"))
+
+
+class TestContentHash:
+    def test_metadata_edit_keeps_content_hash(self, tmp_path: Path):
+        original, _ = parse_book(create_test_pdf(tmp_path / "a.pdf"))
+        edited, _ = parse_book(
+            create_test_pdf(tmp_path / "b.pdf", title="Ontology-Pipeline", author="Someone Else")
+        )
+
+        assert original.file_hash != edited.file_hash
+        assert original.content_hash == edited.content_hash
+        assert original.content_hash is not None
+
+    def test_different_body_changes_content_hash(self, tmp_path: Path):
+        one, _ = parse_book(create_test_pdf(tmp_path / "a.pdf"))
+        two, _ = parse_book(
+            create_test_pdf(tmp_path / "b.pdf", items=[Para(["Entirely different text."])])
+        )
+
+        assert one.content_hash != two.content_hash
+
+    def test_epub_gets_content_hash(self):
+        book, _ = parse_book(Path("tests/fixtures/sample.epub"))
+
+        assert book.content_hash is not None and len(book.content_hash) == 64

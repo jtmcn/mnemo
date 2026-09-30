@@ -49,6 +49,11 @@ def _migration_006_add_collection(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE books ADD COLUMN collection TEXT")
 
 
+def _migration_007_add_content_hash(conn: sqlite3.Connection) -> None:
+    """Add content_hash column; NULL until the book is reindexed."""
+    conn.execute("ALTER TABLE books ADD COLUMN content_hash TEXT")
+
+
 # Ordered list of (version_number, migration_function)
 MIGRATIONS: list[tuple[int, Callable[[sqlite3.Connection], None]]] = [
     (1, _migration_001_add_epub_path),
@@ -57,9 +62,10 @@ MIGRATIONS: list[tuple[int, Callable[[sqlite3.Connection], None]]] = [
     (4, _migration_004_add_description),
     (5, _migration_005_add_file_path),
     (6, _migration_006_add_collection),
+    (7, _migration_007_add_content_hash),
 ]
 
-LATEST_VERSION: int = MIGRATIONS[-1][0]  # 6
+LATEST_VERSION: int = MIGRATIONS[-1][0]  # 7
 
 # --- Version helpers ---
 
@@ -83,7 +89,7 @@ def _is_fresh_database(conn: sqlite3.Connection) -> bool:
     """Return True if database was just created (no book rows, all columns present)."""
     count = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
     cols = {row[1] for row in conn.execute("PRAGMA table_info(books)")}
-    return count == 0 and "collection" in cols
+    return count == 0 and "content_hash" in cols
 
 
 def _infer_legacy_version(conn: sqlite3.Connection) -> int:

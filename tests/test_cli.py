@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
@@ -235,6 +236,29 @@ class TestAddCollection:
 
         assert result.exit_code == 0
         assert mock_ingest.call_args.kwargs.get("collection") is None
+
+
+class TestAddForceMetadata:
+    """`--force-metadata` reaches intake."""
+
+    def test_add_passes_force_metadata(self, tmp_path) -> None:
+        from mnemo.models import Book
+        from mnemo.services.book_service import IntakeOutcome
+
+        epub = tmp_path / "book.epub"
+        epub.write_bytes(b"fake content")
+        book = Book(
+            id="abc123", title="Test", authors=[], file_hash="a" * 64, structure_source="toc"
+        )
+        outcome = IntakeOutcome(
+            status="replaced", book=book, chunks=3, embedded=True, notes=(), reason=None
+        )
+
+        with patch("mnemo.services.book_service.intake", return_value=outcome) as mock_intake:
+            result = runner.invoke(app, ["add", str(epub), "--force", "--force-metadata", "--json"])
+
+        assert result.exit_code == 0
+        assert mock_intake.call_args.kwargs["force_metadata"] is True
 
 
 class TestRemove:
@@ -476,6 +500,27 @@ class TestReindex:
         assert data["skipped"] == 1
         assert data["failed"] == 0
         assert len(data["results"]) == 2
+
+    @patch("mnemo.ingest.reindex_all_books")
+    @patch("mnemo.storage.BookRepository.list_all")
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    def test_reindex_merged_exits_zero(self, mock_init, mock_conn, mock_list, mock_reindex) -> None:
+        mock_list.return_value = [MagicMock(), MagicMock()]
+        mock_reindex.return_value = [
+            {
+                "book_id": "aaa111",
+                "title": "Old",
+                "status": "merged",
+                "chunks": 0,
+                "error": "same file as bbb222",
+            },
+            {"book_id": "bbb222", "title": "New", "status": "success", "chunks": 3, "error": None},
+        ]
+        result = runner.invoke(app, ["reindex", "--verbose"])
+        assert result.exit_code == 0
+        assert "1 merged" in result.stdout
+        assert "same file as bbb222" in result.stdout
 
     @patch("mnemo.ingest.reindex_all_books")
     @patch("mnemo.storage.BookRepository.list_all")
@@ -907,8 +952,14 @@ class TestAddPartialEmbedding:
         epub = tmp_path / "book.epub"
         epub.write_bytes(b"fake content")
 
+        # Added after intake started, so it reads as a fresh add.
         book = Book(
-            id="abc123", title="Test", authors=[], file_hash="a" * 64, structure_source="toc"
+            id="abc123",
+            title="Test",
+            authors=[],
+            file_hash="a" * 64,
+            structure_source="toc",
+            added_at=datetime.max.replace(tzinfo=UTC),
         )
         mock_ingest.side_effect = EmbeddingFailed(book, 8, ValueError("no credentials"))
 

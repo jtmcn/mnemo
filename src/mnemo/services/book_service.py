@@ -13,7 +13,9 @@ and stays public for callers who want it without the policy.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -35,7 +37,21 @@ RejectReason = Literal[
     "parse_failed",
     "pipeline_error",
 ]
-NoteKind = Literal["similar_title", "suspect_isbn", "embeddings_skipped"]
+NoteKind = Literal["similar_title", "suspect_isbn", "suspect_metadata", "embeddings_skipped"]
+
+
+def _slug_key(text: str) -> str:
+    return " ".join(re.split(r"[\s_-]+", text.lower()))
+
+
+def _looks_like_filename(title: str, stem: str) -> bool:
+    """A spaceless title that reads as a file name, not a hyphenated one like "Catch-22"."""
+    if not title or re.search(r"\s", title):
+        return False
+    if "_" in title or title.count("-") >= 2:
+        return True
+    # A one-word title ("Dune") in Dune.pdf is just a well-named file.
+    return "-" in title and _slug_key(title) == _slug_key(stem)
 
 
 @dataclass(frozen=True)
@@ -99,12 +115,13 @@ def intake(
     embed: bool = True,
     db_path: Path | None = None,
     chroma_path: Path | None = None,
+    force_metadata: bool = False,
 ) -> IntakeOutcome:
     """Take one book file into the library and report what happened.
 
     Args:
         path: Book file to take in (.epub, .docx, .pdf)
-        on_duplicate: What to do when the file hash is already indexed —
+        on_duplicate: What to do when the file hash or content is already indexed —
             "reject" (default) rejects with reason "duplicate", "skip" reports
             "already_indexed" without touching anything, "replace" re-indexes
             over the existing book.
@@ -113,6 +130,8 @@ def intake(
         embed: Generate embeddings after storing (default True).
         db_path: SQLite path (default ~/.mnemo/mnemo.db)
         chroma_path: ChromaDB path (default ~/.mnemo/chroma)
+        force_metadata: On a replace, take metadata from the file instead of
+            keeping the existing book's.
 
     Returns:
         An IntakeOutcome. Predictable failures are reported as
@@ -157,15 +176,6 @@ def intake(
             )
 
     notes: list[Note] = []
-    if similar:
-        first = similar[0]
-        authors = ", ".join(first.authors) if first.authors else "Unknown"
-        notes.append(
-            Note(
-                "similar_title",
-                f'Similar book exists — "{first.title}" by {authors} (id: {first.id})',
-            )
-        )
 
     from mnemo.ingest import DuplicateBook, EmbeddingFailed, ingest_book
 
@@ -174,6 +184,7 @@ def intake(
     # all-boilerplate book reads as embedded here. Correcting that needs a
     # return-value change to ingest_book; matches what --json already reports.
     embedded = embed
+    started = datetime.now(UTC)
     try:
         book, chunks = ingest_book(
             path,
@@ -183,24 +194,50 @@ def intake(
             embed=embed,
             chroma_path=chroma_path,
             collection=collection,
+            force_metadata=force_metadata,
         )
     except EmbeddingFailed as e:
         # Committed and keyword-searchable; only the vectors are missing.
         book, chunks, embedded = e.book, e.chunk_count, False
         embed_note = Note("embeddings_skipped", str(e))
     except DuplicateBook as e:
-        # Indexed between our lookup and this call. Not ours to clean up.
+        # Same content under different file metadata is only found once parsed.
+        if on_duplicate == "skip":
+            return IntakeOutcome(
+                status="already_indexed",
+                book=e.book,
+                chunks=0,
+                embedded=False,
+                notes=(),
+                reason=None,
+            )
+        if e.book.file_hash != pre_parsed.file_hash:
+            return _rejected(
+                "duplicate",
+                f"Book already indexed (id: {e.book.id}) with the same content "
+                f"but different file metadata.",
+                book=e.book,
+            )
         return _rejected("duplicate", f"Book already indexed (id: {e.book.id}).", book=e.book)
     except FileNotFoundError as e:
         return _rejected("not_found", str(e))
     except Exception as e:
-        # Only clean up a book we could have created. On the replace path the
-        # hash still resolves to the user's existing, healthy book until
-        # ingest_book reaches its own delete — removing that would destroy a
-        # good book because a re-parse of a since-corrupted file failed.
-        if existing is None:
-            _discard_partial(pre_parsed.file_hash, db_path, chroma_path)
+        # A replacement keeps the old book's added_at, so only a book newer than
+        # this run is ours to remove; anything older holds the user's id and edits.
+        _discard_partial(pre_parsed.file_hash, started, db_path, chroma_path)
         return _rejected("pipeline_error", f"Failed to add {path}: {e}")
+
+    # A content match replaces a book under its own id, so it is not "similar" to itself.
+    others = [b for b in similar if b.id != book.id]
+    if others:
+        first = others[0]
+        authors = ", ".join(first.authors) if first.authors else "Unknown"
+        notes.append(
+            Note(
+                "similar_title",
+                f'Similar book exists — "{first.title}" by {authors} (id: {first.id})',
+            )
+        )
 
     if book.isbn:
         from mnemo.epub.enrich import validate_isbn
@@ -209,11 +246,18 @@ def intake(
         if not is_valid:
             notes.append(Note("suspect_isbn", f"ISBN {book.isbn} may be invalid (bad checksum)"))
 
+    # A content match is only found inside the pipeline; a replaced book keeps its added_at.
+    replaced = existing is not None or book.added_at < started
+    if _looks_like_filename(book.title, path.stem):
+        notes.append(
+            Note("suspect_metadata", f'Title "{book.title}" looks like a file name, not a title')
+        )
+
     if embed_note is not None:
         notes.append(embed_note)
 
     return IntakeOutcome(
-        status="replaced" if existing is not None else "added",
+        status="replaced" if replaced else "added",
         book=book,
         chunks=chunks,
         embedded=embedded,
@@ -239,8 +283,10 @@ def _lookup(pre_parsed: Book, db_path: Path | None) -> tuple[Book | None, list[B
         conn.close()
 
 
-def _discard_partial(file_hash: str, db_path: Path | None, chroma_path: Path | None) -> None:
-    """Remove a book the failed pipeline had already committed.
+def _discard_partial(
+    file_hash: str, started: datetime, db_path: Path | None, chroma_path: Path | None
+) -> None:
+    """Remove a book the failed pipeline had already added since `started`.
 
     Best effort: the run has already failed, and a cleanup error would mask
     the real cause.
@@ -254,7 +300,7 @@ def _discard_partial(file_hash: str, db_path: Path | None, chroma_path: Path | N
             partial = BookRepository(conn).get_by_hash(file_hash)
         finally:
             conn.close()
-        if partial:
+        if partial and partial.added_at >= started:
             remove_book(partial.id, db_path=db_path, chroma_path=chroma_path)
     except Exception:
         logger.exception("Cleanup after a failed intake did not complete")

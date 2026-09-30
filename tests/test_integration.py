@@ -14,7 +14,9 @@ import pytest
 from mnemo import ingest as mnemo_ingest
 from mnemo.ingest import DuplicateBook, ingest_book, reindex_all_books, remove_book
 from mnemo.models import ContentType
-from mnemo.storage import ChunkRepository, get_connection, init_db
+from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_db
+from tests.fixtures.epub_factory import create_test_epub
+from tests.fixtures.pdf_factory import create_test_pdf
 
 
 @pytest.fixture
@@ -100,9 +102,9 @@ class TestIngestion:
         conn.close()
 
         # Chapter 3 has 100 repetitions of prose, should trigger chunking
-        # We should have more chunks than just 3 (one per chapter)
-        text_chunks = [c for c in chunks if c.content_type == ContentType.TEXT]
-        assert len(text_chunks) > 3
+        # Short intro blocks merge, but chapter 3's long prose still splits
+        ch3 = [c for c in chunks if c.section_path == ["Chapter 3: Best Practices"]]
+        assert len(ch3) > 1
 
     def test_section_paths_populated(self, sample_epub: Path, temp_db: Path):
         """Chunks have non-empty section paths."""
@@ -214,6 +216,83 @@ class TestReindexAllBooks:
         assert results[0]["chunks"] == original_count
         assert results[0]["error"] is None
 
+    @staticmethod
+    def _epub(tmp_path: Path, name: str, title: str, body: str) -> Path:
+        return create_test_epub(
+            title=title,
+            chapters=[{"title": "One", "content": f"<p>{body}</p>"}],
+            output_path=tmp_path / f"{name}.epub",
+        )
+
+    def test_reindex_keeps_same_content_entries_apart(self, tmp_path: Path, temp_db: Path):
+        """Reindex never folds a different entry by content, so edits survive."""
+        body = "Body text shared by both copies of the book. " * 6
+        older_file = self._epub(tmp_path, "older", "Older", body)
+        older, _ = ingest_book(older_file, temp_db)
+        conn = get_connection(temp_db)
+        # A pre-2.7.0 row has no content hash, so the same text could be added twice.
+        conn.execute("UPDATE books SET content_hash = NULL WHERE id = ?", (older.id,))
+        BookRepository(conn).update(older.id, title="Hand-Fixed Title")
+        conn.commit()
+        conn.close()
+        newer, _ = ingest_book(self._epub(tmp_path, "newer", "Newer", body), temp_db)
+        reindex_all_books(db_path=temp_db, embed=False)  # the upgrade: both now share a hash
+        self._epub(tmp_path, "newer", "Newer, Retitled", body)
+
+        results = reindex_all_books(db_path=temp_db, embed=False)
+
+        conn = get_connection(temp_db)
+        books = {b.id: b.title for b in BookRepository(conn).list_all()}
+        conn.close()
+        assert books == {older.id: "Hand-Fixed Title", newer.id: "Newer"}
+        assert sorted((r["book_id"], r["status"]) for r in results) == sorted(
+            [(older.id, "success"), (newer.id, "success")]
+        )
+
+    def test_reindex_folds_a_byte_identical_newer_entry_into_the_older(
+        self, tmp_path: Path, temp_db: Path
+    ):
+        import shutil
+
+        older_file = self._epub(tmp_path, "older", "Older", "Older body text.")
+        newer_file = self._epub(tmp_path, "newer", "Newer", "Newer body text.")
+        older, _ = ingest_book(older_file, temp_db)
+        newer, _ = ingest_book(newer_file, temp_db)
+        shutil.copy(newer_file, older_file)
+
+        results = reindex_all_books(db_path=temp_db, embed=False)
+
+        conn = get_connection(temp_db)
+        remaining = [b.id for b in BookRepository(conn).list_all()]
+        conn.close()
+        assert remaining == [older.id]
+        by_id = {r["book_id"]: r for r in results}
+        assert by_id[older.id]["status"] == "success"
+        assert by_id[newer.id]["status"] == "merged"
+        assert by_id[newer.id]["error"] == f"same file as {older.id}"
+
+    def test_reindex_folds_a_byte_identical_older_entry_into_the_newer(
+        self, tmp_path: Path, temp_db: Path
+    ):
+        import shutil
+
+        older_file = self._epub(tmp_path, "older", "Older", "Older body text.")
+        newer_file = self._epub(tmp_path, "newer", "Newer", "Newer body text.")
+        older, _ = ingest_book(older_file, temp_db)
+        newer, _ = ingest_book(newer_file, temp_db)
+        shutil.copy(older_file, newer_file)
+
+        results = reindex_all_books(db_path=temp_db, embed=False)
+
+        conn = get_connection(temp_db)
+        remaining = [b.id for b in BookRepository(conn).list_all()]
+        conn.close()
+        assert remaining == [newer.id]
+        by_id = {r["book_id"]: r for r in results}
+        assert by_id[newer.id]["status"] == "success"
+        assert by_id[older.id]["status"] == "merged"
+        assert by_id[older.id]["error"] == f"same file as {newer.id}"
+
     def test_reindex_skips_missing_epub(self, sample_epub: Path, temp_db: Path):
         """Reindex skips books whose EPUB no longer exists on disk."""
         import shutil
@@ -265,7 +344,7 @@ class TestReindexAllBooks:
         assert books[0].collection == "ERCOT Nodal Protocols"
 
     def test_reindex_replaces_book_whose_file_changed(self, sample_epub: Path, temp_db: Path):
-        """A source file edited since ingest is replaced, not duplicated."""
+        """A source file edited since ingest is replaced in place, keeping its id."""
         import shutil
         import zipfile
 
@@ -283,8 +362,168 @@ class TestReindexAllBooks:
         books = BookRepository(conn).list_all()
         conn.close()
         assert len(books) == 1
-        assert books[0].id != old_book.id
+        assert books[0].id == old_book.id
         assert results[0]["book_id"] == books[0].id
+
+    def test_reindex_keeps_edited_metadata(self, sample_epub: Path, temp_db: Path):
+        book, _ = ingest_book(sample_epub, temp_db)
+        conn = get_connection(temp_db)
+        BookRepository(conn).update(book.id, title="Hand-Fixed Title", authors=["A. Person"])
+        conn.commit()
+        conn.close()
+
+        reindex_all_books(db_path=temp_db, embed=False)
+
+        conn = get_connection(temp_db)
+        books = BookRepository(conn).list_all()
+        conn.close()
+        assert [(b.id, b.title, b.authors) for b in books] == [
+            (book.id, "Hand-Fixed Title", ["A. Person"])
+        ]
+
+
+class TestContentDedup:
+    """A file whose only change is its metadata is the same book."""
+
+    @pytest.fixture
+    def pdfs(self, tmp_path: Path) -> tuple[Path, Path]:
+        original = create_test_pdf(
+            tmp_path / "The Ontology Pipeline.pdf",
+            title="The Ontology Pipeline",
+            author="Jessica Talisman",
+        )
+        edited = create_test_pdf(
+            tmp_path / "Ontology-Pipeline.pdf", title="Ontology-Pipeline", author="Karima Makrof"
+        )
+        return original, edited
+
+    def test_metadata_only_change_is_a_duplicate(self, pdfs, temp_db: Path):
+        original, edited = pdfs
+        first, _ = ingest_book(original, temp_db)
+
+        with pytest.raises(DuplicateBook) as exc:
+            ingest_book(edited, temp_db)
+
+        assert exc.value.book.id == first.id
+
+    def test_force_replace_keeps_id_and_metadata(self, pdfs, temp_db: Path):
+        original, edited = pdfs
+        first, _ = ingest_book(original, temp_db)
+
+        second, _ = ingest_book(edited, temp_db, force=True)
+
+        assert second.id == first.id
+        assert second.title == "The Ontology Pipeline"
+        assert second.authors == ["Jessica Talisman"]
+        assert second.added_at == first.added_at
+        assert second.file_path == str(edited.resolve())
+        conn = get_connection(temp_db)
+        books = BookRepository(conn).list_all()
+        conn.close()
+        assert [b.id for b in books] == [first.id]
+
+    def test_force_metadata_takes_the_files_values(self, pdfs, temp_db: Path):
+        original, edited = pdfs
+        first, _ = ingest_book(original, temp_db)
+
+        second, _ = ingest_book(edited, temp_db, force=True, force_metadata=True)
+
+        assert second.id == first.id
+        assert second.title == "Ontology-Pipeline"
+        assert second.authors == ["Karima Makrof"]
+
+    def test_force_readd_keeps_edited_metadata(self, sample_epub: Path, temp_db: Path):
+        first, _ = ingest_book(sample_epub, temp_db)
+        conn = get_connection(temp_db)
+        BookRepository(conn).update(first.id, title="Hand-Fixed Title", year="2021")
+        conn.commit()
+        conn.close()
+
+        second, _ = ingest_book(sample_epub, temp_db, force=True)
+
+        assert second.title == "Hand-Fixed Title"
+        assert second.year == "2021"
+
+
+class TestReplaceIsAtomic:
+    """A replace that fails part-way leaves the existing book, edits and all."""
+
+    @staticmethod
+    def _retitle(db: Path, book_id: str, title: str) -> None:
+        conn = get_connection(db)
+        BookRepository(conn).update(book_id, title=title)
+        conn.commit()
+        conn.close()
+
+    @staticmethod
+    def _snapshot(db: Path) -> list[tuple[str, str, list[str]]]:
+        conn = get_connection(db)
+        try:
+            chunks = ChunkRepository(conn)
+            return [
+                (b.id, b.title, [c.id for c in chunks.get_by_book(b.id)])
+                for b in BookRepository(conn).list_all()
+            ]
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _explode(*_args, **_kwargs):
+        raise RuntimeError("chunker broke")
+
+    def test_chunker_failure_keeps_the_hash_matched_book(
+        self, sample_epub: Path, temp_db: Path, monkeypatch
+    ):
+        book, _ = ingest_book(sample_epub, temp_db)
+        self._retitle(temp_db, book.id, "Hand-Fixed Title")
+        before = self._snapshot(temp_db)
+        monkeypatch.setattr(mnemo_ingest.Chunker, "chunk", self._explode)
+
+        with pytest.raises(RuntimeError, match="chunker broke"):
+            ingest_book(sample_epub, temp_db, force=True)
+
+        assert before[0][:2] == (book.id, "Hand-Fixed Title") and before[0][2]
+        assert self._snapshot(temp_db) == before
+
+    def test_chunker_failure_keeps_the_content_matched_book(
+        self, tmp_path: Path, temp_db: Path, monkeypatch
+    ):
+        original = create_test_pdf(tmp_path / "a.pdf", title="The Ontology Pipeline")
+        edited = create_test_pdf(tmp_path / "b.pdf", title="Ontology-Pipeline")
+        book, _ = ingest_book(original, temp_db)
+        self._retitle(temp_db, book.id, "Hand-Fixed Title")
+        before = self._snapshot(temp_db)
+        monkeypatch.setattr(mnemo_ingest.Chunker, "chunk", self._explode)
+
+        with pytest.raises(RuntimeError, match="chunker broke"):
+            ingest_book(edited, temp_db, force=True)
+
+        assert self._snapshot(temp_db) == before
+
+    def test_vector_store_open_failure_leaves_sql_consistent(
+        self, sample_epub: Path, temp_db: Path, monkeypatch
+    ):
+        book, _ = ingest_book(sample_epub, temp_db)
+        self._retitle(temp_db, book.id, "Hand-Fixed Title")
+
+        class Unopenable:
+            def __init__(self, _config):
+                raise RuntimeError("chroma will not open")
+
+        monkeypatch.setattr("mnemo.vectors.VectorStore", Unopenable)
+
+        with pytest.raises(RuntimeError, match="chroma will not open"):
+            ingest_book(sample_epub, temp_db, force=True)
+
+        after = self._snapshot(temp_db)
+        assert [(b_id, title) for b_id, title, _ in after] == [(book.id, "Hand-Fixed Title")]
+        assert after[0][2]
+        conn = get_connection(temp_db)
+        orphans = conn.execute(
+            "SELECT COUNT(*) FROM chunks WHERE book_id NOT IN (SELECT id FROM books)"
+        ).fetchone()[0]
+        conn.close()
+        assert orphans == 0
 
 
 class TestFTS:
@@ -584,16 +823,16 @@ class TestEmbeddingFailureIsPartialSuccess:
         preflight probe succeeded — would destroy every book's vectors and
         rewrite none of them.
         """
-        import shutil
-        import zipfile
         from unittest.mock import patch
 
-        # A zip comment changes the file bytes (so the hash, so the book id)
-        # while keeping a valid EPUB — two distinct books to reindex.
-        second = tmp_path / "second.epub"
-        shutil.copy(sample_epub, second)
-        with zipfile.ZipFile(second, "a") as archive:
-            archive.comment = b"variant"
+        # Distinct content, or content dedup would treat it as the same book.
+        second = create_test_epub(
+            title="Second Book",
+            chapters=[
+                {"title": "Other", "content": "<p>Entirely different prose about rivers.</p>"}
+            ],
+            output_path=tmp_path / "second.epub",
+        )
 
         ingest_book(sample_epub, temp_db, embed=False)
         ingest_book(second, temp_db, embed=False)
