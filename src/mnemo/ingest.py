@@ -25,7 +25,7 @@ class ReindexResult(TypedDict):
 
     book_id: str
     title: str
-    status: Literal["success", "partial", "skipped", "failed"]
+    status: Literal["success", "partial", "skipped", "failed", "merged"]
     chunks: int
     error: str | None
 
@@ -332,7 +332,9 @@ def reindex_all_books(
 
     Returns:
         List of result dicts with keys: book_id, title, status, chunks, error.
-        status is "partial" for a book that was re-indexed but not re-embedded.
+        status is "partial" for a book that was re-indexed but not re-embedded,
+        and "merged" for an entry whose re-parsed content matched another
+        entry and was folded into it (error names the surviving id).
         The first embedding failure stops the run: reindexing deletes a book's
         vectors before rewriting them, so the remaining books are left alone
         and reported as "skipped".
@@ -359,6 +361,7 @@ def reindex_all_books(
     conn.close()
 
     results: list[ReindexResult] = []
+    content_hashes: dict[str, str | None] = {}
 
     for index, book in enumerate(books):
         book_file = book.file_path
@@ -385,6 +388,19 @@ def reindex_all_books(
                 collection=book.collection,
                 replaces=book.id,
             )
+            content_hashes[new_book.id] = new_book.content_hash
+            if new_book.id != book.id:
+                # An earlier iteration already folded this entry into new_book.id.
+                results.append(
+                    {
+                        "book_id": book.id,
+                        "title": book.title,
+                        "status": "merged",
+                        "chunks": 0,
+                        "error": f"same content as {new_book.id}",
+                    }
+                )
+                continue
             results.append(
                 {
                     "book_id": new_book.id,
@@ -433,7 +449,30 @@ def reindex_all_books(
                 }
             )
 
+    _mark_merged(results, content_hashes, db_path)
     return results
+
+
+def _mark_merged(
+    results: list[ReindexResult], content_hashes: dict[str, str | None], db_path: Path | None
+) -> None:
+    """Relabel rows whose book a later entry with the same content deleted."""
+    conn = get_connection(db_path)
+    try:
+        library = BookRepository(conn).list_all()
+    finally:
+        conn.close()
+    live = {b.id for b in library}
+    for row in results:
+        if row["status"] not in ("success", "partial") or row["book_id"] in live:
+            continue
+        digest = content_hashes.get(row["book_id"])
+        survivor = next((b.id for b in library if digest and b.content_hash == digest), None)
+        row["status"] = "merged"
+        row["chunks"] = 0
+        row["error"] = (
+            f"same content as {survivor}" if survivor else "same content as another entry"
+        )
 
 
 def remove_book(

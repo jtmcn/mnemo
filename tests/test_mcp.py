@@ -2267,6 +2267,26 @@ class TestReindexAllBooks:
 
         assert "no books" in result.lower()
 
+    def test_reindex_merged_is_not_a_failure(self):
+        from mnemo.mcp.tools_books import _reindex_all_books_impl
+
+        rows = [
+            {
+                "book_id": "aaa111",
+                "title": "A",
+                "status": "merged",
+                "chunks": 0,
+                "error": "same content as bbb222",
+            },
+            {"book_id": "bbb222", "title": "B", "status": "success", "chunks": 3, "error": None},
+        ]
+        with patch("mnemo.ingest.reindex_all_books", return_value=rows):
+            result = _reindex_all_books_impl()
+
+        assert "1 merged" in result
+        assert "0 failed" in result
+        assert "same content as bbb222" in result
+
     def test_reindex_success(self):
         """Reindex with successful books returns markdown summary."""
         from mnemo.mcp.tools_books import _reindex_all_books_impl

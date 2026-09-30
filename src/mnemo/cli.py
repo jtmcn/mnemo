@@ -512,6 +512,7 @@ def reindex(
     partial = sum(1 for r in results if r["status"] == "partial")
     skipped = sum(1 for r in results if r["status"] == "skipped")
     failed = sum(1 for r in results if r["status"] == "failed")
+    merged = sum(1 for r in results if r["status"] == "merged")
 
     if json_output:
         print(
@@ -520,6 +521,7 @@ def reindex(
                     "results": results,
                     "success": success,
                     "partial": partial,
+                    "merged": merged,
                     "skipped": skipped,
                     "failed": failed,
                 }
@@ -539,6 +541,11 @@ def reindex(
                     f"  [yellow]PARTIAL[/yellow] {escape(str(r['title']))} ({r['book_id']}) - "
                     f"{r['chunks']} chunks, no embeddings: {escape(str(r['error']))}"
                 )
+            elif r["status"] == "merged":
+                console.print(
+                    f"  [yellow]MERGED[/yellow] {escape(str(r['title']))} ({r['book_id']}) - "
+                    f"{escape(str(r['error']))}"
+                )
             elif r["status"] == "skipped":
                 console.print(
                     f"  [yellow]SKIP[/yellow] {escape(str(r['title']))} ({r['book_id']}) - "
@@ -553,6 +560,8 @@ def reindex(
     summary = f"[green]{success} succeeded[/green], "
     if partial:
         summary += f"[yellow]{partial} without embeddings[/yellow], "
+    if merged:
+        summary += f"[yellow]{merged} merged[/yellow], "
     summary += f"[yellow]{skipped} skipped[/yellow], [red]{failed} failed[/red]"
     console.print(summary)
 

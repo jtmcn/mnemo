@@ -216,6 +216,38 @@ class TestReindexAllBooks:
         assert results[0]["chunks"] == original_count
         assert results[0]["error"] is None
 
+    def test_reindex_reports_a_folded_entry_as_merged(self, tmp_path: Path, temp_db: Path):
+        """An edited file that now matches another entry folds into it, visibly."""
+
+        def make(name: str, body: str) -> Path:
+            return create_test_epub(
+                title=name,
+                chapters=[{"title": "One", "content": f"<p>{body}</p>"}],
+                output_path=tmp_path / f"{name}.epub",
+            )
+
+        older = make("Older", "Body text for the older book.")
+        newer = make("Newer", "Body text for the newer book.")
+        first, _ = ingest_book(older, temp_db)
+        second, _ = ingest_book(newer, temp_db)
+        # Rewrite the older file so its content now equals the newer book's.
+        make("Older", "Body text for the newer book.")
+
+        results = reindex_all_books(db_path=temp_db, embed=False)
+
+        conn = get_connection(temp_db)
+        remaining = {b.id for b in BookRepository(conn).list_all()}
+        conn.close()
+        assert len(remaining) == 1
+        survivor = remaining.pop()
+        assert survivor in (first.id, second.id)
+        assert len(results) == 2
+        merged = [r for r in results if r["status"] == "merged"]
+        assert len(merged) == 1
+        assert merged[0]["book_id"] != survivor
+        assert merged[0]["error"] == f"same content as {survivor}"
+        assert all(r["book_id"] == survivor for r in results if r["status"] == "success")
+
     def test_reindex_skips_missing_epub(self, sample_epub: Path, temp_db: Path):
         """Reindex skips books whose EPUB no longer exists on disk."""
         import shutil

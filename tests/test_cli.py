@@ -505,6 +505,27 @@ class TestReindex:
     @patch("mnemo.storage.BookRepository.list_all")
     @patch("mnemo.storage.get_connection")
     @patch("mnemo.storage.init_db")
+    def test_reindex_merged_exits_zero(self, mock_init, mock_conn, mock_list, mock_reindex) -> None:
+        mock_list.return_value = [MagicMock(), MagicMock()]
+        mock_reindex.return_value = [
+            {
+                "book_id": "aaa111",
+                "title": "Old",
+                "status": "merged",
+                "chunks": 0,
+                "error": "same content as bbb222",
+            },
+            {"book_id": "bbb222", "title": "New", "status": "success", "chunks": 3, "error": None},
+        ]
+        result = runner.invoke(app, ["reindex", "--verbose"])
+        assert result.exit_code == 0
+        assert "1 merged" in result.stdout
+        assert "same content as bbb222" in result.stdout
+
+    @patch("mnemo.ingest.reindex_all_books")
+    @patch("mnemo.storage.BookRepository.list_all")
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
     def test_reindex_verbose(self, mock_init, mock_conn, mock_list, mock_reindex) -> None:
         """Reindex --verbose shows per-book details."""
         mock_book = MagicMock()

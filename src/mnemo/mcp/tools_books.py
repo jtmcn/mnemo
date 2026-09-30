@@ -183,10 +183,13 @@ def _reindex_all_books_impl(search_service: SearchService | None = None) -> str:
         partial = sum(1 for r in results if r["status"] == "partial")
         skipped = sum(1 for r in results if r["status"] == "skipped")
         failed = sum(1 for r in results if r["status"] == "failed")
+        merged = sum(1 for r in results if r["status"] == "merged")
 
         headline = f"Reindex complete: {success} succeeded"
         if partial:
             headline += f", {partial} without embeddings"
+        if merged:
+            headline += f", {merged} merged"
         headline += f", {skipped} skipped, {failed} failed\n"
         lines = [headline]
 
@@ -198,6 +201,8 @@ def _reindex_all_books_impl(search_service: SearchService | None = None) -> str:
                     f"- **{r['title']}** (`{r['book_id']}`): {r['chunks']} chunks, "
                     f"no embeddings — {r['error']}"
                 )
+            elif r["status"] == "merged":
+                lines.append(f"- **{r['title']}** (`{r['book_id']}`): merged — {r['error']}")
             elif r["status"] == "skipped":
                 lines.append(f"- **{r['title']}** (`{r['book_id']}`): skipped — {r['error']}")
             else:
