@@ -121,12 +121,15 @@ rm -rf ~/.mnemo/chroma && mnemo reindex
 - **2.6.0** changes chunk boundaries: headings and tiny code fragments no
   longer stand alone. Run `mnemo reindex` to rebuild existing books.
 - **2.7.0** recognises a book whose file metadata was edited (same content,
-  new title/author) as the book already in the library, and keeps its ID and
-  hand-edited metadata across `mnemo add --force`. `mnemo reindex` always keeps
-  the library's metadata; `--force-metadata` is an `mnemo add` option that
-  takes the file's values instead. Existing books get a content fingerprint on
-  their next `mnemo reindex`. Reindex skips books whose source file is
-  missing, so they keep their old chunks and get no fingerprint until re-added.
+  new title/author) as the book already in the library when you `mnemo add`
+  it, and keeps its ID and hand-edited metadata across `mnemo add --force`.
+  `mnemo reindex` keeps every entry in place with the library's metadata; it
+  does not merge entries that share content, so same-content duplicates
+  already in the library stay until you remove one. `--force-metadata` is an
+  `mnemo add` option that takes the file's values instead. Existing books get
+  a content fingerprint on their next `mnemo reindex`. Reindex skips books
+  whose source file is missing, so they keep their old chunks and get no
+  fingerprint until re-added.
 
 ## CLI
 

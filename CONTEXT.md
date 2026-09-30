@@ -12,14 +12,17 @@ three ways, and the difference matters:
 
 - **`id`** — a 6-character hex handle, what users and MCP tools pass around.
 - **`file_hash`** — SHA-256 of the file bytes, what duplicate detection uses.
-
 - **`content_hash`** — SHA-256 of the parsed content, which a metadata-only
   edit of the file (macOS Preview rewriting a PDF's title) does not change.
+  Unset for a book with under 200 characters of text, such as a scan whose
+  only text is a watermark.
 
-Two files with identical bytes, or identical parsed content, are the same
-Book. Re-adding or reindexing a Book keeps its `id` and any metadata edited
-with `update_book_metadata`, unless `--force-metadata` is passed. Two editions
-of the same work are different Books that a *similar title* note may connect.
+Two files with identical bytes are the same Book; so, on `add`, are two with
+identical parsed content. Reindex re-reads each Book in place and never folds
+one into another by content. Re-adding or reindexing a Book keeps its `id` and
+any metadata edited with `update_book_metadata`, unless `--force-metadata` is
+passed. Two editions of the same work are different Books that a *similar
+title* note may connect.
 
 ## Chunk
 
@@ -68,9 +71,10 @@ still lose its vectors, which one tag cannot express.
 ## Note
 
 An advisory finding attached to an Intake Outcome that does not change what
-happened — a similar title, a suspect ISBN, a title that looks like a file name, embeddings that were skipped. Each
-carries a `kind` for front ends to switch on and a pre-composed `message`, so
-the CLI and MCP cannot word the same finding differently.
+happened — a similar title, a suspect ISBN, a title that looks like a file
+name, embeddings that were skipped. Each carries a `kind` for front ends to
+switch on and a pre-composed `message`, so the CLI and MCP cannot word the
+same finding differently.
 
 ## Partial success
 
