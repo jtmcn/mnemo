@@ -37,6 +37,19 @@ class TestParseBook:
         assert book.title == "Dispatch PDF"
         assert len(blocks) > 0
 
+    def test_content_hash_is_none_without_text(self, tmp_path: Path) -> None:
+        epub_path = create_test_epub(
+            chapters=[{"title": "Plates", "content": '<img src="plate.png"/>'}],
+            output_path=tmp_path / "plates.epub",
+        )
+        book, blocks = parse_book(epub_path)
+        assert blocks == []
+        assert book.content_hash is None
+
+    def test_content_hash_is_set_with_text(self, tmp_path: Path) -> None:
+        book, _ = parse_book(create_test_epub(output_path=tmp_path / "t.epub"))
+        assert book.content_hash
+
     def test_rejects_unsupported_format(self, tmp_path: Path) -> None:
         txt_file = tmp_path / "test.txt"
         txt_file.write_text("hello")

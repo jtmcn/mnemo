@@ -101,4 +101,8 @@ def parse_book(file_path: Path | str) -> tuple[Book, list[ContentBlock]]:
             f"Unsupported file format: {suffix} (supported: {', '.join(sorted(SUPPORTED_FORMATS))})"
         )
 
-    return book.model_copy(update={"content_hash": content_hash(blocks)}), blocks
+    # No text means no fingerprint: every empty book would otherwise hash alike.
+    has_text = any(block.content.strip() for block in blocks)
+    return book.model_copy(
+        update={"content_hash": content_hash(blocks) if has_text else None}
+    ), blocks

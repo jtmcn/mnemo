@@ -445,3 +445,21 @@ class TestSuspectMetadata:
         )
 
         assert "suspect_metadata" not in kinds(outcome)
+
+
+class TestEmptyContent:
+    def test_textless_books_are_not_duplicates(self, tmp_path: Path, temp_db: Path):
+        def plates(title: str) -> Path:
+            return create_test_epub(
+                title=title,
+                chapters=[{"title": title, "content": '<img src="plate.png"/>'}],
+                output_path=tmp_path / f"{title}.epub",
+            )
+
+        first = intake(plates("Alpha"), db_path=temp_db, embed=False)
+        second = intake(plates("Beta"), db_path=temp_db, embed=False)
+
+        assert first.status == "added"
+        assert second.status == "added"
+        assert first.book is not None and second.book is not None
+        assert first.book.id != second.book.id
