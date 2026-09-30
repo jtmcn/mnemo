@@ -1267,6 +1267,51 @@ class TestAddBookCollection:
         assert mock_ingest.call_args.kwargs.get("collection") is None
 
 
+class TestAddBookForceMetadata:
+    """force_metadata and the suspect_metadata note in the MCP add path."""
+
+    @staticmethod
+    def _book() -> Book:
+        return Book(
+            id="abc123", title="a-b", authors=[], file_hash="a" * 64, structure_source="toc"
+        )
+
+    def test_render_suspect_metadata_points_at_update_tool(self):
+        from mnemo.mcp.tools_books import _render_intake
+        from mnemo.services.book_service import IntakeOutcome, Note
+
+        outcome = IntakeOutcome(
+            status="added",
+            book=self._book(),
+            chunks=3,
+            embedded=True,
+            notes=(Note("suspect_metadata", 'Title "a-b" looks like a file name, not a title'),),
+            reason=None,
+        )
+
+        assert "update_book_metadata" in _render_intake(outcome)
+
+    def test_add_book_impl_passes_force_metadata(self, tmp_path):
+        from mnemo.mcp.tools_books import _add_book_impl
+        from mnemo.services.book_service import IntakeOutcome
+
+        outcome = IntakeOutcome(
+            status="replaced",
+            book=self._book(),
+            chunks=3,
+            embedded=True,
+            notes=(),
+            reason=None,
+        )
+        with (
+            patch("mnemo.services.book_service.intake", return_value=outcome) as mock_intake,
+            patch("mnemo.mcp.tools_books.make_search_service", return_value=MagicMock()),
+        ):
+            _add_book_impl(str(tmp_path / "b.pdf"), force=True, force_metadata=True)
+
+        assert mock_intake.call_args.kwargs["force_metadata"] is True
+
+
 class TestLifecycle:
     """End-to-end lifecycle: add -> search -> update -> info -> remove."""
 

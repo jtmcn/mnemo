@@ -86,6 +86,14 @@ def add(
             ),
         ),
     ] = None,
+    force_metadata: Annotated[
+        bool,
+        typer.Option(
+            "--force-metadata",
+            help="When re-indexing a known book, take title/authors from the file "
+            "instead of keeping the library's (possibly hand-edited) values",
+        ),
+    ] = False,
 ) -> None:
     """Add book file(s) to the library.
 
@@ -108,14 +116,14 @@ def add(
     results = []
 
     for path in paths:
-        outcome = _intake_with_spinner(path, policy, collection, json_output)
+        outcome = _intake_with_spinner(path, policy, collection, json_output, force_metadata)
 
         if outcome.status == "already_indexed" and interactive and not skip_existing:
             assert outcome.book is not None
             if not typer.confirm(f"Book already indexed (id: {outcome.book.id}). Re-index?"):
                 console.print("[yellow]Skipped[/yellow]")
                 continue
-            outcome = _intake_with_spinner(path, "replace", collection, json_output)
+            outcome = _intake_with_spinner(path, "replace", collection, json_output, force_metadata)
 
         if outcome.status == "rejected":
             extra = (
@@ -144,6 +152,7 @@ def _intake_with_spinner(
     policy: DuplicatePolicy,
     collection: str | None,
     json_output: bool,
+    force_metadata: bool,
 ) -> IntakeOutcome:
     """Run one intake behind a transient spinner."""
     from mnemo.services.book_service import intake
@@ -156,7 +165,9 @@ def _intake_with_spinner(
         transient=True,  # erase the spinner line so it can't outlive the run
     ) as progress:
         progress.add_task(description="Parsing and indexing...", total=None)
-        return intake(path, on_duplicate=policy, collection=collection)
+        return intake(
+            path, on_duplicate=policy, collection=collection, force_metadata=force_metadata
+        )
 
 
 def _emit_error(message: str, json_output: bool, extra: dict[str, Any] | None = None) -> None:

@@ -238,6 +238,29 @@ class TestAddCollection:
         assert mock_ingest.call_args.kwargs.get("collection") is None
 
 
+class TestAddForceMetadata:
+    """`--force-metadata` reaches intake."""
+
+    def test_add_passes_force_metadata(self, tmp_path) -> None:
+        from mnemo.models import Book
+        from mnemo.services.book_service import IntakeOutcome
+
+        epub = tmp_path / "book.epub"
+        epub.write_bytes(b"fake content")
+        book = Book(
+            id="abc123", title="Test", authors=[], file_hash="a" * 64, structure_source="toc"
+        )
+        outcome = IntakeOutcome(
+            status="replaced", book=book, chunks=3, embedded=True, notes=(), reason=None
+        )
+
+        with patch("mnemo.services.book_service.intake", return_value=outcome) as mock_intake:
+            result = runner.invoke(app, ["add", str(epub), "--force", "--force-metadata", "--json"])
+
+        assert result.exit_code == 0
+        assert mock_intake.call_args.kwargs["force_metadata"] is True
+
+
 class TestRemove:
     """Tests for the remove command."""
 

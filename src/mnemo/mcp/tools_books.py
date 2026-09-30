@@ -32,6 +32,7 @@ def _add_book_impl(
     chunk_max_tokens: int | None = None,
     collection: str | None = None,
     skip_existing: bool = False,
+    force_metadata: bool = False,
 ) -> str:
     """Add book implementation - see add_book for docs.
 
@@ -66,6 +67,7 @@ def _add_book_impl(
         on_duplicate=policy,
         collection=collection,
         chunker_config=chunker_config,
+        force_metadata=force_metadata,
     )
 
     if outcome.status in ("added", "replaced"):
@@ -103,6 +105,8 @@ def _render_intake(outcome: "IntakeOutcome") -> str:
             )
         elif note.kind == "suspect_isbn":
             lines.append(f"Note: {note.message}. Use enrich_book to look up the correct ISBN.")
+        elif note.kind == "suspect_metadata":
+            lines.append(f"Note: {note.message}. Use update_book_metadata to correct it.")
         else:
             lines.append(f"Note: {note.message}")
     return "\n".join(lines)
@@ -233,13 +237,15 @@ async def add_book(
     chunk_max_tokens: int | None = None,
     collection: str | None = None,
     skip_existing: bool = False,
+    force_metadata: bool = False,
     ctx: Context = CurrentContext(),  # noqa: B008
 ) -> str:
     """Add a book to your library.
 
     Parses the book, chunks the content, generates embeddings, and makes it
-    searchable. Supports EPUB and DOCX formats. May take 1-5 minutes for
-    large books due to embedding generation. Detects duplicates by file hash;
+    searchable. Supports EPUB, DOCX and PDF formats. May take 1-5 minutes for
+    large books due to embedding generation. Detects duplicates by file hash
+    and by parsed content, so a copy with edited metadata is recognised;
     use force=true to re-index.
 
     Args:
@@ -255,6 +261,8 @@ async def add_book(
         skip_existing: If true, an already-indexed book is reported as skipped
             instead of an error. For unattended batches. Cannot be combined
             with force.
+        force_metadata: With force, take title/authors from the file instead
+            of keeping the library's values
 
     Returns:
         Book details (ID, title, authors, chunk count) on success,
@@ -282,6 +290,7 @@ async def add_book(
                 chunk_max_tokens,
                 collection,
                 skip_existing,
+                force_metadata,
             ),
             timeout=300,  # 5 minutes
         )
