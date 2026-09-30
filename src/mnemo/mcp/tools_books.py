@@ -54,9 +54,10 @@ def _add_book_impl(
 
     chunker_config = None
     if chunk_min_tokens is not None or chunk_max_tokens is not None:
+        defaults = ChunkerConfig()
         chunker_config = ChunkerConfig(
-            min_tokens=chunk_min_tokens or 400,
-            max_tokens=chunk_max_tokens or 800,
+            min_tokens=defaults.min_tokens if chunk_min_tokens is None else chunk_min_tokens,
+            max_tokens=defaults.max_tokens if chunk_max_tokens is None else chunk_max_tokens,
         )
 
     policy: DuplicatePolicy = "replace" if force else "skip" if skip_existing else "reject"
@@ -245,7 +246,8 @@ async def add_book(
         file_path: Absolute path to the book file (.epub, .docx, .pdf)
         force: If true, re-indexes even if the book already exists
         chunk_min_tokens: Minimum tokens per chunk (default 400, min 100)
-        chunk_max_tokens: Maximum tokens per chunk (default 800, max 2000)
+        chunk_max_tokens: Maximum tokens per chunk (default 800, max 2000);
+            must exceed chunk_min_tokens, defaulted or not
         collection: Optional collection name to group this book with related
             ones (e.g., "ERCOT Nodal Protocols"). Only applied to fresh ingests;
             for duplicates without force=True, the existing book's collection is

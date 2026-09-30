@@ -1712,6 +1712,17 @@ class TestAddBookChunkParams:
         assert "Error" in result
         assert "chunk_min_tokens" in result
 
+    def test_add_book_rejects_max_alone_below_default_min(self, tmp_path):
+        from mnemo.mcp.tools_books import _add_book_impl
+
+        epub_file = tmp_path / "test.epub"
+        epub_file.write_bytes(b"fake epub")
+
+        result = _add_book_impl(str(epub_file), force=False, chunk_max_tokens=300)
+
+        assert result.startswith("Error:")
+        assert "chunk_max_tokens (300)" in result
+
     def test_add_book_without_chunk_params_backward_compatible(self, tmp_path):
         """_add_book_impl without chunk params should pass chunker_config=None."""
         from mnemo.mcp.tools_books import _add_book_impl

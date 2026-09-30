@@ -647,6 +647,23 @@ class TestChunkerConfigValidation:
         result = ChunkerConfig.validate_params(None, 1000)
         assert result is None
 
+    def test_max_alone_below_default_min_is_rejected(self):
+        result = ChunkerConfig.validate_params(None, 300)
+        assert result is not None
+        assert "chunk_max_tokens (300)" in result
+        assert "chunk_min_tokens (400)" in result
+
+    def test_min_alone_above_default_max_is_rejected(self):
+        result = ChunkerConfig.validate_params(900, None)
+        assert result is not None
+        assert "chunk_min_tokens (900)" in result
+        assert "chunk_max_tokens (800)" in result
+
+    def test_max_at_or_below_min_floor_is_rejected(self):
+        result = ChunkerConfig.validate_params(None, 100)
+        assert result is not None
+        assert "chunk_max_tokens must be > 100" in result
+
     def test_text_splitting_creates_linked_chunks(self):
         """Split text should produce linked chunks with correct sequences."""
         # Create text that will definitely be split
@@ -744,6 +761,18 @@ class TestUndersizedMerging:
                 f"chunk {i} has {chunk.token_count} tokens"
             )
 
+    def _assert_within_bound(self, chunks, config):
+        # Only a small lead merged whole into a block that fits may pass max.
+        for chunk in chunks:
+            assert chunk.token_count < config.max_tokens + config.min_tokens, (
+                f"chunk has {chunk.token_count} tokens"
+            )
+
+    def _assert_no_copied_text(self, chunks, blocks):
+        # Split overlap would duplicate tokens; merging alone never does.
+        total_in = count_tokens("\n\n".join(b.content for b in blocks))
+        assert sum(c.token_count for c in chunks) <= total_in + len(chunks)
+
     def test_no_undersized_chunk_except_last_in_section(self):
         blocks = [_block("1 Introduction")]
         blocks += [_block(_words(60)) for _ in range(20)]
@@ -758,20 +787,43 @@ class TestUndersizedMerging:
         chunks = Chunker(config).chunk("a1b2c3", blocks)
 
         self._assert_no_undersized_mid_section(chunks, config)
-        assert all(c.token_count <= config.max_tokens for c in chunks)
+        self._assert_within_bound(chunks, config)
 
     def test_heading_before_oversized_text_is_not_alone(self):
         chunks = Chunker().chunk("a1b2c3", [_block("3 Storage Engines"), _block(_words(1500))])
 
         assert chunks[0].content.startswith("3 Storage Engines\n\n")
         assert len(chunks) > 1
-        assert all(c.token_count <= 800 for c in chunks)
+        assert all(c.token_count <= 800 for c in chunks[:-1])
 
     def test_heading_before_799_token_text_is_not_alone(self):
-        chunks = Chunker().chunk("a1b2c3", [_block("3 Storage Engines"), _block(_words(799))])
+        blocks = [_block("3 Storage Engines"), _block(_words(799))]
 
+        chunks = Chunker().chunk("a1b2c3", blocks)
+
+        assert len(chunks) == 1
         assert chunks[0].content.startswith("3 Storage Engines\n\n")
-        assert chunks[0].token_count > 400
+        self._assert_no_copied_text(chunks, blocks)
+
+    def test_heading_before_796_token_paragraph_stays_whole(self):
+        paragraph = "Storage engines differ. " + _words(792)
+        assert count_tokens(paragraph) == 796
+        heading = "3 Storage Engines and Retrieval"
+        blocks = [_block(heading), _block(paragraph)]
+        assert count_tokens(f"{heading}\n\n{paragraph}") > 800
+
+        chunks = Chunker().chunk("a1b2c3", blocks)
+
+        assert len(chunks) == 1
+        assert chunks[0].content == f"{heading}\n\n{paragraph}"
+
+    def test_small_lead_before_fitting_text_is_not_split(self):
+        blocks = [_block(_words(395)), _block(_words(700))]
+
+        chunks = Chunker(ChunkerConfig(min_tokens=400, max_tokens=800)).chunk("a1b2c3", blocks)
+
+        assert len(chunks) == 1
+        assert chunks[0].content == "\n\n".join(b.content for b in blocks)
 
     def test_300_600_600_has_no_undersized_mid_section_chunk(self):
         config = ChunkerConfig(min_tokens=400, max_tokens=800)
@@ -832,13 +884,14 @@ class TestUndersizedMerging:
         assert len(chunks) == 2
         assert chunks[0].content == LISTING
 
-    def test_merged_text_never_exceeds_max(self):
+    def test_merged_text_exceeds_max_only_by_a_small_lead(self):
         blocks = [_block(_words(n)) for n in (90, 350, 20, 700, 5, 399, 401, 60) * 4]
         config = ChunkerConfig(min_tokens=400, max_tokens=800)
 
         chunks = Chunker(config).chunk("a1b2c3", blocks)
 
-        assert all(c.token_count <= config.max_tokens for c in chunks)
+        self._assert_within_bound(chunks, config)
+        self._assert_no_copied_text(chunks, blocks)
 
     def test_merge_preserves_all_content_in_order(self):
         contents = [f"marker{i} " + _words(i * 37 % 300) for i in range(40)]
@@ -854,3 +907,13 @@ class TestUndersizedMerging:
 
         assert chunks[0].content_type == ContentType.CODE
         assert chunks[0].language == "python"
+
+    def test_blank_blocks_are_skipped(self):
+        blocks = [_block("Heading"), _block(""), _block("   \n\t "), _block(_words(50))]
+
+        chunks = Chunker().chunk("a1b2c3", blocks)
+
+        assert [c.content for c in chunks] == [f"Heading\n\n{_words(50)}"]
+
+    def test_only_blank_blocks_give_no_chunks(self):
+        assert Chunker().chunk("a1b2c3", [_block(""), _block("  \n ")]) == []

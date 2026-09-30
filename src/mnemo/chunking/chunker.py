@@ -16,6 +16,8 @@ from mnemo.parsing.models import ContentBlock
 # Below this, or on one line, an atomic block is a fragment (an inline `data`),
 # not a listing, and folds into the text around it.
 _TINY_ATOMIC_TOKENS = 20
+_MIN_TOKENS_FLOOR = 100
+_MAX_TOKENS_CEILING = 2000
 
 
 @dataclass
@@ -50,6 +52,9 @@ class ChunkerConfig:
     def validate_params(min_tokens: int | None, max_tokens: int | None) -> str | None:
         """Validate chunk size parameters.
 
+        A missing value takes its default, and the effective pair must keep
+        min < max.
+
         Args:
             min_tokens: Minimum tokens per chunk (or None for default)
             max_tokens: Maximum tokens per chunk (or None for default)
@@ -57,12 +62,20 @@ class ChunkerConfig:
         Returns:
             Error message string if invalid, None if valid.
         """
-        if min_tokens is not None and min_tokens < 100:
-            return "chunk_min_tokens must be >= 100"
-        if max_tokens is not None and max_tokens > 2000:
-            return "chunk_max_tokens must be <= 2000"
-        if min_tokens is not None and max_tokens is not None and min_tokens >= max_tokens:
-            return "chunk_min_tokens must be less than chunk_max_tokens"
+        if min_tokens is not None and min_tokens < _MIN_TOKENS_FLOOR:
+            return f"chunk_min_tokens must be >= {_MIN_TOKENS_FLOOR}"
+        if max_tokens is not None and max_tokens <= _MIN_TOKENS_FLOOR:
+            return f"chunk_max_tokens must be > {_MIN_TOKENS_FLOOR}"
+        if max_tokens is not None and max_tokens > _MAX_TOKENS_CEILING:
+            return f"chunk_max_tokens must be <= {_MAX_TOKENS_CEILING}"
+        defaults = ChunkerConfig()
+        lo = defaults.min_tokens if min_tokens is None else min_tokens
+        hi = defaults.max_tokens if max_tokens is None else max_tokens
+        if lo >= hi:
+            return (
+                f"chunk_min_tokens ({lo}) must be less than chunk_max_tokens ({hi}); "
+                "an omitted value takes its default"
+            )
         return None
 
 
@@ -73,7 +86,10 @@ class Chunker:
     - CODE, DIAGRAM, MATH, TABLE blocks are NEVER split (atomic units)
     - TEXT blocks over max_tokens are split with overlap
     - Undersized chunks merge into a neighbour in the same section (or carry
-      down into a child section), up to max_tokens
+      down into a child section), up to max_tokens; an undersized lead joins a
+      following TEXT block that fits alone whole, so that chunk may exceed
+      max_tokens by at most min_tokens
+    - Empty or whitespace-only blocks are skipped
     - All chunks are linked via prev_chunk_id and next_chunk_id
     - Section boundaries are tracked for context
 
@@ -98,14 +114,23 @@ class Chunker:
         1. Large CODE/DIAGRAM/MATH/TABLE blocks are never split
         2. TEXT over max_tokens is split with overlap
         3. Undersized drafts merge into a neighbour in the same section, or
-           carry down into a child section, up to max_tokens
+           carry down into a child section, up to max_tokens. An undersized
+           lead that can't join the next TEXT block within max_tokens joins it
+           whole if the block fits alone (exceeding max by at most min_tokens),
+           or is split together with it if the block is over max_tokens
         4. Adjacent chunks are linked (prev_chunk_id, next_chunk_id)
         """
         drafts: list[_Draft] = []
         for block in blocks:
+            if not block.content.strip():
+                continue
             lead = self._popped_lead(drafts, block)
+            if lead is not None and count_tokens(block.content) <= self.config.max_tokens:
+                # Splitting a block that fits would leave a near-copy tail.
+                drafts.append(self._merge(lead, self._drafts_for(block)[0]))
+                continue
             if lead is not None:
-                # Split small lead + block together so the lead is not left alone.
+                # The block splits anyway; split it with the lead so the lead is not alone.
                 joined = replace(block, content=f"{lead.content}\n\n{block.content}")
                 parts = self._drafts_for(joined)
                 parts[0].sections = lead.sections + [
