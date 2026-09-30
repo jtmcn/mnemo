@@ -378,3 +378,70 @@ class TestFailureClassification:
         assert outcome.book.id == "abcdef"
         # Advice is the front end's to add, so the message must not pre-empt it.
         assert "force" not in outcome.message.lower()
+
+
+class TestContentDuplicates:
+    """Same content under edited metadata is handled like a hash duplicate."""
+
+    @pytest.fixture
+    def indexed(self, tmp_path: Path, temp_db: Path):
+        original = create_test_pdf(tmp_path / "orig.pdf", title="The Ontology Pipeline")
+        edited = create_test_pdf(tmp_path / "edited.pdf", title="Ontology-Pipeline")
+        first = intake(original, db_path=temp_db, embed=False)
+        assert first.status == "added"
+        return first, edited
+
+    def test_reject(self, indexed, temp_db: Path):
+        first, edited = indexed
+        outcome = intake(edited, db_path=temp_db, embed=False)
+
+        assert outcome.status == "rejected"
+        assert outcome.reason == "duplicate"
+        assert outcome.book is not None and outcome.book.id == first.book.id
+        assert "same content" in outcome.message
+
+    def test_skip(self, indexed, temp_db: Path):
+        first, edited = indexed
+        outcome = intake(edited, db_path=temp_db, embed=False, on_duplicate="skip")
+
+        assert outcome.status == "already_indexed"
+        assert outcome.book is not None and outcome.book.id == first.book.id
+
+    def test_replace_reports_replaced_and_keeps_title(self, indexed, temp_db: Path):
+        first, edited = indexed
+        outcome = intake(edited, db_path=temp_db, embed=False, on_duplicate="replace")
+
+        assert outcome.status == "replaced"
+        assert outcome.book is not None
+        assert outcome.book.id == first.book.id
+        assert outcome.book.title == "The Ontology Pipeline"
+        assert "suspect_metadata" not in kinds(outcome)
+
+    def test_force_metadata_passes_through(self, indexed, temp_db: Path):
+        first, edited = indexed
+        outcome = intake(
+            edited, db_path=temp_db, embed=False, on_duplicate="replace", force_metadata=True
+        )
+
+        assert outcome.book is not None and outcome.book.title == "Ontology-Pipeline"
+        assert "suspect_metadata" in kinds(outcome)
+
+
+class TestSuspectMetadata:
+    @pytest.mark.parametrize("title", ["Ontology-Pipeline", "designing_data_apps", "my-book-v2"])
+    def test_slug_title_is_flagged(self, title: str, tmp_path: Path, temp_db: Path):
+        outcome = intake(
+            create_test_pdf(tmp_path / "x.pdf", title=title), db_path=temp_db, embed=False
+        )
+
+        assert "suspect_metadata" in kinds(outcome)
+
+    @pytest.mark.parametrize(
+        "title", ["The Ontology Pipeline", "Designing Data-Intensive Applications", "Python"]
+    )
+    def test_real_title_is_quiet(self, title: str, tmp_path: Path, temp_db: Path):
+        outcome = intake(
+            create_test_pdf(tmp_path / "x.pdf", title=title), db_path=temp_db, embed=False
+        )
+
+        assert "suspect_metadata" not in kinds(outcome)

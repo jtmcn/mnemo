@@ -1661,6 +1661,8 @@ class TestAddBookChunkParams:
         mock_book.title = "Test"
         mock_book.authors = ["Author"]
         mock_book.file_hash = "a" * 64
+        # A fresh book, added after intake started.
+        mock_book.added_at = datetime.max.replace(tzinfo=UTC)
 
         with (
             patch("mnemo.services.book_service.init_db"),
@@ -1735,6 +1737,8 @@ class TestAddBookChunkParams:
         mock_book.title = "Test"
         mock_book.authors = ["Author"]
         mock_book.file_hash = "a" * 64
+        # A fresh book, added after intake started.
+        mock_book.added_at = datetime.max.replace(tzinfo=UTC)
 
         with (
             patch("mnemo.services.book_service.init_db"),

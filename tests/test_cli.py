@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
@@ -907,8 +908,14 @@ class TestAddPartialEmbedding:
         epub = tmp_path / "book.epub"
         epub.write_bytes(b"fake content")
 
+        # Added after intake started, so it reads as a fresh add.
         book = Book(
-            id="abc123", title="Test", authors=[], file_hash="a" * 64, structure_source="toc"
+            id="abc123",
+            title="Test",
+            authors=[],
+            file_hash="a" * 64,
+            structure_source="toc",
+            added_at=datetime.max.replace(tzinfo=UTC),
         )
         mock_ingest.side_effect = EmbeddingFailed(book, 8, ValueError("no credentials"))
 

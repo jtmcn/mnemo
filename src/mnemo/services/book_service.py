@@ -13,7 +13,9 @@ and stays public for callers who want it without the policy.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -35,7 +37,14 @@ RejectReason = Literal[
     "parse_failed",
     "pipeline_error",
 ]
-NoteKind = Literal["similar_title", "suspect_isbn", "embeddings_skipped"]
+NoteKind = Literal["similar_title", "suspect_isbn", "suspect_metadata", "embeddings_skipped"]
+
+# No spaces, words joined by - or _: a file name ("Ontology-Pipeline"), not a title.
+_FILENAME_SLUG = re.compile(r"[^\s_-]+(?:[-_][^\s_-]+)+")
+
+
+def _looks_like_filename(title: str) -> bool:
+    return _FILENAME_SLUG.fullmatch(title) is not None
 
 
 @dataclass(frozen=True)
@@ -99,6 +108,7 @@ def intake(
     embed: bool = True,
     db_path: Path | None = None,
     chroma_path: Path | None = None,
+    force_metadata: bool = False,
 ) -> IntakeOutcome:
     """Take one book file into the library and report what happened.
 
@@ -113,6 +123,8 @@ def intake(
         embed: Generate embeddings after storing (default True).
         db_path: SQLite path (default ~/.mnemo/mnemo.db)
         chroma_path: ChromaDB path (default ~/.mnemo/chroma)
+        force_metadata: On a replace, take metadata from the file instead of
+            keeping the existing book's.
 
     Returns:
         An IntakeOutcome. Predictable failures are reported as
@@ -174,6 +186,7 @@ def intake(
     # all-boilerplate book reads as embedded here. Correcting that needs a
     # return-value change to ingest_book; matches what --json already reports.
     embedded = embed
+    started = datetime.now(UTC)
     try:
         book, chunks = ingest_book(
             path,
@@ -183,13 +196,30 @@ def intake(
             embed=embed,
             chroma_path=chroma_path,
             collection=collection,
+            force_metadata=force_metadata,
         )
     except EmbeddingFailed as e:
         # Committed and keyword-searchable; only the vectors are missing.
         book, chunks, embedded = e.book, e.chunk_count, False
         embed_note = Note("embeddings_skipped", str(e))
     except DuplicateBook as e:
-        # Indexed between our lookup and this call. Not ours to clean up.
+        # Same content under different file metadata is only found once parsed.
+        if on_duplicate == "skip":
+            return IntakeOutcome(
+                status="already_indexed",
+                book=e.book,
+                chunks=0,
+                embedded=False,
+                notes=(),
+                reason=None,
+            )
+        if e.book.file_hash != pre_parsed.file_hash:
+            return _rejected(
+                "duplicate",
+                f"Book already indexed (id: {e.book.id}) with the same content "
+                f"but different file metadata.",
+                book=e.book,
+            )
         return _rejected("duplicate", f"Book already indexed (id: {e.book.id}).", book=e.book)
     except FileNotFoundError as e:
         return _rejected("not_found", str(e))
@@ -209,11 +239,18 @@ def intake(
         if not is_valid:
             notes.append(Note("suspect_isbn", f"ISBN {book.isbn} may be invalid (bad checksum)"))
 
+    # A content match is only found inside the pipeline; a replaced book keeps its added_at.
+    replaced = existing is not None or book.added_at < started
+    if (force_metadata or not replaced) and _looks_like_filename(book.title):
+        notes.append(
+            Note("suspect_metadata", f'Title "{book.title}" looks like a file name, not a title')
+        )
+
     if embed_note is not None:
         notes.append(embed_note)
 
     return IntakeOutcome(
-        status="replaced" if existing is not None else "added",
+        status="replaced" if replaced else "added",
         book=book,
         chunks=chunks,
         embedded=embedded,
