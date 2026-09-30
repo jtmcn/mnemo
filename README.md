@@ -28,6 +28,8 @@ semantic search.
 
 $ mnemo search test_addition -n 2
 Python Testing Guide > Chapter 2: Code Examples
+Here is a simple test function:
+
 def test_addition():
     assert 1 + 1 == 2
     assert 2 + 2 == 4
