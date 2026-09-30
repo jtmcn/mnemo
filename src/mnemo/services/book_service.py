@@ -39,12 +39,16 @@ RejectReason = Literal[
 ]
 NoteKind = Literal["similar_title", "suspect_isbn", "suspect_metadata", "embeddings_skipped"]
 
-# No spaces, words joined by - or _: a file name ("Ontology-Pipeline"), not a title.
-_FILENAME_SLUG = re.compile(r"[^\s_-]+(?:[-_][^\s_-]+)+")
+
+def _slug_key(text: str) -> str:
+    return " ".join(re.split(r"[\s_-]+", text.lower()))
 
 
-def _looks_like_filename(title: str) -> bool:
-    return _FILENAME_SLUG.fullmatch(title) is not None
+def _looks_like_filename(title: str, stem: str) -> bool:
+    """A spaceless title that reads as a file name, not a hyphenated one like "Catch-22"."""
+    if not title or re.search(r"\s", title):
+        return False
+    return "_" in title or title.count("-") >= 2 or _slug_key(title) == _slug_key(stem)
 
 
 @dataclass(frozen=True)
@@ -241,7 +245,7 @@ def intake(
 
     # A content match is only found inside the pipeline; a replaced book keeps its added_at.
     replaced = existing is not None or book.added_at < started
-    if _looks_like_filename(book.title):
+    if _looks_like_filename(book.title, path.stem):
         notes.append(
             Note("suspect_metadata", f'Title "{book.title}" looks like a file name, not a title')
         )

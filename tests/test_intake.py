@@ -423,7 +423,7 @@ class TestContentDuplicates:
     @pytest.fixture
     def indexed(self, tmp_path: Path, temp_db: Path):
         original = create_test_pdf(tmp_path / "orig.pdf", title="The Ontology Pipeline")
-        edited = create_test_pdf(tmp_path / "edited.pdf", title="Ontology-Pipeline")
+        edited = create_test_pdf(tmp_path / "Ontology-Pipeline.pdf", title="Ontology-Pipeline")
         first = intake(original, db_path=temp_db, embed=False)
         assert first.status == "added"
         return first, edited
@@ -481,27 +481,45 @@ class TestContentDuplicates:
         assert "similar_title" not in kinds(outcome)
 
     def test_kept_slug_title_is_still_flagged(self, tmp_path: Path, temp_db: Path):
-        slug = create_test_pdf(tmp_path / "slug.pdf", title="Ontology-Pipeline")
+        slug = create_test_pdf(tmp_path / "slug.pdf", title="ontology_pipeline")
         proper = create_test_pdf(tmp_path / "proper.pdf", title="The Ontology Pipeline")
         intake(slug, db_path=temp_db, embed=False)
 
         outcome = intake(proper, db_path=temp_db, embed=False, on_duplicate="replace")
 
-        assert outcome.book is not None and outcome.book.title == "Ontology-Pipeline"
+        assert outcome.book is not None and outcome.book.title == "ontology_pipeline"
         assert "suspect_metadata" in kinds(outcome)
 
 
 class TestSuspectMetadata:
-    @pytest.mark.parametrize("title", ["Ontology-Pipeline", "designing_data_apps", "my-book-v2"])
-    def test_slug_title_is_flagged(self, title: str, tmp_path: Path, temp_db: Path):
+    @pytest.mark.parametrize(
+        ("title", "filename"),
+        [
+            ("Ontology-Pipeline", "Ontology-Pipeline.pdf"),
+            ("Ontology-Pipeline", "ontology_pipeline.pdf"),
+            ("designing_data_apps", "x.pdf"),
+            ("my-book-v2", "x.pdf"),
+        ],
+    )
+    def test_slug_title_is_flagged(self, title: str, filename: str, tmp_path: Path, temp_db: Path):
         outcome = intake(
-            create_test_pdf(tmp_path / "x.pdf", title=title), db_path=temp_db, embed=False
+            create_test_pdf(tmp_path / filename, title=title), db_path=temp_db, embed=False
         )
 
         assert "suspect_metadata" in kinds(outcome)
 
     @pytest.mark.parametrize(
-        "title", ["The Ontology Pipeline", "Designing Data-Intensive Applications", "Python"]
+        "title",
+        [
+            "The Ontology Pipeline",
+            "Designing Data-Intensive Applications",
+            "Python",
+            "Catch-22",
+            "Self-Reliance",
+            "Spider-Man",
+            "X-Men",
+            "Ontology-Pipeline",
+        ],
     )
     def test_real_title_is_quiet(self, title: str, tmp_path: Path, temp_db: Path):
         outcome = intake(
