@@ -737,22 +737,60 @@ class TestUndersizedMerging:
         assert holding[0].language == "python"
         assert holding[0].content.startswith("Here is the listing:\n\n")
 
+    def _assert_no_undersized_mid_section(self, chunks, config):
+        for i, chunk in enumerate(chunks[:-1]):
+            last_in_section = chunks[i + 1].section_path != chunk.section_path
+            assert last_in_section or chunk.token_count >= config.min_tokens, (
+                f"chunk {i} has {chunk.token_count} tokens"
+            )
+
     def test_no_undersized_chunk_except_last_in_section(self):
         blocks = [_block("1 Introduction")]
         blocks += [_block(_words(60)) for _ in range(20)]
         blocks.append(_block("data", ContentType.CODE))
         blocks += [_block(_words(60)) for _ in range(10)]
+        for n in (300, 600, 700, 1500, 5, 799, 250, 600):
+            blocks += [_block(f"Heading {n}"), _block(_words(n))]
         blocks.append(_block(_words(50), path=("Ch2",)))
         blocks += [_block(_words(60), path=("Ch2",)) for _ in range(15)]
         config = ChunkerConfig(min_tokens=400, max_tokens=800)
 
         chunks = Chunker(config).chunk("a1b2c3", blocks)
 
-        for i, chunk in enumerate(chunks[:-1]):
-            last_in_section = chunks[i + 1].section_path != chunk.section_path
-            assert last_in_section or chunk.token_count >= config.min_tokens, (
-                f"chunk {i} has {chunk.token_count} tokens"
-            )
+        self._assert_no_undersized_mid_section(chunks, config)
+        assert all(c.token_count <= config.max_tokens for c in chunks)
+
+    def test_heading_before_oversized_text_is_not_alone(self):
+        chunks = Chunker().chunk("a1b2c3", [_block("3 Storage Engines"), _block(_words(1500))])
+
+        assert chunks[0].content.startswith("3 Storage Engines\n\n")
+        assert len(chunks) > 1
+        assert all(c.token_count <= 800 for c in chunks)
+
+    def test_heading_before_799_token_text_is_not_alone(self):
+        chunks = Chunker().chunk("a1b2c3", [_block("3 Storage Engines"), _block(_words(799))])
+
+        assert chunks[0].content.startswith("3 Storage Engines\n\n")
+        assert chunks[0].token_count > 400
+
+    def test_300_600_600_has_no_undersized_mid_section_chunk(self):
+        config = ChunkerConfig(min_tokens=400, max_tokens=800)
+        blocks = [_block(_words(n)) for n in (300, 600, 600)]
+
+        chunks = Chunker(config).chunk("a1b2c3", blocks)
+
+        self._assert_no_undersized_mid_section(chunks, config)
+
+    def test_popped_heading_keeps_its_section_in_sections(self):
+        blocks = [
+            _block("V KNOWLEDGE GRAPH ECOSYSTEMS", path=("Part V",)),
+            _block(_words(1500), path=("Part V", "15")),
+        ]
+
+        chunks = Chunker().chunk("a1b2c3", blocks)
+
+        assert chunks[0].section_path == ["Part V", "15"]
+        assert "Part V" in chunks[0].sections
 
     def test_heading_only_section_carries_into_child_section(self):
         blocks = [

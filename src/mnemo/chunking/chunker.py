@@ -7,7 +7,7 @@ that preserve code integrity and maintain context for effective retrieval.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from mnemo.chunking.tokenizer import count_tokens, split_by_tokens
 from mnemo.models import Chunk, ContentType
@@ -103,6 +103,16 @@ class Chunker:
         """
         drafts: list[_Draft] = []
         for block in blocks:
+            lead = self._popped_lead(drafts, block)
+            if lead is not None:
+                # Split small lead + block together so the lead is not left alone.
+                joined = replace(block, content=f"{lead.content}\n\n{block.content}")
+                parts = self._drafts_for(joined)
+                parts[0].sections = lead.sections + [
+                    x for x in parts[0].sections if x not in lead.sections
+                ]
+                drafts.extend(parts)
+                continue
             for draft in self._drafts_for(block):
                 if drafts and self._should_merge(drafts[-1], draft):
                     drafts[-1] = self._merge(drafts[-1], draft)
@@ -168,12 +178,28 @@ class Chunker:
             whole=whole,
         )
 
+    def _popped_lead(self, drafts: list[_Draft], block: ContentBlock) -> _Draft | None:
+        """Pop and return an undersized last draft that TEXT `block` can't join whole."""
+        if not drafts or self._is_atomic_type(block.content_type):
+            return None
+        prev = drafts[-1]
+        same, deeper = self._relation(prev, block.section_path)
+        if prev.whole or not (same or deeper) or prev.token_count >= self.config.min_tokens:
+            return None
+        if count_tokens(f"{prev.content}\n\n{block.content}") <= self.config.max_tokens:
+            return None
+        return drafts.pop()
+
+    @staticmethod
+    def _relation(prev: _Draft, path: list[str]) -> tuple[bool, bool]:
+        """Whether `path` is the same section as prev, or a descendant of it."""
+        depth = len(prev.section_path)
+        return path == prev.section_path, len(path) > depth and path[:depth] == prev.section_path
+
     def _should_merge(self, prev: _Draft, draft: _Draft) -> bool:
         if prev.whole:
             return False
-        depth = len(prev.section_path)
-        same = draft.section_path == prev.section_path
-        deeper = len(draft.section_path) > depth and draft.section_path[:depth] == prev.section_path
+        same, deeper = self._relation(prev, draft.section_path)
         if not (same or deeper):
             return False
         small = prev.token_count < self.config.min_tokens
