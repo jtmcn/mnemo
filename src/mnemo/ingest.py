@@ -165,6 +165,21 @@ def embed_book(
     return embedded_count
 
 
+# Fields a user may have corrected with update_book_metadata or enrich_book.
+_EDITABLE_FIELDS = ("title", "authors", "isbn", "publisher", "year", "description")
+
+
+def _carry_over(parsed: Book, previous: Book, force_metadata: bool) -> Book:
+    """The parsed book under the previous one's id, keeping its edited metadata."""
+    updates: dict[str, object] = {"id": previous.id, "added_at": previous.added_at}
+    for name in _EDITABLE_FIELDS:
+        if not (force_metadata and getattr(parsed, name)):
+            updates[name] = getattr(previous, name)
+    if not parsed.collection:
+        updates["collection"] = previous.collection
+    return parsed.model_copy(update=updates)
+
+
 def ingest_book(
     book_path: Path,
     db_path: Path | None = None,
@@ -174,6 +189,7 @@ def ingest_book(
     chroma_path: Path | None = None,
     collection: str | None = None,
     replaces: str | None = None,
+    force_metadata: bool = False,
 ) -> tuple[Book, int]:
     """Ingest a book file into the database.
 
@@ -184,7 +200,8 @@ def ingest_book(
         book_path: Path to book file (.epub, .docx, .pdf)
         db_path: Database path (default: ~/.mnemo/mnemo.db)
         chunker_config: Chunking configuration
-        force: If True, re-ingest even if duplicate detected
+        force: If True, re-ingest even if duplicate detected. A replace keeps
+            the existing book's id and metadata.
         embed: If True, generate embeddings after storing chunks
         chroma_path: ChromaDB path for vectors (default: ~/.mnemo/chroma)
         collection: Optional collection name to tag this book at ingest. Empty
@@ -193,6 +210,8 @@ def ingest_book(
             collection is unchanged.
         replaces: Book id this ingest supersedes, deleted along with any hash
             match. Reindex passes it because an edited file hashes differently.
+        force_metadata: On a replace, take title/authors/etc. from the file
+            instead of keeping the existing book's.
 
     Returns:
         Tuple of (Book, chunk_count)
@@ -229,15 +248,19 @@ def ingest_book(
             updates["collection"] = collection
         book = book.model_copy(update=updates)
 
-        # 4. Check for duplicate
+        # 4. Check for duplicate: same bytes, or same content under edited metadata
         existing = book_repo.get_by_hash(book.file_hash)
+        if existing is None and book.content_hash:
+            existing = book_repo.get_by_content_hash(book.content_hash)
         if existing and not force:
             raise DuplicateBook(
                 existing, f"Book already indexed (id: {existing.id}). Use force=True to re-index."
             )
 
-        # 5. Delete the old version (including vectors): the hash match under
-        # force, and the replaced book whose file may since have changed.
+        # 5. Delete the old version (including vectors), keeping its id and edits.
+        previous = (book_repo.get(replaces) if replaces else None) or existing
+        if previous is not None:
+            book = _carry_over(book, previous, force_metadata)
         stale_ids = {existing.id} if existing and force else set()
         if replaces:
             stale_ids.add(replaces)

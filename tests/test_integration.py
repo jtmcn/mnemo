@@ -14,7 +14,9 @@ import pytest
 from mnemo import ingest as mnemo_ingest
 from mnemo.ingest import DuplicateBook, ingest_book, reindex_all_books, remove_book
 from mnemo.models import ContentType
-from mnemo.storage import ChunkRepository, get_connection, init_db
+from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_db
+from tests.fixtures.epub_factory import create_test_epub
+from tests.fixtures.pdf_factory import create_test_pdf
 
 
 @pytest.fixture
@@ -265,7 +267,7 @@ class TestReindexAllBooks:
         assert books[0].collection == "ERCOT Nodal Protocols"
 
     def test_reindex_replaces_book_whose_file_changed(self, sample_epub: Path, temp_db: Path):
-        """A source file edited since ingest is replaced, not duplicated."""
+        """A source file edited since ingest is replaced in place, keeping its id."""
         import shutil
         import zipfile
 
@@ -283,8 +285,87 @@ class TestReindexAllBooks:
         books = BookRepository(conn).list_all()
         conn.close()
         assert len(books) == 1
-        assert books[0].id != old_book.id
+        assert books[0].id == old_book.id
         assert results[0]["book_id"] == books[0].id
+
+    def test_reindex_keeps_edited_metadata(self, sample_epub: Path, temp_db: Path):
+        book, _ = ingest_book(sample_epub, temp_db)
+        conn = get_connection(temp_db)
+        BookRepository(conn).update(book.id, title="Hand-Fixed Title", authors=["A. Person"])
+        conn.commit()
+        conn.close()
+
+        reindex_all_books(db_path=temp_db, embed=False)
+
+        conn = get_connection(temp_db)
+        books = BookRepository(conn).list_all()
+        conn.close()
+        assert [(b.id, b.title, b.authors) for b in books] == [
+            (book.id, "Hand-Fixed Title", ["A. Person"])
+        ]
+
+
+class TestContentDedup:
+    """A file whose only change is its metadata is the same book."""
+
+    @pytest.fixture
+    def pdfs(self, tmp_path: Path) -> tuple[Path, Path]:
+        original = create_test_pdf(
+            tmp_path / "The Ontology Pipeline.pdf",
+            title="The Ontology Pipeline",
+            author="Jessica Talisman",
+        )
+        edited = create_test_pdf(
+            tmp_path / "Ontology-Pipeline.pdf", title="Ontology-Pipeline", author="Karima Makrof"
+        )
+        return original, edited
+
+    def test_metadata_only_change_is_a_duplicate(self, pdfs, temp_db: Path):
+        original, edited = pdfs
+        first, _ = ingest_book(original, temp_db)
+
+        with pytest.raises(DuplicateBook) as exc:
+            ingest_book(edited, temp_db)
+
+        assert exc.value.book.id == first.id
+
+    def test_force_replace_keeps_id_and_metadata(self, pdfs, temp_db: Path):
+        original, edited = pdfs
+        first, _ = ingest_book(original, temp_db)
+
+        second, _ = ingest_book(edited, temp_db, force=True)
+
+        assert second.id == first.id
+        assert second.title == "The Ontology Pipeline"
+        assert second.authors == ["Jessica Talisman"]
+        assert second.added_at == first.added_at
+        assert second.file_path == str(edited.resolve())
+        conn = get_connection(temp_db)
+        books = BookRepository(conn).list_all()
+        conn.close()
+        assert [b.id for b in books] == [first.id]
+
+    def test_force_metadata_takes_the_files_values(self, pdfs, temp_db: Path):
+        original, edited = pdfs
+        first, _ = ingest_book(original, temp_db)
+
+        second, _ = ingest_book(edited, temp_db, force=True, force_metadata=True)
+
+        assert second.id == first.id
+        assert second.title == "Ontology-Pipeline"
+        assert second.authors == ["Karima Makrof"]
+
+    def test_force_readd_keeps_edited_metadata(self, sample_epub: Path, temp_db: Path):
+        first, _ = ingest_book(sample_epub, temp_db)
+        conn = get_connection(temp_db)
+        BookRepository(conn).update(first.id, title="Hand-Fixed Title", year="2021")
+        conn.commit()
+        conn.close()
+
+        second, _ = ingest_book(sample_epub, temp_db, force=True)
+
+        assert second.title == "Hand-Fixed Title"
+        assert second.year == "2021"
 
 
 class TestFTS:
@@ -584,16 +665,16 @@ class TestEmbeddingFailureIsPartialSuccess:
         preflight probe succeeded — would destroy every book's vectors and
         rewrite none of them.
         """
-        import shutil
-        import zipfile
         from unittest.mock import patch
 
-        # A zip comment changes the file bytes (so the hash, so the book id)
-        # while keeping a valid EPUB — two distinct books to reindex.
-        second = tmp_path / "second.epub"
-        shutil.copy(sample_epub, second)
-        with zipfile.ZipFile(second, "a") as archive:
-            archive.comment = b"variant"
+        # Distinct content, or content dedup would treat it as the same book.
+        second = create_test_epub(
+            title="Second Book",
+            chapters=[
+                {"title": "Other", "content": "<p>Entirely different prose about rivers.</p>"}
+            ],
+            output_path=tmp_path / "second.epub",
+        )
 
         ingest_book(sample_epub, temp_db, embed=False)
         ingest_book(second, temp_db, embed=False)
