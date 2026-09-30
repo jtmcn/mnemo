@@ -9,6 +9,20 @@ from mnemo.chunking.tokenizer import count_tokens, split_by_tokens
 from mnemo.models import ContentType
 from mnemo.parsing.models import ContentBlock
 
+
+def _words(n: int) -> str:
+    """Text of exactly n tokens ("word" is one token)."""
+    return " ".join(["word"] * n)
+
+
+def _block(content: str, kind: ContentType = ContentType.TEXT, path=("Ch1",), language=None):
+    return ContentBlock(
+        content=content, content_type=kind, section_path=list(path), language=language
+    )
+
+
+LISTING = "\n".join(f"    x{i} = compute({i})" for i in range(300))  # ~2400 tokens
+
 # =============================================================================
 # Token Counting Tests
 # =============================================================================
@@ -374,7 +388,7 @@ class TestChunkLinking:
             ContentBlock(
                 content="Second content.",
                 content_type=ContentType.TEXT,
-                section_path=["Ch1"],
+                section_path=["Ch2"],
                 source_file="ch1.html",
             ),
         ]
@@ -396,7 +410,7 @@ class TestChunkLinking:
             ContentBlock(
                 content="Second content.",
                 content_type=ContentType.TEXT,
-                section_path=["Ch1"],
+                section_path=["Ch2"],
                 source_file="ch1.html",
             ),
         ]
@@ -418,13 +432,13 @@ class TestChunkLinking:
             ContentBlock(
                 content="Second.",
                 content_type=ContentType.TEXT,
-                section_path=["Ch1"],
+                section_path=["Ch2"],
                 source_file="ch1.html",
             ),
             ContentBlock(
                 content="Third.",
                 content_type=ContentType.TEXT,
-                section_path=["Ch1"],
+                section_path=["Ch3"],
                 source_file="ch1.html",
             ),
         ]
@@ -442,7 +456,7 @@ class TestChunkLinking:
             ContentBlock(
                 content=f"Content {i}.",
                 content_type=ContentType.TEXT,
-                section_path=["Ch1"],
+                section_path=[f"Ch{i}"],
                 source_file="ch1.html",
             )
             for i in range(5)
@@ -479,26 +493,26 @@ class TestChunkerIntegration:
             ContentBlock(
                 content="def hello():\n    print('hi')",
                 content_type=ContentType.CODE,
-                section_path=["Ch1"],
+                section_path=["Ch2"],
                 language="python",
                 source_file="ch1.html",
             ),
             ContentBlock(
                 content="| A | B |\n|---|---|\n| 1 | 2 |",
                 content_type=ContentType.TABLE,
-                section_path=["Ch1"],
+                section_path=["Ch3"],
                 source_file="ch1.html",
             ),
             ContentBlock(
                 content="+--+\n|  |\n+--+",
                 content_type=ContentType.DIAGRAM,
-                section_path=["Ch1"],
+                section_path=["Ch4"],
                 source_file="ch1.html",
             ),
             ContentBlock(
                 content="$x^2 + y^2 = z^2$",
                 content_type=ContentType.MATH,
-                section_path=["Ch1"],
+                section_path=["Ch5"],
                 source_file="ch1.html",
             ),
         ]
@@ -543,7 +557,7 @@ class TestChunkerIntegration:
             ContentBlock(
                 content=f"Content {i}.",
                 content_type=ContentType.TEXT,
-                section_path=["Ch1"],
+                section_path=[f"Ch{i}"],
                 source_file="ch1.html",
             )
             for i in range(10)
@@ -561,7 +575,7 @@ class TestChunkerIntegration:
             ContentBlock(
                 content=f"Content {i}.",
                 content_type=ContentType.TEXT,
-                section_path=["Ch1"],
+                section_path=[f"Ch{i}"],
                 source_file="ch1.html",
             )
             for i in range(5)
@@ -683,3 +697,122 @@ class TestTruncateToTokens:
         from mnemo.chunking.tokenizer import truncate_to_tokens
 
         assert truncate_to_tokens("", 10) == ""
+
+
+class TestUndersizedMerging:
+    """Undersized drafts join a neighbour; large atomic blocks stay whole."""
+
+    def test_heading_followed_by_paragraph_is_one_chunk(self):
+        chunks = Chunker().chunk("a1b2c3", [_block("3 Storage Engines"), _block(_words(200))])
+
+        assert len(chunks) == 1
+        assert chunks[0].content.startswith("3 Storage Engines\n\n")
+
+    def test_one_word_code_between_paragraphs_is_not_its_own_chunk(self):
+        blocks = [
+            _block(_words(100)),
+            _block("data", ContentType.CODE, language="python"),
+            _block(_words(100)),
+        ]
+
+        chunks = Chunker().chunk("a1b2c3", blocks)
+
+        assert len(chunks) == 1
+        assert "\n\ndata\n\n" in chunks[0].content
+        assert chunks[0].content_type == ContentType.TEXT
+        assert chunks[0].language is None
+
+    def test_300_line_listing_is_still_one_chunk(self):
+        blocks = [
+            _block("Here is the listing:"),
+            _block(LISTING, ContentType.CODE, language="python"),
+            _block(_words(100)),
+        ]
+
+        chunks = Chunker().chunk("a1b2c3", blocks)
+
+        holding = [c for c in chunks if LISTING in c.content]
+        assert len(holding) == 1
+        assert holding[0].content_type == ContentType.CODE
+        assert holding[0].language == "python"
+        assert holding[0].content.startswith("Here is the listing:\n\n")
+
+    def test_no_undersized_chunk_except_last_in_section(self):
+        blocks = [_block("1 Introduction")]
+        blocks += [_block(_words(60)) for _ in range(20)]
+        blocks.append(_block("data", ContentType.CODE))
+        blocks += [_block(_words(60)) for _ in range(10)]
+        blocks.append(_block(_words(50), path=("Ch2",)))
+        blocks += [_block(_words(60), path=("Ch2",)) for _ in range(15)]
+        config = ChunkerConfig(min_tokens=400, max_tokens=800)
+
+        chunks = Chunker(config).chunk("a1b2c3", blocks)
+
+        for i, chunk in enumerate(chunks[:-1]):
+            last_in_section = chunks[i + 1].section_path != chunk.section_path
+            assert last_in_section or chunk.token_count >= config.min_tokens, (
+                f"chunk {i} has {chunk.token_count} tokens"
+            )
+
+    def test_heading_only_section_carries_into_child_section(self):
+        blocks = [
+            _block("V KNOWLEDGE GRAPH ECOSYSTEMS", path=("Part V",)),
+            _block(_words(300), path=("Part V", "15 Graph Stores")),
+        ]
+
+        chunks = Chunker().chunk("a1b2c3", blocks)
+
+        assert len(chunks) == 1
+        assert chunks[0].section_path == ["Part V", "15 Graph Stores"]
+        assert chunks[0].sections == ["Part V", "15 Graph Stores"]
+
+    def test_sibling_sections_never_merge(self):
+        blocks = [_block(_words(50), path=("Ch1",)), _block(_words(50), path=("Ch2",))]
+
+        chunks = Chunker().chunk("a1b2c3", blocks)
+
+        assert [c.section_path for c in chunks] == [["Ch1"], ["Ch2"]]
+
+    def test_full_parent_text_does_not_absorb_child_section(self):
+        blocks = [
+            _block(_words(500), path=("Ch1",)),
+            _block(_words(50), path=("Ch1", "1.1")),
+        ]
+
+        chunks = Chunker().chunk("a1b2c3", blocks)
+
+        assert [c.section_path for c in chunks] == [["Ch1"], ["Ch1", "1.1"]]
+
+    def test_text_after_whole_block_is_not_merged_into_it(self):
+        blocks = [
+            _block(LISTING, ContentType.CODE),
+            _block(_words(50)),
+        ]
+
+        chunks = Chunker().chunk("a1b2c3", blocks)
+
+        assert len(chunks) == 2
+        assert chunks[0].content == LISTING
+
+    def test_merged_text_never_exceeds_max(self):
+        blocks = [_block(_words(n)) for n in (90, 350, 20, 700, 5, 399, 401, 60) * 4]
+        config = ChunkerConfig(min_tokens=400, max_tokens=800)
+
+        chunks = Chunker(config).chunk("a1b2c3", blocks)
+
+        assert all(c.token_count <= config.max_tokens for c in chunks)
+
+    def test_merge_preserves_all_content_in_order(self):
+        contents = [f"marker{i} " + _words(i * 37 % 300) for i in range(40)]
+        blocks = [_block(c) for c in contents]
+
+        chunks = Chunker().chunk("a1b2c3", blocks)
+
+        joined = "\n\n".join(c.content for c in chunks)
+        assert joined == "\n\n".join(contents)
+
+    def test_lone_tiny_code_block_keeps_its_type(self):
+        chunks = Chunker().chunk("a1b2c3", [_block("x = 1", ContentType.CODE, language="python")])
+
+        assert chunks[0].content_type == ContentType.CODE
+        assert chunks[0].language == "python"

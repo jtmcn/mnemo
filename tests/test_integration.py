@@ -100,9 +100,9 @@ class TestIngestion:
         conn.close()
 
         # Chapter 3 has 100 repetitions of prose, should trigger chunking
-        # We should have more chunks than just 3 (one per chapter)
-        text_chunks = [c for c in chunks if c.content_type == ContentType.TEXT]
-        assert len(text_chunks) > 3
+        # Short intro blocks merge, but chapter 3's long prose still splits
+        ch3 = [c for c in chunks if c.section_path == ["Chapter 3: Best Practices"]]
+        assert len(ch3) > 1
 
     def test_section_paths_populated(self, sample_epub: Path, temp_db: Path):
         """Chunks have non-empty section paths."""
