@@ -18,7 +18,7 @@ endpoint configured (keyword-only mode):
 
 ```console
 $ mnemo add tests/fixtures/sample.epub
-Added: Python Testing Guide by Test Author (10b05d) - 8 chunks
+Added: Python Testing Guide by Test Author (10b05d) - 5 chunks
 Note: ISBN 9781234567890 may be invalid (bad checksum)
 Embeddings skipped: MNEMO_EMBED_BASE_URL must be set to an OpenAI-compatible endpoint
 (e.g. https://api.openai.com/v1), along with MNEMO_EMBED_API_KEY unless the provider
@@ -113,6 +113,11 @@ first insert. Re-embed from scratch after a switch:
 ```sh
 rm -rf ~/.mnemo/chroma && mnemo reindex
 ```
+
+## Upgrading
+
+- **2.6.0** changes chunk boundaries: headings and tiny code fragments no
+  longer stand alone. Run `mnemo reindex` to rebuild existing books.
 
 ## CLI
 

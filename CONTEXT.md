@@ -23,6 +23,9 @@ heading hierarchy it sits under) and its `sequence` within the Book. Chunks
 are what search returns and what gets embedded. Code, math and table blocks
 are never split across Chunks, which is why a single Chunk can exceed the
 embedding provider's per-input limit.
+Small blocks are merged instead: a heading, a short paragraph or a one-line
+code fragment joins its neighbour in the same section (or the first chunk of a
+child section) up to `max_tokens`, so no Chunk is a bare heading.
 
 ## Collection
 
