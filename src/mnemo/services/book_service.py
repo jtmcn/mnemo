@@ -215,12 +215,9 @@ def intake(
     except FileNotFoundError as e:
         return _rejected("not_found", str(e))
     except Exception as e:
-        # Only clean up a book we could have created. On the replace path the
-        # hash still resolves to the user's existing, healthy book until
-        # ingest_book reaches its own delete — removing that would destroy a
-        # good book because a re-parse of a since-corrupted file failed.
-        if existing is None:
-            _discard_partial(pre_parsed.file_hash, db_path, chroma_path)
+        # A replacement keeps the old book's added_at, so only a book newer than
+        # this run is ours to remove; anything older holds the user's id and edits.
+        _discard_partial(pre_parsed.file_hash, started, db_path, chroma_path)
         return _rejected("pipeline_error", f"Failed to add {path}: {e}")
 
     # A content match replaces a book under its own id, so it is not "similar" to itself.
@@ -279,8 +276,10 @@ def _lookup(pre_parsed: Book, db_path: Path | None) -> tuple[Book | None, list[B
         conn.close()
 
 
-def _discard_partial(file_hash: str, db_path: Path | None, chroma_path: Path | None) -> None:
-    """Remove a book the failed pipeline had already committed.
+def _discard_partial(
+    file_hash: str, started: datetime, db_path: Path | None, chroma_path: Path | None
+) -> None:
+    """Remove a book the failed pipeline had already added since `started`.
 
     Best effort: the run has already failed, and a cleanup error would mask
     the real cause.
@@ -294,7 +293,7 @@ def _discard_partial(file_hash: str, db_path: Path | None, chroma_path: Path | N
             partial = BookRepository(conn).get_by_hash(file_hash)
         finally:
             conn.close()
-        if partial:
+        if partial and partial.added_at >= started:
             remove_book(partial.id, db_path=db_path, chroma_path=chroma_path)
     except Exception:
         logger.exception("Cleanup after a failed intake did not complete")

@@ -400,6 +400,87 @@ class TestContentDedup:
         assert second.year == "2021"
 
 
+class TestReplaceIsAtomic:
+    """A replace that fails part-way leaves the existing book, edits and all."""
+
+    @staticmethod
+    def _retitle(db: Path, book_id: str, title: str) -> None:
+        conn = get_connection(db)
+        BookRepository(conn).update(book_id, title=title)
+        conn.commit()
+        conn.close()
+
+    @staticmethod
+    def _snapshot(db: Path) -> list[tuple[str, str, list[str]]]:
+        conn = get_connection(db)
+        try:
+            chunks = ChunkRepository(conn)
+            return [
+                (b.id, b.title, [c.id for c in chunks.get_by_book(b.id)])
+                for b in BookRepository(conn).list_all()
+            ]
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _explode(*_args, **_kwargs):
+        raise RuntimeError("chunker broke")
+
+    def test_chunker_failure_keeps_the_hash_matched_book(
+        self, sample_epub: Path, temp_db: Path, monkeypatch
+    ):
+        book, _ = ingest_book(sample_epub, temp_db)
+        self._retitle(temp_db, book.id, "Hand-Fixed Title")
+        before = self._snapshot(temp_db)
+        monkeypatch.setattr(mnemo_ingest.Chunker, "chunk", self._explode)
+
+        with pytest.raises(RuntimeError, match="chunker broke"):
+            ingest_book(sample_epub, temp_db, force=True)
+
+        assert before[0][:2] == (book.id, "Hand-Fixed Title") and before[0][2]
+        assert self._snapshot(temp_db) == before
+
+    def test_chunker_failure_keeps_the_content_matched_book(
+        self, tmp_path: Path, temp_db: Path, monkeypatch
+    ):
+        original = create_test_pdf(tmp_path / "a.pdf", title="The Ontology Pipeline")
+        edited = create_test_pdf(tmp_path / "b.pdf", title="Ontology-Pipeline")
+        book, _ = ingest_book(original, temp_db)
+        self._retitle(temp_db, book.id, "Hand-Fixed Title")
+        before = self._snapshot(temp_db)
+        monkeypatch.setattr(mnemo_ingest.Chunker, "chunk", self._explode)
+
+        with pytest.raises(RuntimeError, match="chunker broke"):
+            ingest_book(edited, temp_db, force=True)
+
+        assert self._snapshot(temp_db) == before
+
+    def test_vector_store_open_failure_leaves_sql_consistent(
+        self, sample_epub: Path, temp_db: Path, monkeypatch
+    ):
+        book, _ = ingest_book(sample_epub, temp_db)
+        self._retitle(temp_db, book.id, "Hand-Fixed Title")
+
+        class Unopenable:
+            def __init__(self, _config):
+                raise RuntimeError("chroma will not open")
+
+        monkeypatch.setattr("mnemo.vectors.VectorStore", Unopenable)
+
+        with pytest.raises(RuntimeError, match="chroma will not open"):
+            ingest_book(sample_epub, temp_db, force=True)
+
+        after = self._snapshot(temp_db)
+        assert [(b_id, title) for b_id, title, _ in after] == [(book.id, "Hand-Fixed Title")]
+        assert after[0][2]
+        conn = get_connection(temp_db)
+        orphans = conn.execute(
+            "SELECT COUNT(*) FROM chunks WHERE book_id NOT IN (SELECT id FROM books)"
+        ).fetchone()[0]
+        conn.close()
+        assert orphans == 0
+
+
 class TestFTS:
     """Tests for full-text search functionality."""
 

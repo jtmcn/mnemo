@@ -1128,9 +1128,11 @@ class TestAddBookIntegration:
 
         # Simulate ingest_book storing a partial book record before failing
         # during embedding. The side_effect adds the book to the DB then raises.
-        partial_book = self._make_mock_book(id="bbb001", file_hash="f" * 64, title="Partial Book")
-
         def ingest_side_effect(*args, **kwargs):
+            # Added during this run, so newer than intake's start.
+            partial_book = self._make_mock_book(
+                id="bbb001", file_hash="f" * 64, title="Partial Book", added_at=datetime.now(UTC)
+            )
             book_repo = BookRepository(temp_db["conn"])
             book_repo.add(partial_book)
             raise Exception("Embedding failed")

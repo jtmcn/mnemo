@@ -314,8 +314,8 @@ class TestCleanupIsNotDestructive:
 
         pre_parse_metadata only reads the OPF while parse_book walks the whole
         spine, so a since-corrupted file passes the first and fails the second.
-        ingest_book deletes the old record at step 5, after the parse at step
-        3 — so on the failure path the hash still resolves to the good book.
+        ingest_book swaps the old record out in one transaction after parsing
+        and chunking, so on the failure path the hash still resolves to the good book.
         """
         first = intake(sample_epub, db_path=temp_db, embed=False)
         assert first.status == "added"
@@ -332,6 +332,43 @@ class TestCleanupIsNotDestructive:
             assert [b.id for b in BookRepository(conn).list_all()] == [first.book.id]
         finally:
             conn.close()
+
+    def test_failed_replace_keeps_the_edited_title(self, sample_epub: Path, temp_db: Path):
+        first = intake(sample_epub, db_path=temp_db, embed=False)
+        assert first.book is not None
+        conn = get_connection(temp_db)
+        BookRepository(conn).update(first.book.id, title="Hand-Fixed Title")
+        conn.commit()
+        conn.close()
+
+        with patch("mnemo.ingest.Chunker.chunk", side_effect=RuntimeError("chunker broke")):
+            outcome = intake(sample_epub, db_path=temp_db, embed=False, on_duplicate="replace")
+
+        assert outcome.reason == "pipeline_error"
+        conn = get_connection(temp_db)
+        try:
+            books = BookRepository(conn).list_all()
+        finally:
+            conn.close()
+        assert [(b.id, b.title) for b in books] == [(first.book.id, "Hand-Fixed Title")]
+
+    def test_committed_content_replace_is_not_discarded(self, tmp_path: Path, temp_db: Path):
+        """A vector cleanup failure after the commit must not remove the replacement."""
+        original = create_test_pdf(tmp_path / "a.pdf", title="The Ontology Pipeline")
+        edited = create_test_pdf(tmp_path / "b.pdf", title="Ontology-Pipeline")
+        first = intake(original, db_path=temp_db, embed=False)
+        assert first.book is not None
+
+        with patch("mnemo.vectors.VectorStore", side_effect=RuntimeError("chroma down")):
+            outcome = intake(edited, db_path=temp_db, embed=False, on_duplicate="replace")
+
+        assert outcome.reason == "pipeline_error"
+        conn = get_connection(temp_db)
+        try:
+            books = BookRepository(conn).list_all()
+        finally:
+            conn.close()
+        assert [(b.id, b.title) for b in books] == [(first.book.id, "The Ontology Pipeline")]
 
 
 class TestFailureClassification:

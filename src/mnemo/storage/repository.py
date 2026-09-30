@@ -30,11 +30,12 @@ class BookRepository:
         """
         self.conn = conn
 
-    def add(self, book: Book) -> Book:
+    def add(self, book: Book, *, commit: bool = True) -> Book:
         """Insert a book into the database.
 
         Args:
             book: Book instance to insert
+            commit: Commit now; False leaves it to the caller's transaction
 
         Returns:
             The same book instance (confirms successful insert)
@@ -66,7 +67,8 @@ class BookRepository:
                 book.content_hash,
             ),
         )
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
         return book
 
     def get(self, book_id: str) -> Book | None:
@@ -115,19 +117,21 @@ class BookRepository:
         rows = self.conn.execute("SELECT * FROM books ORDER BY added_at DESC").fetchall()
         return [self._row_to_book(row) for row in rows]
 
-    def delete(self, book_id: str) -> bool:
+    def delete(self, book_id: str, *, commit: bool = True) -> bool:
         """Delete a book by ID.
 
         Chunks are automatically deleted via FK cascade.
 
         Args:
             book_id: 6-char hex book identifier
+            commit: Commit now; False leaves it to the caller's transaction
 
         Returns:
             True if book was deleted, False if not found
         """
         cursor = self.conn.execute("DELETE FROM books WHERE id = ?", (book_id,))
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
         return cursor.rowcount > 0
 
     def find_similar_title(self, title: str, threshold: float = 0.8) -> list[Book]:
@@ -280,13 +284,14 @@ class ChunkRepository:
         """
         self.conn = conn
 
-    def add_many(self, chunks: list[Chunk]) -> list[Chunk]:
+    def add_many(self, chunks: list[Chunk], *, commit: bool = True) -> list[Chunk]:
         """Bulk insert chunks efficiently.
 
         Uses executemany for better performance with large batches.
 
         Args:
             chunks: List of Chunk instances to insert
+            commit: Commit now; False leaves it to the caller's transaction
 
         Returns:
             The same list of chunks (confirms successful insert)
@@ -321,7 +326,8 @@ class ChunkRepository:
                 for chunk in chunks
             ],
         )
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
         return chunks
 
     def get(self, chunk_id: str) -> Chunk | None:

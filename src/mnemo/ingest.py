@@ -180,6 +180,20 @@ def _carry_over(parsed: Book, previous: Book, force_metadata: bool) -> Book:
     return parsed.model_copy(update=updates)
 
 
+def _delete_vectors(book_ids: set[str], chroma_path: Path | None) -> None:
+    try:
+        from mnemo.vectors import VectorConfig, VectorStore
+    except ImportError:
+        return  # Vectors module not available
+    store = VectorStore(VectorConfig(persist_path=chroma_path))
+    # close() releases Chroma's file descriptors, so it runs even when a delete fails.
+    try:
+        for book_id in book_ids:
+            store.delete_by_book(book_id)
+    finally:
+        store.close()
+
+
 def ingest_book(
     book_path: Path,
     db_path: Path | None = None,
@@ -258,41 +272,30 @@ def ingest_book(
                 existing, f"Book already indexed (id: {existing.id}). Use force=True to re-index."
             )
 
-        # 5. Delete the old version (including vectors), keeping its id and edits.
+        # 5. The new book takes the old version's id and edits.
         previous = (book_repo.get(replaces) if replaces else None) or existing
         if previous is not None:
             book = _carry_over(book, previous, force_metadata)
         stale_ids = {existing.id} if existing and force else set()
         if replaces:
             stale_ids.add(replaces)
-        for stale_id in stale_ids:
-            book_repo.delete(stale_id)
-        if stale_ids:
-            # Also delete vectors if they exist
-            try:
-                from mnemo.vectors import VectorConfig, VectorStore
-            except ImportError:
-                pass  # Vectors module not available
-            else:
-                # close() releases Chroma's file descriptors, so it has to run
-                # even when the delete fails — same reason as the outer finally.
-                store = VectorStore(VectorConfig(persist_path=chroma_path))
-                try:
-                    for stale_id in stale_ids:
-                        store.delete_by_book(stale_id)
-                finally:
-                    store.close()
 
-        # 6. Chunk content
+        # 6. Chunk before touching the database, so a failure here changes nothing.
         chunker = Chunker(chunker_config)
         chunks = chunker.chunk(book.id, content_blocks)
 
-        # 7. Store
-        book_repo.add(book)
-        chunk_repo.add_many(chunks)
+        # 7. Swap old rows for new in one transaction; an error rolls it all back.
+        for stale_id in stale_ids:
+            book_repo.delete(stale_id, commit=False)
+        book_repo.add(book, commit=False)
+        chunk_repo.add_many(chunks, commit=False)
         conn.commit()
     finally:
         conn.close()
+
+    # 7b. Old vectors go only once the SQL swap is committed.
+    if stale_ids:
+        _delete_vectors(stale_ids, chroma_path)
 
     # 8. Optionally embed. The book is already committed at this point, so an
     # embedding failure is partial success, not an ingest failure.
