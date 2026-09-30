@@ -90,8 +90,9 @@ def add(
         bool,
         typer.Option(
             "--force-metadata",
-            help="When re-indexing a known book, take title/authors from the file "
-            "instead of keeping the library's (possibly hand-edited) values",
+            help="Only when re-indexing a known book (--force, or confirming the "
+            "re-index prompt): take title/authors from the file instead of "
+            "keeping the library's (possibly hand-edited) values",
         ),
     ] = False,
 ) -> None:

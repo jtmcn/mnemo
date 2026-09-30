@@ -8,13 +8,18 @@ every noun in the codebase.
 
 One source file taken into the library, plus its metadata: title, authors,
 ISBN, language, collection, and the absolute path it was read from. Identified
-two ways, and the difference matters:
+three ways, and the difference matters:
 
 - **`id`** — a 6-character hex handle, what users and MCP tools pass around.
 - **`file_hash`** — SHA-256 of the file bytes, what duplicate detection uses.
 
-Two files with identical bytes are the same Book. Two editions of the same
-work are different Books that a *similar title* note may connect.
+- **`content_hash`** — SHA-256 of the parsed content, which a metadata-only
+  edit of the file (macOS Preview rewriting a PDF's title) does not change.
+
+Two files with identical bytes, or identical parsed content, are the same
+Book. Re-adding or reindexing a Book keeps its `id` and any metadata edited
+with `update_book_metadata`, unless `--force-metadata` is passed. Two editions
+of the same work are different Books that a *similar title* note may connect.
 
 ## Chunk
 
@@ -63,7 +68,7 @@ still lose its vectors, which one tag cannot express.
 ## Note
 
 An advisory finding attached to an Intake Outcome that does not change what
-happened — a similar title, a suspect ISBN, embeddings that were skipped. Each
+happened — a similar title, a suspect ISBN, a title that looks like a file name, embeddings that were skipped. Each
 carries a `kind` for front ends to switch on and a pre-composed `message`, so
 the CLI and MCP cannot word the same finding differently.
 
