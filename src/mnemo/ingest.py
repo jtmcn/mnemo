@@ -416,8 +416,8 @@ def reindex_all_books(
             request (bad key, unknown model, unreachable host). Both are
             raised before any book is touched, since reindexing is destructive.
     """
-    # ingest_book deletes a book's existing vectors before re-embedding it
-    # (step 5), so a provider that fails mid-run strips the library one book at
+    # store_book deletes a book's existing vectors before re-embedding it,
+    # so a provider that fails mid-run strips the library one book at
     # a time. A real round-trip is the only preflight that catches a bad key or
     # model, not just a missing base URL. Costs one embedding of one word.
     if embed:
@@ -449,66 +449,74 @@ def reindex_all_books(
             continue
 
         try:
-            new_book, chunk_count = ingest_book(
-                Path(book_file),
+            parsed, blocks = parse_book(Path(book_file))
+            parsed = parsed.model_copy(
+                update={"file_path": str(Path(book_file).resolve()), "collection": book.collection}
+            )
+            conn = get_connection(db_path)
+            try:
+                repo = BookRepository(conn)
+                twin = repo.get_by_hash(parsed.file_hash)
+                # An earlier iteration may have folded this entry into its byte-twin.
+                previous = repo.get(book.id) or twin
+            finally:
+                conn.close()
+            stored = store_book(
+                carry_over(parsed, previous, False) if previous else parsed,
+                blocks,
+                replaces=frozenset({book.id} | ({twin.id} if twin else set())),
+                chunker_config=chunker_config,
+                embed=embed,
                 db_path=db_path,
                 chroma_path=chroma_path,
-                chunker_config=chunker_config,
-                force=True,
-                embed=embed,
-                collection=book.collection,
-                replaces=book.id,
             )
-            file_hashes[new_book.id] = new_book.file_hash
-            if new_book.id != book.id:
-                # An earlier iteration already folded this entry into new_book.id.
+            file_hashes[stored.book.id] = stored.book.file_hash
+            if stored.book.id != book.id:
                 results.append(
                     {
                         "book_id": book.id,
                         "title": book.title,
                         "status": "merged",
                         "chunks": 0,
-                        "error": f"same file as {new_book.id}",
+                        "error": f"same file as {stored.book.id}",
                     }
                 )
                 continue
+            if stored.embedding == "failed":
+                # Re-parsed, re-chunked and committed; only the vectors are missing.
+                results.append(
+                    {
+                        "book_id": stored.book.id,
+                        "title": stored.book.title,
+                        "status": "partial",
+                        "chunks": stored.chunks,
+                        "error": stored.embed_error,
+                    }
+                )
+                # Every book is re-embedded the same way, so a failure here is a
+                # failure for the rest too — and each one loses its vectors first.
+                # Stop rather than strip the library on an expired token or outage.
+                remaining = books[index + 1 :]
+                results.extend(
+                    {
+                        "book_id": other.id,
+                        "title": other.title,
+                        "status": "skipped",
+                        "chunks": 0,
+                        "error": "Stopped after an embedding failure; not re-indexed",
+                    }
+                    for other in remaining
+                )
+                break
             results.append(
                 {
-                    "book_id": new_book.id,
-                    "title": new_book.title,
+                    "book_id": stored.book.id,
+                    "title": stored.book.title,
                     "status": "success",
-                    "chunks": chunk_count,
+                    "chunks": stored.chunks,
                     "error": None,
                 }
             )
-        except EmbeddingFailed as e:
-            # Re-parsed, re-chunked and committed; only the vectors are missing.
-            results.append(
-                {
-                    "book_id": e.book.id,
-                    "title": e.book.title,
-                    "status": "partial",
-                    "chunks": e.chunk_count,
-                    "error": str(e),
-                }
-            )
-            # Every book is re-embedded the same way, so a failure here is a
-            # failure for the rest too — and each iteration deletes that book's
-            # vectors first (step 5). Carrying on would strip the whole library
-            # for an expired token or a provider outage, neither of which the
-            # credential preflight can see. Stop and leave the rest untouched.
-            remaining = books[index + 1 :]
-            results.extend(
-                {
-                    "book_id": other.id,
-                    "title": other.title,
-                    "status": "skipped",
-                    "chunks": 0,
-                    "error": "Stopped after an embedding failure; not re-indexed",
-                }
-                for other in remaining
-            )
-            break
         except Exception as e:
             results.append(
                 {
