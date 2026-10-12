@@ -81,11 +81,11 @@ def _render_intake(outcome: "IntakeOutcome") -> str:
     book = outcome.book
 
     if outcome.status == "rejected":
-        if outcome.reason == "duplicate" and book is not None:
+        if outcome.reason in ("duplicate", "duplicate_content") and book is not None:
             authors = ", ".join(book.authors) if book.authors else "Unknown"
             what = (
                 "Book with the same content but different file metadata already exists"
-                if "same content" in outcome.message
+                if outcome.reason == "duplicate_content"
                 else "Book already exists"
             )
             return (

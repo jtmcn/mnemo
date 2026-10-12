@@ -73,36 +73,15 @@ class TestRejections:
         outcome = intake(create_blank_pdf(tmp_path / "scan.pdf"), db_path=temp_db, embed=False)
 
         assert outcome.status == "rejected"
-        assert outcome.reason == "pipeline_error"
+        assert outcome.reason == "parse_failed"
         assert "no extractable text" in outcome.message
 
     def test_pipeline_failure_is_reported_not_raised(self, sample_epub: Path, temp_db: Path):
-        with patch("mnemo.ingest.ingest_book", side_effect=RuntimeError("disk gone")):
+        with patch("mnemo.services.book_service.store_book", side_effect=RuntimeError("disk gone")):
             outcome = intake(sample_epub, db_path=temp_db, embed=False)
 
         assert outcome.status == "rejected"
         assert outcome.reason == "pipeline_error"
-
-    def test_pipeline_failure_cleans_up_a_stored_book(self, sample_epub: Path, temp_db: Path):
-        """A book committed before the failure must not survive as a partial record."""
-        from mnemo.ingest import ingest_book as real_ingest
-
-        def store_then_fail(*args, **kwargs):
-            real_ingest(*args, **kwargs)
-            raise RuntimeError("failed after commit")
-
-        with patch("mnemo.ingest.ingest_book", side_effect=store_then_fail):
-            outcome = intake(sample_epub, db_path=temp_db, embed=False)
-
-        assert outcome.status == "rejected"
-        assert outcome.reason == "pipeline_error"
-
-        init_db(temp_db)
-        conn = get_connection(temp_db)
-        try:
-            assert BookRepository(conn).list_all() == []
-        finally:
-            conn.close()
 
 
 class TestFreshIntake:
@@ -188,12 +167,13 @@ class TestDuplicatePolicy:
         finally:
             conn.close()
 
-    def test_skip_does_not_run_the_pipeline(self, indexed, sample_epub: Path, temp_db: Path):
-        """Skipping a duplicate must not re-chunk or re-store anything."""
-        with patch("mnemo.ingest.ingest_book") as pipeline:
-            intake(sample_epub, db_path=temp_db, embed=False, on_duplicate="skip")
+    def test_skip_does_not_parse(self, indexed, sample_epub: Path, temp_db: Path):
+        """A byte duplicate is skipped on its hash alone, so bulk --skip-existing stays fast."""
+        with patch("mnemo.services.book_service.parse_book") as parse:
+            outcome = intake(sample_epub, db_path=temp_db, embed=False, on_duplicate="skip")
 
-        pipeline.assert_not_called()
+        assert outcome.status == "already_indexed"
+        parse.assert_not_called()
 
 
 class TestNotes:
@@ -232,6 +212,25 @@ class TestNotes:
             title="Effective Python Testing!",
             chapters=[{"title": "One", "content": "<p>Second edition body text.</p>"}],
             output_path=tmp_path / "second.epub",
+        )
+        intake(first, db_path=temp_db, embed=False)
+
+        outcome = intake(second, db_path=temp_db, embed=False)
+
+        assert outcome.status == "added"
+        assert "similar_title" in kinds(outcome)
+
+    def test_similar_title_uses_the_parsed_pdf_title(self, tmp_path: Path, temp_db: Path):
+        """A PDF's title comes from its metadata, not its file name."""
+        first = create_test_pdf(
+            tmp_path / "a.pdf",
+            items=[Para(["First book body. " * 20])],
+            title="Domain Driven Design",
+        )
+        second = create_test_pdf(
+            tmp_path / "scan-0042.pdf",
+            items=[Para(["Different body text. " * 20])],
+            title="Domain-Driven Design",
         )
         intake(first, db_path=temp_db, embed=False)
 
@@ -289,42 +288,34 @@ class TestEmbedding:
         assert outcome.embedded is False
         assert "embeddings_skipped" in kinds(outcome)
 
-    def test_nothing_to_embed_advises_no_retry(self, sample_epub: Path, temp_db: Path):
-        """All-boilerplate books can never be embedded, so the retry note must not fire.
-
-        embedded stays True here, matching what `mnemo add --json` has always
-        reported: ingest_book swallows NothingToEmbed and returns normally, so
-        intake cannot tell it apart from a successful embed without changing
-        ingest_book's signature. See the ponytail note in book_service.
-        """
+    def test_nothing_to_embed_is_its_own_note(self, sample_epub: Path, temp_db: Path):
+        """All-boilerplate books can never be embedded, so no retry advice fires."""
         from mnemo.ingest import NothingToEmbed
 
         with patch("mnemo.ingest.embed_book", side_effect=NothingToEmbed("all boilerplate")):
             outcome = intake(sample_epub, db_path=temp_db, embed=True)
 
         assert outcome.status == "added"
+        assert outcome.embedded is False
+        assert "nothing_to_embed" in kinds(outcome)
         assert "embeddings_skipped" not in kinds(outcome)
 
 
-class TestCleanupIsNotDestructive:
-    """Cleanup must only ever remove a book this run could have created."""
+class TestFailedReplaceKeepsTheBook:
+    """A replace that fails before its commit leaves the existing book, edits and all."""
 
     def test_failed_replace_keeps_the_existing_book(self, sample_epub: Path, temp_db: Path):
-        """A re-parse that fails must not delete the healthy book it was replacing.
-
-        pre_parse_metadata only reads the OPF while parse_book walks the whole
-        spine, so a since-corrupted file passes the first and fails the second.
-        ingest_book swaps the old record out in one transaction after parsing
-        and chunking, so on the failure path the hash still resolves to the good book.
-        """
+        """A re-parse that fails must not delete the healthy book it was replacing."""
         first = intake(sample_epub, db_path=temp_db, embed=False)
         assert first.status == "added"
 
-        with patch("mnemo.ingest.parse_book", side_effect=RuntimeError("corrupt spine")):
+        with patch(
+            "mnemo.services.book_service.parse_book", side_effect=RuntimeError("corrupt spine")
+        ):
             outcome = intake(sample_epub, db_path=temp_db, embed=False, on_duplicate="replace")
 
         assert outcome.status == "rejected"
-        assert outcome.reason == "pipeline_error"
+        assert outcome.reason == "parse_failed"
 
         init_db(temp_db)
         conn = get_connection(temp_db)
@@ -353,7 +344,7 @@ class TestCleanupIsNotDestructive:
         assert [(b.id, b.title) for b in books] == [(first.book.id, "Hand-Fixed Title")]
 
     def test_committed_content_replace_is_not_discarded(self, tmp_path: Path, temp_db: Path):
-        """A vector cleanup failure after the commit must not remove the replacement."""
+        """A vector cleanup failure after the commit is partial success, not a rollback."""
         original = create_test_pdf(tmp_path / "a.pdf", title="The Ontology Pipeline")
         edited = create_test_pdf(tmp_path / "b.pdf", title="Ontology-Pipeline")
         first = intake(original, db_path=temp_db, embed=False)
@@ -362,7 +353,9 @@ class TestCleanupIsNotDestructive:
         with patch("mnemo.vectors.VectorStore", side_effect=RuntimeError("chroma down")):
             outcome = intake(edited, db_path=temp_db, embed=False, on_duplicate="replace")
 
-        assert outcome.reason == "pipeline_error"
+        assert outcome.status == "replaced"
+        assert outcome.embedded is False
+        assert "embeddings_skipped" in kinds(outcome)
         conn = get_connection(temp_db)
         try:
             books = BookRepository(conn).list_all()
@@ -372,49 +365,18 @@ class TestCleanupIsNotDestructive:
 
 
 class TestFailureClassification:
-    """A broken book is a pipeline error, not a duplicate."""
+    """A broken book is a parse failure, not a duplicate."""
 
     def test_validation_error_is_not_a_duplicate(self, sample_epub: Path, temp_db: Path):
         """pydantic.ValidationError subclasses ValueError, as does the duplicate guard."""
         import pydantic
 
         broken = pydantic.ValidationError.from_exception_data("Book", [])
-        with patch("mnemo.ingest.parse_book", side_effect=broken):
+        with patch("mnemo.services.book_service.parse_book", side_effect=broken):
             outcome = intake(sample_epub, db_path=temp_db, embed=False)
 
         assert outcome.status == "rejected"
-        assert outcome.reason == "pipeline_error"
-
-    def test_duplicate_raised_by_the_pipeline_carries_its_book(
-        self, sample_epub: Path, temp_db: Path
-    ):
-        """A book indexed between the lookup and the pipeline is still a duplicate.
-
-        The front ends quote the existing id, so the outcome has to carry it
-        however the duplicate was detected.
-        """
-        from mnemo.ingest import DuplicateBook
-        from mnemo.models import Book
-
-        other = Book(
-            id="abcdef",
-            title="Raced In",
-            authors=["A"],
-            file_hash="f" * 64,
-            structure_source="toc",
-        )
-        with patch(
-            "mnemo.ingest.ingest_book",
-            side_effect=DuplicateBook(other, "Book already indexed (id: abcdef)."),
-        ):
-            outcome = intake(sample_epub, db_path=temp_db, embed=False)
-
-        assert outcome.status == "rejected"
-        assert outcome.reason == "duplicate"
-        assert outcome.book is not None
-        assert outcome.book.id == "abcdef"
-        # Advice is the front end's to add, so the message must not pre-empt it.
-        assert "force" not in outcome.message.lower()
+        assert outcome.reason == "parse_failed"
 
 
 class TestContentDuplicates:
@@ -433,7 +395,7 @@ class TestContentDuplicates:
         outcome = intake(edited, db_path=temp_db, embed=False)
 
         assert outcome.status == "rejected"
-        assert outcome.reason == "duplicate"
+        assert outcome.reason == "duplicate_content"
         assert outcome.book is not None and outcome.book.id == first.book.id
         assert "same content" in outcome.message
 
@@ -464,7 +426,7 @@ class TestContentDuplicates:
         assert "suspect_metadata" in kinds(outcome)
 
     def test_replace_does_not_point_a_similar_note_at_itself(self, tmp_path: Path, temp_db: Path):
-        # EPUB metadata is read before parsing, so similar-title matching sees the new title.
+        # Similar-title matching reads the parsed title, so it sees the new one.
         chapters = [{"title": "One", "content": "<p>" + "Ontologies, step by step. " * 10 + "</p>"}]
         original = create_test_epub(
             title="The Ontology Pipeline", chapters=chapters, output_path=tmp_path / "a.epub"

@@ -129,11 +129,11 @@ def add(
         if outcome.status == "rejected":
             extra = (
                 {"existing_id": outcome.book.id}
-                if outcome.reason == "duplicate" and outcome.book
+                if outcome.reason in ("duplicate", "duplicate_content") and outcome.book
                 else None
             )
             message = outcome.message
-            if outcome.reason == "duplicate":
+            if outcome.reason in ("duplicate", "duplicate_content"):
                 message += " Use --force to re-index."
             _emit_error(message, json_output, extra)
             raise typer.Exit(1)

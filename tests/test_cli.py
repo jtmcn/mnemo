@@ -4,46 +4,55 @@ from __future__ import annotations
 
 import json
 import re
-from contextlib import contextmanager
-from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from mnemo.cli import app
 from mnemo.cli import console as cli_console
+from mnemo.models import Book
+from mnemo.services.book_service import IntakeOutcome, IntakeStatus, Note, RejectReason
 
 runner = CliRunner()
 
 
-@contextmanager
-def stub_intake(existing=None, similar=()):
-    """Stub the storage lookups intake() makes, leaving the pipeline patchable.
+def _book(**overrides) -> Book:
+    fields = {
+        "id": "abc123",
+        "title": "Test",
+        "authors": ["A"],
+        "file_hash": "a" * 64,
+        "structure_source": "toc",
+    }
+    return Book(**{**fields, **overrides})
 
-    intake() reads the file and hits SQLite before it reaches ingest_book, so
-    a test that patches only ingest_book would trip over both. Patch targets
-    are book_service's own names because it imports them at module level.
-    """
-    from mnemo.models import Book
 
-    stub = Book(
-        id="abc123",
-        title="Test",
-        authors=["A"],
-        file_hash="a" * 64,
-        structure_source="toc",
+def _outcome(
+    status: IntakeStatus = "added",
+    *,
+    book: Book | None = None,
+    chunks: int = 5,
+    embedded: bool = True,
+    notes: tuple[Note, ...] = (),
+    reason: RejectReason | None = None,
+    message: str = "",
+) -> IntakeOutcome:
+    """What intake() returns, for tests of how the CLI renders it."""
+    return IntakeOutcome(
+        status=status,
+        book=book or _book(),
+        chunks=chunks,
+        embedded=embedded,
+        notes=notes,
+        reason=reason,
+        message=message,
     )
-    with (
-        patch("mnemo.services.book_service.init_db"),
-        patch("mnemo.services.book_service.get_connection"),
-        patch("mnemo.services.book_service.pre_parse_metadata", return_value=stub),
-        patch("mnemo.storage.repository.BookRepository.get_by_hash", return_value=existing),
-        patch(
-            "mnemo.storage.repository.BookRepository.find_similar_title",
-            return_value=list(similar),
-        ),
-    ):
-        yield
+
+
+def _intake(*outcomes: IntakeOutcome):
+    """Patch the seam the CLI renders from."""
+    return patch("mnemo.services.book_service.intake", side_effect=list(outcomes))
 
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -145,97 +154,46 @@ class TestAdd:
 class TestAddCollection:
     """Tests for --collection flag on the add command."""
 
-    @patch("mnemo.ingest.ingest_book")
-    def test_add_with_collection_flag_forwards_to_ingest(
-        self,
-        mock_ingest,
-        tmp_path,
-    ) -> None:
-        """`mnemo add file.docx --collection X` calls ingest_book with collection=X."""
-        from mnemo.models import Book
-
+    def test_add_with_collection_flag_forwards_to_intake(self, tmp_path) -> None:
         epub = tmp_path / "book.epub"
         epub.write_bytes(b"fake content")
 
-        mock_book = Book(
-            id="abc123",
-            title="Test",
-            authors=[],
-            file_hash="a" * 64,
-            structure_source="toc",
-        )
-        mock_ingest.return_value = (mock_book, 5)
-
-        with stub_intake():
+        with _intake(_outcome()) as mock_intake:
             result = runner.invoke(
                 app,
                 ["add", str(epub), "--collection", "ERCOT Nodal Protocols", "--json"],
             )
 
         assert result.exit_code == 0
-        mock_ingest.assert_called_once()
-        assert mock_ingest.call_args.kwargs["collection"] == "ERCOT Nodal Protocols"
+        assert mock_intake.call_args.kwargs["collection"] == "ERCOT Nodal Protocols"
 
-    @patch("mnemo.ingest.ingest_book")
-    def test_add_multi_path_with_collection_applies_to_all(
-        self,
-        mock_ingest,
-        tmp_path,
-    ) -> None:
+    def test_add_multi_path_with_collection_applies_to_all(self, tmp_path) -> None:
         """Same --collection value is forwarded for every path in a multi-path invocation."""
-        from mnemo.models import Book
-
         epub1 = tmp_path / "a.epub"
         epub2 = tmp_path / "b.epub"
         epub1.write_bytes(b"content a")
         epub2.write_bytes(b"content b")
 
-        mock_book = Book(
-            id="abc123",
-            title="Test",
-            authors=[],
-            file_hash="a" * 64,
-            structure_source="toc",
-        )
-        mock_ingest.return_value = (mock_book, 5)
-
-        with stub_intake():
+        with _intake(_outcome(), _outcome(book=_book(id="def456"))) as mock_intake:
             result = runner.invoke(
                 app,
                 ["add", str(epub1), str(epub2), "--collection", "Group A", "--json"],
             )
 
         assert result.exit_code == 0
-        assert mock_ingest.call_count == 2
-        for call in mock_ingest.call_args_list:
+        assert mock_intake.call_count == 2
+        for call in mock_intake.call_args_list:
             assert call.kwargs["collection"] == "Group A"
 
-    @patch("mnemo.ingest.ingest_book")
-    def test_add_without_collection_passes_none(
-        self,
-        mock_ingest,
-        tmp_path,
-    ) -> None:
-        """Omitting --collection results in collection=None reaching ingest_book."""
-        from mnemo.models import Book
-
+    def test_add_without_collection_passes_none(self, tmp_path) -> None:
         epub = tmp_path / "book.epub"
         epub.write_bytes(b"fake content")
 
-        mock_book = Book(
-            id="abc123",
-            title="Test",
-            authors=[],
-            file_hash="a" * 64,
-            structure_source="toc",
-        )
-        mock_ingest.return_value = (mock_book, 5)
-
-        with stub_intake():
+        with _intake(_outcome()) as mock_intake:
             result = runner.invoke(app, ["add", str(epub), "--json"])
 
         assert result.exit_code == 0
-        assert mock_ingest.call_args.kwargs.get("collection") is None
+        assert mock_intake.call_args.kwargs["collection"] is None
 
 
 class TestAddForceMetadata:
@@ -666,63 +624,38 @@ class TestSkipExisting:
     blocking y/N prompt on a TTY and the run waits forever.
     """
 
-    @patch("mnemo.ingest.ingest_book")
-    def test_skips_without_prompting(self, mock_ingest, tmp_path) -> None:
-        from mnemo.models import Book
-
+    def test_skips_without_prompting(self, tmp_path) -> None:
         epub = tmp_path / "book.epub"
         epub.write_bytes(b"fake content")
-        already = Book(
-            id="abc123",
-            title="Already Here",
-            authors=["A"],
-            file_hash="a" * 64,
-            structure_source="toc",
-        )
+        skipped = _outcome("already_indexed", book=_book(title="Already Here"), chunks=0)
 
-        with stub_intake(existing=already):
+        with _intake(skipped) as mock_intake:
             result = runner.invoke(app, ["add", "--skip-existing", str(epub)])
 
         assert result.exit_code == 0
         assert "Skipped" in _plain(result.stdout)
-        # The whole point: no re-ingest, and no prompt to block on.
-        mock_ingest.assert_not_called()
+        # The whole point: one skip-only intake, no replace retry.
+        assert [c.kwargs["on_duplicate"] for c in mock_intake.call_args_list] == ["skip"]
 
     @patch("mnemo.cli.typer.confirm")
-    @patch("mnemo.ingest.ingest_book")
-    def test_skips_without_prompting_on_a_tty(
-        self,
-        mock_ingest,
-        mock_confirm,
-        tmp_path,
-        monkeypatch,
-    ) -> None:
+    def test_skips_without_prompting_on_a_tty(self, mock_confirm, tmp_path, monkeypatch) -> None:
         """The prompt only exists on a TTY, which is the case CliRunner never hits.
 
         Without forcing is_terminal, both other tests exercise the non-TTY
         error branch and would pass even if skipping never suppressed the
         blocking confirm.
         """
-        from mnemo.models import Book
-
         monkeypatch.setattr(type(cli_console), "is_terminal", property(lambda self: True))
-
         epub = tmp_path / "book.epub"
         epub.write_bytes(b"fake content")
-        already = Book(
-            id="abc123",
-            title="Already Here",
-            authors=["A"],
-            file_hash="a" * 64,
-            structure_source="toc",
-        )
+        skipped = _outcome("already_indexed", book=_book(title="Already Here"), chunks=0)
 
-        with stub_intake(existing=already):
+        with _intake(skipped) as mock_intake:
             result = runner.invoke(app, ["add", "--skip-existing", str(epub)])
 
         assert result.exit_code == 0
         mock_confirm.assert_not_called()
-        mock_ingest.assert_not_called()
+        assert mock_intake.call_count == 1
 
     def test_force_with_skip_existing_is_rejected(self, tmp_path) -> None:
         """Contradictory flags must not silently re-embed the whole library."""
@@ -734,84 +667,43 @@ class TestSkipExisting:
         assert result.exit_code == 1
         assert "mutually exclusive" in _plain(result.stdout)
 
-    @patch("mnemo.ingest.ingest_book")
-    def test_skip_existing_still_adds_new_books(self, mock_ingest, tmp_path) -> None:
-        from mnemo.models import Book
-
+    def test_skip_existing_still_adds_new_books(self, tmp_path) -> None:
         epub = tmp_path / "fresh.epub"
         epub.write_bytes(b"fake content")
-        mock_ingest.return_value = (
-            Book(
-                id="def456",
-                title="New",
-                authors=["B"],
-                file_hash="b" * 64,
-                structure_source="toc",
-            ),
-            12,
-        )
 
-        with stub_intake():
+        with _intake(_outcome(book=_book(id="def456", title="New"), chunks=12)):
             result = runner.invoke(app, ["add", "--skip-existing", str(epub)])
 
         assert result.exit_code == 0
         assert "Added" in _plain(result.stdout)
-        mock_ingest.assert_called_once()
 
 
 class TestDuplicateReporting:
-    """Both ways a duplicate is detected must report identically."""
+    """Both kinds of duplicate must report identically in --json."""
 
-    def test_json_duplicate_carries_existing_id(self, tmp_path) -> None:
-        from mnemo.models import Book
-
-        epub = tmp_path / "book.epub"
-        epub.write_bytes(b"fake content")
-        already = Book(
-            id="abc123",
-            title="Already Here",
-            authors=["A"],
-            file_hash="a" * 64,
-            structure_source="toc",
-        )
-
-        with stub_intake(existing=already):
-            result = runner.invoke(app, ["add", str(epub), "--json"])
-
-        assert result.exit_code == 1
-        payload = json.loads(result.stdout)
-        assert payload["existing_id"] == "abc123"
-        # One piece of advice, not two: intake's message must not already
-        # carry it, or the user sees both force=True and --force.
-        assert payload["error"].count("force") == 1
-
-    def test_json_duplicate_raised_by_the_pipeline_matches(self, tmp_path) -> None:
-        """The race path reports the same shape as the pre-flight path."""
-        from mnemo.ingest import DuplicateBook
-        from mnemo.models import Book
-
-        epub = tmp_path / "book.epub"
-        epub.write_bytes(b"fake content")
-        raced = Book(
-            id="abc123",
-            title="Raced In",
-            authors=["A"],
-            file_hash="a" * 64,
-            structure_source="toc",
-        )
-
-        with (
-            stub_intake(),
-            patch(
-                "mnemo.ingest.ingest_book",
-                side_effect=DuplicateBook(raced, "Book already indexed (id: abc123)."),
+    @pytest.mark.parametrize(
+        ("reason", "message"),
+        [
+            ("duplicate", "Book already indexed (id: abc123)."),
+            (
+                "duplicate_content",
+                "Book already indexed (id: abc123) with the same content "
+                "but different file metadata.",
             ),
-        ):
+        ],
+    )
+    def test_json_duplicate_carries_existing_id(self, reason, message, tmp_path) -> None:
+        epub = tmp_path / "book.epub"
+        epub.write_bytes(b"fake content")
+        rejected = _outcome("rejected", chunks=0, embedded=False, reason=reason, message=message)
+
+        with _intake(rejected):
             result = runner.invoke(app, ["add", str(epub), "--json"])
 
         assert result.exit_code == 1
         payload = json.loads(result.stdout)
         assert payload["existing_id"] == "abc123"
+        # One piece of advice, not two: intake's message must not already carry it.
         assert payload["error"].count("force") == 1
 
 
@@ -823,24 +715,17 @@ class TestRichMarkupEscaping:
     `mnemo add --force <path>` hint it suggests was not a runnable command.
     """
 
-    @patch("mnemo.ingest.ingest_book")
-    def test_bracketed_path_and_title_survive(self, mock_ingest, tmp_path) -> None:
-        from mnemo.ingest import EmbeddingFailed
-        from mnemo.models import Book
-
+    def test_bracketed_path_and_title_survive(self, tmp_path) -> None:
         epub = tmp_path / "Some Book [retail].epub"
         epub.write_bytes(b"fake content")
-
-        book = Book(
-            id="abc123",
-            title="Clean Code [bold] Cookbook",
-            authors=["A"],
-            file_hash="a" * 64,
-            structure_source="toc",
+        partial = _outcome(
+            book=_book(title="Clean Code [bold] Cookbook"),
+            chunks=8,
+            embedded=False,
+            notes=(Note("embeddings_skipped", "nope"),),
         )
-        mock_ingest.side_effect = EmbeddingFailed(book, 8, ValueError("nope"))
 
-        with stub_intake():
+        with _intake(partial):
             result = runner.invoke(app, ["add", str(epub)])
 
         out = _plain(result.stdout)
@@ -906,31 +791,21 @@ class TestRichMarkupEscaping:
 class TestAddPartialEmbedding:
     """`mnemo add` reports a stored-but-unembedded book as partial success.
 
-    Regression test for #6: ingest_book commits the book before embedding, so
-    an embedding failure used to print an error and exit 1 while leaving a
-    durable book behind — and the retry then reported it as a duplicate.
+    Regression test for #6: an embedding failure used to print an error and
+    exit 1 while leaving a durable book behind — and the retry then reported
+    it as a duplicate.
     """
 
-    @patch("mnemo.ingest.ingest_book")
-    def test_add_exits_zero_and_warns_when_embedding_fails(self, mock_ingest, tmp_path) -> None:
-        from mnemo.ingest import EmbeddingFailed
-        from mnemo.models import Book
-
+    def test_add_exits_zero_and_warns_when_embedding_fails(self, tmp_path) -> None:
         epub = tmp_path / "book.epub"
         epub.write_bytes(b"fake content")
-
-        book = Book(
-            id="abc123",
-            title="Test",
-            authors=["A"],
-            file_hash="a" * 64,
-            structure_source="toc",
-        )
-        mock_ingest.side_effect = EmbeddingFailed(
-            book, 8, ValueError("MNEMO_EMBED_BASE_URL must be set")
+        partial = _outcome(
+            chunks=8,
+            embedded=False,
+            notes=(Note("embeddings_skipped", "MNEMO_EMBED_BASE_URL must be set"),),
         )
 
-        with stub_intake():
+        with _intake(partial):
             result = runner.invoke(app, ["add", str(epub)])
 
         assert result.exit_code == 0
@@ -944,26 +819,30 @@ class TestAddPartialEmbedding:
         assert "mnemo add --force" in out
         assert "mnemo reindex" not in out
 
-    @patch("mnemo.ingest.ingest_book")
-    def test_add_json_marks_book_unembedded(self, mock_ingest, tmp_path) -> None:
-        from mnemo.ingest import EmbeddingFailed
-        from mnemo.models import Book
-
+    def test_nothing_to_embed_gives_no_retry_advice(self, tmp_path) -> None:
         epub = tmp_path / "book.epub"
         epub.write_bytes(b"fake content")
-
-        # Added after intake started, so it reads as a fresh add.
-        book = Book(
-            id="abc123",
-            title="Test",
-            authors=[],
-            file_hash="a" * 64,
-            structure_source="toc",
-            added_at=datetime.max.replace(tzinfo=UTC),
+        boilerplate = _outcome(
+            embedded=False, notes=(Note("nothing_to_embed", "Only front and back matter"),)
         )
-        mock_ingest.side_effect = EmbeddingFailed(book, 8, ValueError("no credentials"))
 
-        with stub_intake():
+        with _intake(boilerplate):
+            result = runner.invoke(app, ["add", str(epub)])
+
+        out = _plain(result.stdout)
+        assert "Only front and back matter" in out
+        assert "mnemo add --force" not in out
+
+    def test_add_json_marks_book_unembedded(self, tmp_path) -> None:
+        epub = tmp_path / "book.epub"
+        epub.write_bytes(b"fake content")
+        partial = _outcome(
+            chunks=8,
+            embedded=False,
+            notes=(Note("embeddings_skipped", "no credentials"),),
+        )
+
+        with _intake(partial):
             result = runner.invoke(app, ["add", str(epub), "--json"])
 
         assert result.exit_code == 0
@@ -971,24 +850,15 @@ class TestAddPartialEmbedding:
         assert payload[0]["embedded"] is False
         assert payload[0]["chunks"] == 8
         assert payload[0]["status"] == "added"
-        # embed_error was replaced by a note carrying the same text.
         notes = payload[0]["notes"]
         assert [n["kind"] for n in notes] == ["embeddings_skipped"]
         assert "no credentials" in notes[0]["message"]
 
-    @patch("mnemo.ingest.ingest_book")
-    def test_add_json_marks_book_embedded_on_success(self, mock_ingest, tmp_path) -> None:
-        from mnemo.models import Book
-
+    def test_add_json_marks_book_embedded_on_success(self, tmp_path) -> None:
         epub = tmp_path / "book.epub"
         epub.write_bytes(b"fake content")
 
-        book = Book(
-            id="abc123", title="Test", authors=[], file_hash="a" * 64, structure_source="toc"
-        )
-        mock_ingest.return_value = (book, 8)
-
-        with stub_intake():
+        with _intake(_outcome(chunks=8)):
             result = runner.invoke(app, ["add", str(epub), "--json"])
 
         assert result.exit_code == 0
