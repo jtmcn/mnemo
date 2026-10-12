@@ -939,7 +939,7 @@ class TestListCheckEmbeddings:
 class TestReindexCredentialPreflight:
     """`mnemo reindex` refuses to run without credentials rather than wiping vectors.
 
-    ingest_book deletes a book's existing vectors before re-embedding, so
+    store_book deletes a book's existing vectors before re-embedding, so
     reindexing with no credentials would strip the library one book at a time.
     """
 
@@ -957,14 +957,14 @@ class TestReindexCredentialPreflight:
             Book(id="abc123", title="A", authors=[], file_hash="a" * 64, structure_source="toc")
         ]
 
-        with patch("mnemo.ingest.ingest_book") as mock_ingest:
+        with patch("mnemo.ingest.store_book") as mock_store:
             result = runner.invoke(app, ["reindex"])
 
         assert result.exit_code == 1
         assert "MNEMO_EMBED_BASE_URL" in result.stdout
         assert "No books were changed" in _plain(result.stdout)
         # Nothing was re-ingested, so no vectors were deleted.
-        mock_ingest.assert_not_called()
+        mock_store.assert_not_called()
 
 
 class TestReindexPartial:

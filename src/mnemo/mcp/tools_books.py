@@ -283,10 +283,10 @@ async def add_book(
     # Hash the file before the thread starts: a timeout leaves no return value
     # to clean up from, so the hash has to be captured up front. Validation
     # itself belongs to intake, which reports a bad path as a rejection.
-    from mnemo.parsing import pre_parse_metadata
+    from mnemo.parsing import hash_file
 
     try:
-        file_hash: str | None = pre_parse_metadata(Path(file_path)).file_hash
+        file_hash: str | None = hash_file(Path(file_path))
     except Exception:
         file_hash = None
 

@@ -5,12 +5,20 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mnemo.ingest import embed_book, ingest_book, remove_book
+from mnemo.ingest import embed_book, remove_book
+from mnemo.services.book_service import intake
 
 pytestmark = pytest.mark.integration
 
 # Path to test fixture
 SAMPLE_EPUB = Path(__file__).parent / "fixtures" / "sample.epub"
+
+
+def add(path, **kwargs):
+    """Take a book in through intake and return what was stored."""
+    outcome = intake(path, **kwargs)
+    assert outcome.book is not None and outcome.status == "added", outcome.message
+    return outcome.book, outcome.chunks
 
 
 def create_mock_embedder():
@@ -30,7 +38,7 @@ class TestEmbedBook:
         db_path = tmp_path / "test.db"
         chroma_path = tmp_path / "chroma"
 
-        book, chunk_count = ingest_book(
+        book, chunk_count = add(
             SAMPLE_EPUB,
             db_path=db_path,
             embed=False,  # Don't embed during ingest
@@ -127,10 +135,10 @@ class TestEmbedBook:
 
 
 class TestIngestWithEmbed:
-    """Tests for ingest_book with embed=True."""
+    """Tests for intake with embed=True."""
 
     def test_ingest_with_embed(self, tmp_path):
-        """ingest_book with embed=True generates vectors."""
+        """intake with embed=True generates vectors."""
         from mnemo.vectors import VectorConfig, VectorStore
 
         db_path = tmp_path / "test.db"
@@ -139,7 +147,7 @@ class TestIngestWithEmbed:
         with patch("mnemo.embeddings.Embedder") as mock_embedder_class:
             mock_embedder_class.return_value = create_mock_embedder()
 
-            book, chunk_count = ingest_book(
+            book, chunk_count = add(
                 SAMPLE_EPUB,
                 db_path=db_path,
                 embed=True,
@@ -153,13 +161,13 @@ class TestIngestWithEmbed:
         store.close()
 
     def test_ingest_without_embed(self, tmp_path):
-        """ingest_book with embed=False doesn't create vectors."""
+        """intake with embed=False doesn't create vectors."""
         from mnemo.vectors import VectorConfig, VectorStore
 
         db_path = tmp_path / "test.db"
         chroma_path = tmp_path / "chroma"
 
-        book, chunk_count = ingest_book(
+        book, chunk_count = add(
             SAMPLE_EPUB,
             db_path=db_path,
             embed=False,
@@ -186,7 +194,7 @@ class TestRemoveBookWithVectors:
         with patch("mnemo.embeddings.Embedder") as mock_embedder_class:
             mock_embedder_class.return_value = create_mock_embedder()
 
-            book, _ = ingest_book(
+            book, _ = add(
                 SAMPLE_EPUB,
                 db_path=db_path,
                 embed=True,
@@ -219,7 +227,7 @@ class TestMetadataInVectors:
         with patch("mnemo.embeddings.Embedder") as mock_embedder_class:
             mock_embedder_class.return_value = create_mock_embedder()
 
-            book, _ = ingest_book(
+            book, _ = add(
                 SAMPLE_EPUB,
                 db_path=db_path,
                 embed=True,

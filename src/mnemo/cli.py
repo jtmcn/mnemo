@@ -495,9 +495,9 @@ def reindex(
         try:
             results = reindex_all_books(embed=True)
         except (ValueError, httpx.HTTPError) as e:
-            # Only the embedding preflight escapes here (per-book
-            # EmbeddingFailed is handled inside reindex_all_books), so nothing
-            # has been touched. Report after the spinner stops.
+            # Only the embedding preflight escapes here (per-book embedding
+            # failures are results), so nothing has been touched. Report after
+            # the spinner stops.
             preflight_error = str(e)
 
     if preflight_error is not None:
