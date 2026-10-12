@@ -122,10 +122,12 @@ def intake(
     Args:
         path: Book file to take in (.epub, .docx, .pdf)
         on_duplicate: What to do when the file hash or content is already indexed —
-            "reject" (default) rejects with reason "duplicate", "skip" reports
+            "reject" (default) rejects with reason "duplicate" (same bytes) or
+            "duplicate_content" (same parsed content), "skip" reports
             "already_indexed" without touching anything, "replace" re-indexes
             over the existing book.
-        collection: Optional collection name, applied only to fresh ingests.
+        collection: Optional collection name. On a replace it overrides the
+            existing Book's; when omitted, the existing one is kept.
         chunker_config: Chunking configuration override.
         embed: Generate embeddings after storing (default True).
         db_path: SQLite path (default ~/.mnemo/mnemo.db)

@@ -290,6 +290,32 @@ class TestReindexAllBooks:
         assert by_id[newer.id]["status"] == "merged"
         assert by_id[newer.id]["error"] == f"same file as {older.id}"
 
+    def test_embedding_failure_while_folding_stops_the_run(
+        self, tmp_path: Path, temp_db: Path, monkeypatch
+    ):
+        """The fold re-embeds the survivor, so a failure there strips it and must stop."""
+        import shutil
+        from unittest.mock import patch
+
+        # Reindex walks newest first: newer (absorbs older), then older (folds), then earliest.
+        earliest, _ = add(self._epub(tmp_path, "earliest", "Earliest", "Earliest text."), temp_db)
+        older_file = self._epub(tmp_path, "older", "Older", "Older body text.")
+        newer_file = self._epub(tmp_path, "newer", "Newer", "Newer body text.")
+        older, _ = add(older_file, temp_db)
+        newer, _ = add(newer_file, temp_db)
+        shutil.copy(older_file, newer_file)
+        monkeypatch.setenv("MNEMO_EMBED_BASE_URL", "https://example.invalid/v1")
+
+        with (
+            patch("mnemo.embeddings.Embedder"),
+            patch("mnemo.ingest.embed_book", side_effect=[3, RuntimeError("token expired")]),
+        ):
+            results = reindex_all_books(db_path=temp_db, embed=True)
+
+        statuses = [(r["book_id"], r["status"]) for r in results]
+        assert (newer.id, "partial") in statuses
+        assert (earliest.id, "skipped") in statuses
+
     def test_reindex_folds_a_byte_identical_older_entry_into_the_newer(
         self, tmp_path: Path, temp_db: Path
     ):

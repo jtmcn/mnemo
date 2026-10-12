@@ -233,8 +233,8 @@ def reindex_all_books(
     """Re-ingest all books in the library.
 
     Iterates over all indexed books, validates their file paths still exist,
-    and re-ingests each with force=True. Useful when the chunking or embedding
-    pipeline has been updated.
+    and re-stores each in place under its own id. Useful when the chunking or
+    embedding pipeline has been updated.
 
     Args:
         db_path: Database path (default: ~/.mnemo/mnemo.db)
@@ -313,17 +313,6 @@ def reindex_all_books(
                 chroma_path=chroma_path,
             )
             file_hashes[stored.book.id] = stored.book.file_hash
-            if stored.book.id != book.id:
-                results.append(
-                    {
-                        "book_id": book.id,
-                        "title": book.title,
-                        "status": "merged",
-                        "chunks": 0,
-                        "error": f"same file as {stored.book.id}",
-                    }
-                )
-                continue
             if stored.embedding == "failed":
                 # Re-parsed, re-chunked and committed; only the vectors are missing.
                 results.append(
@@ -350,6 +339,17 @@ def reindex_all_books(
                     for other in remaining
                 )
                 break
+            if stored.book.id != book.id:
+                results.append(
+                    {
+                        "book_id": book.id,
+                        "title": book.title,
+                        "status": "merged",
+                        "chunks": 0,
+                        "error": f"same file as {stored.book.id}",
+                    }
+                )
+                continue
             results.append(
                 {
                     "book_id": stored.book.id,
