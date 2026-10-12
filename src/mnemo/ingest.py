@@ -7,12 +7,13 @@ components to provide a simple API for adding and removing books.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, TypedDict, TypeVar
 
 from mnemo.chunking import Chunker, ChunkerConfig
 from mnemo.models import Book, is_boilerplate_section
-from mnemo.parsing import parse_book
+from mnemo.parsing import ContentBlock, parse_book
 from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_db
 
 logger = __import__("logging").getLogger(__name__)
@@ -169,7 +170,7 @@ def embed_book(
 _EDITABLE_FIELDS = ("title", "authors", "isbn", "publisher", "year", "description")
 
 
-def _carry_over(parsed: Book, previous: Book, force_metadata: bool) -> Book:
+def carry_over(parsed: Book, previous: Book, force_metadata: bool) -> Book:
     """The parsed book under the previous one's id, keeping its edited metadata."""
     updates: dict[str, object] = {"id": previous.id, "added_at": previous.added_at}
     for name in _EDITABLE_FIELDS:
@@ -192,6 +193,69 @@ def _delete_vectors(book_ids: set[str], chroma_path: Path | None) -> None:
             store.delete_by_book(book_id)
     finally:
         store.close()
+
+
+EmbedStatus = Literal["embedded", "nothing_to_embed", "failed", "not_requested"]
+
+
+@dataclass(frozen=True)
+class Stored:
+    """What the pipeline did with a book it was told to store."""
+
+    book: Book
+    chunks: int
+    embedding: EmbedStatus
+    embed_error: str | None = None
+
+
+def store_book(
+    book: Book,
+    blocks: list[ContentBlock],
+    *,
+    replaces: frozenset[str] = frozenset(),
+    chunker_config: ChunkerConfig | None = None,
+    embed: bool = False,
+    db_path: Path | None = None,
+    chroma_path: Path | None = None,
+) -> Stored:
+    """Chunk, store and optionally embed `book`, removing the books in `replaces`.
+
+    Executes a decision intake already made: no duplicate lookups, no policy.
+    Raises only before the commit, when nothing has changed.
+    """
+    chunks = Chunker(chunker_config).chunk(book.id, blocks)
+
+    init_db(db_path)
+    conn = get_connection(db_path)
+    try:
+        book_repo = BookRepository(conn)
+        chunk_repo = ChunkRepository(conn)
+        for stale_id in replaces:
+            book_repo.delete(stale_id, commit=False)
+        book_repo.add(book, commit=False)
+        chunk_repo.add_many(chunks, commit=False)
+        conn.commit()
+    finally:
+        conn.close()
+
+    # Past the commit the book is durable, so vector trouble is partial success.
+    if replaces:
+        try:
+            _delete_vectors(set(replaces), chroma_path)
+        except Exception as e:
+            logger.info("Removing old vectors failed for %s: %s", book.id, e)
+            return Stored(book, len(chunks), "failed", f"Old vectors could not be removed: {e}")
+
+    if not embed:
+        return Stored(book, len(chunks), "not_requested")
+    try:
+        embed_book(book.id, db_path=db_path, chroma_path=chroma_path)
+    except NothingToEmbed:
+        return Stored(book, len(chunks), "nothing_to_embed")
+    except Exception as e:
+        logger.info("Embedding failed for %s (%s): %s", book.id, book.title, e)
+        return Stored(book, len(chunks), "failed", str(e))
+    return Stored(book, len(chunks), "embedded")
 
 
 def ingest_book(
@@ -278,7 +342,7 @@ def ingest_book(
         # 5. The new book takes the old version's id and edits.
         previous = (book_repo.get(replaces) if replaces else None) or existing
         if previous is not None:
-            book = _carry_over(book, previous, force_metadata)
+            book = carry_over(book, previous, force_metadata)
         stale_ids = {existing.id} if existing and force else set()
         if replaces:
             stale_ids.add(replaces)

@@ -52,6 +52,11 @@ def pre_parse_metadata(file_path: Path | str) -> Book:
     )
 
 
+def hash_file(file_path: Path | str) -> str:
+    """SHA-256 of the file bytes: a Book's `file_hash`, without parsing."""
+    return hashlib.sha256(Path(file_path).read_bytes()).hexdigest()
+
+
 # Below this, text is a watermark or stray caption that distinct scans share.
 MIN_HASHED_TEXT_CHARS = 200
 
