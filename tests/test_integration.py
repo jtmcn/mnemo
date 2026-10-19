@@ -12,11 +12,28 @@ from pathlib import Path
 import pytest
 
 from mnemo import ingest as mnemo_ingest
-from mnemo.ingest import DuplicateBook, ingest_book, reindex_all_books, remove_book
-from mnemo.models import ContentType
+from mnemo.ingest import reindex_all_books, remove_book
+from mnemo.models import Book, ContentType
+from mnemo.services.book_service import intake
 from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_db
 from tests.fixtures.epub_factory import create_test_epub
 from tests.fixtures.pdf_factory import create_test_pdf
+
+
+def add(path: Path, db: Path, *, force: bool = False, embed: bool = False, **kwargs):
+    """Take a book in through intake and return what was stored."""
+    policy = "replace" if force else "reject"
+    outcome = intake(path, db_path=db, embed=embed, on_duplicate=policy, **kwargs)
+    assert outcome.book is not None and outcome.status in ("added", "replaced"), outcome.message
+    return outcome.book, outcome.chunks
+
+
+def _stored(db: Path) -> list[Book]:
+    conn = get_connection(db)
+    try:
+        return BookRepository(conn).list_all()
+    finally:
+        conn.close()
 
 
 @pytest.fixture
@@ -37,24 +54,26 @@ class TestIngestion:
 
     def test_ingest_creates_book_and_chunks(self, sample_epub: Path, temp_db: Path):
         """Ingesting an EPUB creates a book with chunks."""
-        book, count = ingest_book(sample_epub, temp_db)
+        book, count = add(sample_epub, temp_db)
 
         assert book.id is not None
         assert book.title == "Python Testing Guide"
         assert "Test Author" in book.authors
         assert count > 0
 
-    def test_ingest_duplicate_raises_error(self, sample_epub: Path, temp_db: Path):
-        """Attempting to ingest the same book twice raises ValueError."""
-        ingest_book(sample_epub, temp_db)
+    def test_ingest_duplicate_is_rejected(self, sample_epub: Path, temp_db: Path):
+        """Taking the same file in twice is rejected without a replace."""
+        add(sample_epub, temp_db)
 
-        with pytest.raises(ValueError, match="already indexed"):
-            ingest_book(sample_epub, temp_db)
+        outcome = intake(sample_epub, db_path=temp_db, embed=False)
+
+        assert outcome.status == "rejected"
+        assert outcome.reason == "duplicate"
 
     def test_ingest_force_replaces_book(self, sample_epub: Path, temp_db: Path):
         """Force flag allows re-indexing existing book."""
-        book1, count1 = ingest_book(sample_epub, temp_db)
-        book2, count2 = ingest_book(sample_epub, temp_db, force=True)
+        book1, count1 = add(sample_epub, temp_db)
+        book2, count2 = add(sample_epub, temp_db, force=True)
 
         # Same content, same ID
         assert book1.id == book2.id
@@ -63,7 +82,7 @@ class TestIngestion:
 
     def test_chunks_have_correct_types(self, sample_epub: Path, temp_db: Path):
         """Chunks are assigned correct content types."""
-        book, _ = ingest_book(sample_epub, temp_db)
+        book, _ = add(sample_epub, temp_db)
 
         conn = get_connection(temp_db)
         chunk_repo = ChunkRepository(conn)
@@ -77,7 +96,7 @@ class TestIngestion:
 
     def test_code_blocks_preserved(self, sample_epub: Path, temp_db: Path):
         """Code blocks maintain their formatting."""
-        book, _ = ingest_book(sample_epub, temp_db)
+        book, _ = add(sample_epub, temp_db)
 
         conn = get_connection(temp_db)
         chunk_repo = ChunkRepository(conn)
@@ -94,7 +113,7 @@ class TestIngestion:
 
     def test_long_text_is_chunked(self, sample_epub: Path, temp_db: Path):
         """Long prose text is split into multiple chunks."""
-        book, count = ingest_book(sample_epub, temp_db)
+        book, count = add(sample_epub, temp_db)
 
         conn = get_connection(temp_db)
         chunk_repo = ChunkRepository(conn)
@@ -108,7 +127,7 @@ class TestIngestion:
 
     def test_section_paths_populated(self, sample_epub: Path, temp_db: Path):
         """Chunks have non-empty section paths."""
-        book, _ = ingest_book(sample_epub, temp_db)
+        book, _ = add(sample_epub, temp_db)
 
         conn = get_connection(temp_db)
         chunk_repo = ChunkRepository(conn)
@@ -121,11 +140,11 @@ class TestIngestion:
 
 
 class TestIngestionCollection:
-    """Tests for ingest_book collection support."""
+    """Tests for collection support at intake."""
 
     def test_ingest_persists_collection(self, sample_epub: Path, temp_db: Path):
-        """ingest_book(collection="X") persists collection on the new book."""
-        book, _ = ingest_book(sample_epub, temp_db, collection="ERCOT Nodal Protocols")
+        """add(collection="X") persists collection on the new book."""
+        book, _ = add(sample_epub, temp_db, collection="ERCOT Nodal Protocols")
 
         # Reload from DB to confirm persistence
         from mnemo.storage import BookRepository
@@ -137,8 +156,8 @@ class TestIngestionCollection:
         assert retrieved.collection == "ERCOT Nodal Protocols"
 
     def test_ingest_without_collection_stores_none(self, sample_epub: Path, temp_db: Path):
-        """ingest_book without collection results in NULL collection."""
-        book, _ = ingest_book(sample_epub, temp_db)
+        """No collection results in a NULL collection."""
+        book, _ = add(sample_epub, temp_db)
 
         from mnemo.storage import BookRepository
 
@@ -149,8 +168,8 @@ class TestIngestionCollection:
         assert retrieved.collection is None
 
     def test_ingest_empty_collection_treated_as_none(self, sample_epub: Path, temp_db: Path):
-        """ingest_book with collection='' stores NULL (empty == no collection)."""
-        book, _ = ingest_book(sample_epub, temp_db, collection="")
+        """collection='' stores NULL (empty == no collection)."""
+        book, _ = add(sample_epub, temp_db, collection="")
 
         from mnemo.storage import BookRepository
 
@@ -161,16 +180,16 @@ class TestIngestionCollection:
         assert retrieved.collection is None
 
     def test_ingest_duplicate_does_not_retag(self, sample_epub: Path, temp_db: Path):
-        """Duplicate ingest without force raises ValueError; existing collection preserved.
+        """A rejected duplicate leaves the existing collection alone.
 
         Locks in Approach A: duplicate detection short-circuits before any
         collection mutation, so attempting to re-ingest with a different
         collection does NOT change the existing book's collection.
         """
-        ingest_book(sample_epub, temp_db, collection="Original")
+        add(sample_epub, temp_db, collection="Original")
 
-        with pytest.raises(ValueError, match="already indexed"):
-            ingest_book(sample_epub, temp_db, collection="Different")
+        outcome = intake(sample_epub, db_path=temp_db, embed=False, collection="Different")
+        assert outcome.status == "rejected"
 
         # Verify the existing book still has its original collection
         from mnemo.storage import BookRepository
@@ -184,8 +203,8 @@ class TestIngestionCollection:
 
     def test_ingest_force_with_collection_replaces(self, sample_epub: Path, temp_db: Path):
         """force=True with collection produces a fresh book carrying the new collection."""
-        ingest_book(sample_epub, temp_db, collection="Original")
-        book2, _ = ingest_book(sample_epub, temp_db, force=True, collection="Replaced")
+        add(sample_epub, temp_db, collection="Original")
+        book2, _ = add(sample_epub, temp_db, force=True, collection="Replaced")
 
         from mnemo.storage import BookRepository
 
@@ -207,7 +226,7 @@ class TestReindexAllBooks:
 
     def test_reindex_single_book(self, sample_epub: Path, temp_db: Path):
         """Reindex re-ingests an existing book."""
-        book, original_count = ingest_book(sample_epub, temp_db)
+        book, original_count = add(sample_epub, temp_db)
         results = reindex_all_books(db_path=temp_db, embed=False)
 
         assert len(results) == 1
@@ -228,14 +247,14 @@ class TestReindexAllBooks:
         """Reindex never folds a different entry by content, so edits survive."""
         body = "Body text shared by both copies of the book. " * 6
         older_file = self._epub(tmp_path, "older", "Older", body)
-        older, _ = ingest_book(older_file, temp_db)
+        older, _ = add(older_file, temp_db)
         conn = get_connection(temp_db)
         # A pre-2.7.0 row has no content hash, so the same text could be added twice.
         conn.execute("UPDATE books SET content_hash = NULL WHERE id = ?", (older.id,))
         BookRepository(conn).update(older.id, title="Hand-Fixed Title")
         conn.commit()
         conn.close()
-        newer, _ = ingest_book(self._epub(tmp_path, "newer", "Newer", body), temp_db)
+        newer, _ = add(self._epub(tmp_path, "newer", "Newer", body), temp_db)
         reindex_all_books(db_path=temp_db, embed=False)  # the upgrade: both now share a hash
         self._epub(tmp_path, "newer", "Newer, Retitled", body)
 
@@ -256,8 +275,8 @@ class TestReindexAllBooks:
 
         older_file = self._epub(tmp_path, "older", "Older", "Older body text.")
         newer_file = self._epub(tmp_path, "newer", "Newer", "Newer body text.")
-        older, _ = ingest_book(older_file, temp_db)
-        newer, _ = ingest_book(newer_file, temp_db)
+        older, _ = add(older_file, temp_db)
+        newer, _ = add(newer_file, temp_db)
         shutil.copy(newer_file, older_file)
 
         results = reindex_all_books(db_path=temp_db, embed=False)
@@ -271,6 +290,33 @@ class TestReindexAllBooks:
         assert by_id[newer.id]["status"] == "merged"
         assert by_id[newer.id]["error"] == f"same file as {older.id}"
 
+    def test_folded_entry_is_not_stored_again(self, tmp_path: Path, temp_db: Path, monkeypatch):
+        """Each entry gets one row, and the fold does not re-embed the survivor."""
+        import shutil
+        from unittest.mock import patch
+
+        # Reindex walks newest first: newer (absorbs older), then older (folds), then earliest.
+        earliest, _ = add(self._epub(tmp_path, "earliest", "Earliest", "Earliest text."), temp_db)
+        older_file = self._epub(tmp_path, "older", "Older", "Older body text.")
+        newer_file = self._epub(tmp_path, "newer", "Newer", "Newer body text.")
+        older, _ = add(older_file, temp_db)
+        newer, _ = add(newer_file, temp_db)
+        shutil.copy(older_file, newer_file)
+        monkeypatch.setenv("MNEMO_EMBED_BASE_URL", "https://example.invalid/v1")
+
+        with (
+            patch("mnemo.embeddings.Embedder"),
+            patch("mnemo.ingest.embed_book", side_effect=[3, RuntimeError("token expired")]),
+        ):
+            results = reindex_all_books(db_path=temp_db, embed=True)
+
+        statuses = [(r["book_id"], r["status"]) for r in results]
+        assert statuses == [
+            (newer.id, "success"),
+            (older.id, "merged"),
+            (earliest.id, "partial"),
+        ]
+
     def test_reindex_folds_a_byte_identical_older_entry_into_the_newer(
         self, tmp_path: Path, temp_db: Path
     ):
@@ -278,8 +324,8 @@ class TestReindexAllBooks:
 
         older_file = self._epub(tmp_path, "older", "Older", "Older body text.")
         newer_file = self._epub(tmp_path, "newer", "Newer", "Newer body text.")
-        older, _ = ingest_book(older_file, temp_db)
-        newer, _ = ingest_book(newer_file, temp_db)
+        older, _ = add(older_file, temp_db)
+        newer, _ = add(newer_file, temp_db)
         shutil.copy(older_file, newer_file)
 
         results = reindex_all_books(db_path=temp_db, embed=False)
@@ -303,7 +349,7 @@ class TestReindexAllBooks:
         copy_path = copy_dir / "sample.epub"
         shutil.copy(sample_epub, copy_path)
 
-        ingest_book(copy_path, temp_db)
+        add(copy_path, temp_db)
 
         # Delete the EPUB
         copy_path.unlink()
@@ -315,7 +361,7 @@ class TestReindexAllBooks:
 
     def test_reindex_preserves_chunk_integrity(self, sample_epub: Path, temp_db: Path):
         """Reindex produces valid chunks with proper linking."""
-        ingest_book(sample_epub, temp_db)
+        add(sample_epub, temp_db)
         results = reindex_all_books(db_path=temp_db, embed=False)
 
         book_id = results[0]["book_id"]
@@ -333,7 +379,7 @@ class TestReindexAllBooks:
         """Reindex preserves an existing book's collection through force re-ingest."""
         from mnemo.storage import BookRepository
 
-        ingest_book(sample_epub, temp_db, collection="ERCOT Nodal Protocols")
+        add(sample_epub, temp_db, collection="ERCOT Nodal Protocols")
         reindex_all_books(db_path=temp_db, embed=False)
 
         conn = get_connection(temp_db)
@@ -352,7 +398,7 @@ class TestReindexAllBooks:
 
         copy_path = temp_db.parent / "sample.epub"
         shutil.copy(sample_epub, copy_path)
-        old_book, _ = ingest_book(copy_path, temp_db)
+        old_book, _ = add(copy_path, temp_db)
         with zipfile.ZipFile(copy_path, "a") as zf:
             zf.writestr("extra.txt", "edited after ingest")
 
@@ -366,7 +412,7 @@ class TestReindexAllBooks:
         assert results[0]["book_id"] == books[0].id
 
     def test_reindex_keeps_edited_metadata(self, sample_epub: Path, temp_db: Path):
-        book, _ = ingest_book(sample_epub, temp_db)
+        book, _ = add(sample_epub, temp_db)
         conn = get_connection(temp_db)
         BookRepository(conn).update(book.id, title="Hand-Fixed Title", authors=["A. Person"])
         conn.commit()
@@ -399,18 +445,18 @@ class TestContentDedup:
 
     def test_metadata_only_change_is_a_duplicate(self, pdfs, temp_db: Path):
         original, edited = pdfs
-        first, _ = ingest_book(original, temp_db)
+        first, _ = add(original, temp_db)
 
-        with pytest.raises(DuplicateBook) as exc:
-            ingest_book(edited, temp_db)
+        outcome = intake(edited, db_path=temp_db, embed=False)
 
-        assert exc.value.book.id == first.id
+        assert outcome.reason == "duplicate_content"
+        assert outcome.book is not None and outcome.book.id == first.id
 
     def test_force_replace_keeps_id_and_metadata(self, pdfs, temp_db: Path):
         original, edited = pdfs
-        first, _ = ingest_book(original, temp_db)
+        first, _ = add(original, temp_db)
 
-        second, _ = ingest_book(edited, temp_db, force=True)
+        second, _ = add(edited, temp_db, force=True)
 
         assert second.id == first.id
         assert second.title == "The Ontology Pipeline"
@@ -424,22 +470,22 @@ class TestContentDedup:
 
     def test_force_metadata_takes_the_files_values(self, pdfs, temp_db: Path):
         original, edited = pdfs
-        first, _ = ingest_book(original, temp_db)
+        first, _ = add(original, temp_db)
 
-        second, _ = ingest_book(edited, temp_db, force=True, force_metadata=True)
+        second, _ = add(edited, temp_db, force=True, force_metadata=True)
 
         assert second.id == first.id
         assert second.title == "Ontology-Pipeline"
         assert second.authors == ["Karima Makrof"]
 
     def test_force_readd_keeps_edited_metadata(self, sample_epub: Path, temp_db: Path):
-        first, _ = ingest_book(sample_epub, temp_db)
+        first, _ = add(sample_epub, temp_db)
         conn = get_connection(temp_db)
         BookRepository(conn).update(first.id, title="Hand-Fixed Title", year="2021")
         conn.commit()
         conn.close()
 
-        second, _ = ingest_book(sample_epub, temp_db, force=True)
+        second, _ = add(sample_epub, temp_db, force=True)
 
         assert second.title == "Hand-Fixed Title"
         assert second.year == "2021"
@@ -474,13 +520,14 @@ class TestReplaceIsAtomic:
     def test_chunker_failure_keeps_the_hash_matched_book(
         self, sample_epub: Path, temp_db: Path, monkeypatch
     ):
-        book, _ = ingest_book(sample_epub, temp_db)
+        book, _ = add(sample_epub, temp_db)
         self._retitle(temp_db, book.id, "Hand-Fixed Title")
         before = self._snapshot(temp_db)
         monkeypatch.setattr(mnemo_ingest.Chunker, "chunk", self._explode)
 
-        with pytest.raises(RuntimeError, match="chunker broke"):
-            ingest_book(sample_epub, temp_db, force=True)
+        outcome = intake(sample_epub, db_path=temp_db, embed=False, on_duplicate="replace")
+
+        assert outcome.reason == "pipeline_error" and "chunker broke" in outcome.message
 
         assert before[0][:2] == (book.id, "Hand-Fixed Title") and before[0][2]
         assert self._snapshot(temp_db) == before
@@ -490,20 +537,21 @@ class TestReplaceIsAtomic:
     ):
         original = create_test_pdf(tmp_path / "a.pdf", title="The Ontology Pipeline")
         edited = create_test_pdf(tmp_path / "b.pdf", title="Ontology-Pipeline")
-        book, _ = ingest_book(original, temp_db)
+        book, _ = add(original, temp_db)
         self._retitle(temp_db, book.id, "Hand-Fixed Title")
         before = self._snapshot(temp_db)
         monkeypatch.setattr(mnemo_ingest.Chunker, "chunk", self._explode)
 
-        with pytest.raises(RuntimeError, match="chunker broke"):
-            ingest_book(edited, temp_db, force=True)
+        outcome = intake(edited, db_path=temp_db, embed=False, on_duplicate="replace")
+
+        assert outcome.reason == "pipeline_error"
 
         assert self._snapshot(temp_db) == before
 
-    def test_vector_store_open_failure_leaves_sql_consistent(
+    def test_vector_store_open_failure_is_partial_success(
         self, sample_epub: Path, temp_db: Path, monkeypatch
     ):
-        book, _ = ingest_book(sample_epub, temp_db)
+        book, _ = add(sample_epub, temp_db)
         self._retitle(temp_db, book.id, "Hand-Fixed Title")
 
         class Unopenable:
@@ -512,8 +560,10 @@ class TestReplaceIsAtomic:
 
         monkeypatch.setattr("mnemo.vectors.VectorStore", Unopenable)
 
-        with pytest.raises(RuntimeError, match="chroma will not open"):
-            ingest_book(sample_epub, temp_db, force=True)
+        outcome = intake(sample_epub, db_path=temp_db, embed=False, on_duplicate="replace")
+
+        assert outcome.status == "replaced" and not outcome.embedded
+        assert "chroma will not open" in outcome.notes[-1].message
 
         after = self._snapshot(temp_db)
         assert [(b_id, title) for b_id, title, _ in after] == [(book.id, "Hand-Fixed Title")]
@@ -531,7 +581,7 @@ class TestFTS:
 
     def test_search_finds_content(self, sample_epub: Path, temp_db: Path):
         """FTS search returns matching chunks."""
-        book, _ = ingest_book(sample_epub, temp_db)
+        book, _ = add(sample_epub, temp_db)
 
         conn = get_connection(temp_db)
         chunk_repo = ChunkRepository(conn)
@@ -543,7 +593,7 @@ class TestFTS:
 
     def test_search_filter_by_type(self, sample_epub: Path, temp_db: Path):
         """FTS search can filter by content type."""
-        book, _ = ingest_book(sample_epub, temp_db)
+        book, _ = add(sample_epub, temp_db)
 
         conn = get_connection(temp_db)
         chunk_repo = ChunkRepository(conn)
@@ -556,7 +606,7 @@ class TestFTS:
 
     def test_search_filter_by_book(self, sample_epub: Path, temp_db: Path):
         """FTS search can filter by book ID."""
-        book, _ = ingest_book(sample_epub, temp_db)
+        book, _ = add(sample_epub, temp_db)
 
         conn = get_connection(temp_db)
         chunk_repo = ChunkRepository(conn)
@@ -569,7 +619,7 @@ class TestFTS:
 
     def test_search_no_results(self, sample_epub: Path, temp_db: Path):
         """FTS search returns empty list when no matches."""
-        book, _ = ingest_book(sample_epub, temp_db)
+        book, _ = add(sample_epub, temp_db)
 
         conn = get_connection(temp_db)
         chunk_repo = ChunkRepository(conn)
@@ -585,7 +635,7 @@ class TestRemoval:
 
     def test_remove_book_cascades_chunks(self, sample_epub: Path, temp_db: Path):
         """Removing a book also removes all its chunks."""
-        book, _ = ingest_book(sample_epub, temp_db)
+        book, _ = add(sample_epub, temp_db)
 
         conn = get_connection(temp_db)
         chunk_repo = ChunkRepository(conn)
@@ -613,7 +663,7 @@ class TestRemoval:
 
     def test_fts_index_cleared_on_remove(self, sample_epub: Path, temp_db: Path):
         """FTS index is cleared when book is removed."""
-        book, _ = ingest_book(sample_epub, temp_db)
+        book, _ = add(sample_epub, temp_db)
 
         conn = get_connection(temp_db)
         chunk_repo = ChunkRepository(conn)
@@ -641,7 +691,7 @@ class TestChunkIntegrity:
 
     def test_chunks_are_linked(self, sample_epub: Path, temp_db: Path):
         """Chunks have prev/next links for context navigation."""
-        book, _ = ingest_book(sample_epub, temp_db)
+        book, _ = add(sample_epub, temp_db)
 
         conn = get_connection(temp_db)
         chunk_repo = ChunkRepository(conn)
@@ -661,7 +711,7 @@ class TestChunkIntegrity:
 
     def test_chunks_in_sequence_order(self, sample_epub: Path, temp_db: Path):
         """Chunks are retrieved in proper sequence order."""
-        book, _ = ingest_book(sample_epub, temp_db)
+        book, _ = add(sample_epub, temp_db)
 
         conn = get_connection(temp_db)
         chunk_repo = ChunkRepository(conn)
@@ -674,7 +724,7 @@ class TestChunkIntegrity:
 
     def test_chunk_links_are_valid(self, sample_epub: Path, temp_db: Path):
         """Chunk prev/next links reference actual chunks."""
-        book, _ = ingest_book(sample_epub, temp_db)
+        book, _ = add(sample_epub, temp_db)
 
         conn = get_connection(temp_db)
         chunk_repo = ChunkRepository(conn)
@@ -694,42 +744,36 @@ class TestChunkIntegrity:
 class TestEmbeddingFailureIsPartialSuccess:
     """A failed embedding leaves a durable, keyword-searchable book (#6).
 
-    ingest_book commits the book and chunks (step 7) before embedding (step 8),
-    so the embed error must be distinguishable from an ingest failure — the
-    caller has to know a book was written.
+    store_book commits the book and chunks before embedding, so an embedding
+    error must read as partial success — the caller has to know a book was written.
     """
 
-    def test_raises_embedding_failed_with_the_committed_book(self, sample_epub, temp_db):
+    def test_embedding_failure_keeps_the_committed_book(self, sample_epub, temp_db):
         from unittest.mock import patch
 
-        from mnemo.ingest import EmbeddingFailed
         from mnemo.storage import BookRepository
 
-        with (
-            patch(
-                "mnemo.ingest.embed_book",
-                side_effect=ValueError("MNEMO_EMBED_BASE_URL must be set"),
-            ),
-            pytest.raises(EmbeddingFailed) as exc_info,
+        with patch(
+            "mnemo.ingest.embed_book",
+            side_effect=ValueError("MNEMO_EMBED_BASE_URL must be set"),
         ):
-            ingest_book(sample_epub, temp_db, embed=True)
+            outcome = intake(sample_epub, db_path=temp_db, embed=True)
 
-        err = exc_info.value
-        assert "MNEMO_EMBED_BASE_URL" in str(err)
-        assert err.chunk_count > 0
-        assert err.book.title == "Python Testing Guide"
+        assert outcome.status == "added" and not outcome.embedded
+        assert "MNEMO_EMBED_BASE_URL" in outcome.notes[-1].message
+        assert outcome.chunks > 0
+        assert outcome.book is not None and outcome.book.title == "Python Testing Guide"
 
         # The book really is committed and keyword-searchable
         conn = get_connection(temp_db)
         book_repo = BookRepository(conn)
         chunk_repo = ChunkRepository(conn)
-        assert book_repo.get(err.book.id) is not None
-        assert chunk_repo.count_by_book(err.book.id) == err.chunk_count
+        assert book_repo.get(outcome.book.id) is not None
+        assert chunk_repo.count_by_book(outcome.book.id) == outcome.chunks
         conn.close()
 
-    def test_embed_false_does_not_raise(self, sample_epub, temp_db):
-        """Only the embed=True path can raise EmbeddingFailed."""
-        book, count = ingest_book(sample_epub, temp_db, embed=False)
+    def test_embed_false_stores_without_vectors(self, sample_epub, temp_db):
+        book, count = add(sample_epub, temp_db, embed=False)
         assert count > 0
         assert book.id is not None
 
@@ -742,7 +786,7 @@ class TestEmbeddingFailureIsPartialSuccess:
         """
         from unittest.mock import patch
 
-        ingest_book(sample_epub, temp_db, embed=False)
+        add(sample_epub, temp_db, embed=False)
 
         monkeypatch.setenv("MNEMO_EMBED_BASE_URL", "https://example.invalid/v1")
         monkeypatch.setenv("MNEMO_EMBED_API_KEY", "token")
@@ -764,23 +808,23 @@ class TestEmbeddingFailureIsPartialSuccess:
     ):
         """The credential preflight runs before any book is re-ingested.
 
-        ingest_book deletes a book's existing vectors before re-embedding, so
+        store_book deletes a book's existing vectors before re-embedding, so
         proceeding without credentials would strip the library book by book.
         """
         from unittest.mock import patch
 
-        ingest_book(sample_epub, temp_db, embed=False)
+        add(sample_epub, temp_db, embed=False)
 
         monkeypatch.delenv("MNEMO_EMBED_BASE_URL", raising=False)
         monkeypatch.delenv("MNEMO_EMBED_API_KEY", raising=False)
 
         with (
-            patch("mnemo.ingest.ingest_book") as mock_ingest,
+            patch("mnemo.ingest.store_book") as mock_store,
             pytest.raises(ValueError, match="MNEMO_EMBED_BASE_URL"),
         ):
             reindex_all_books(db_path=temp_db, embed=True)
 
-        mock_ingest.assert_not_called()
+        mock_store.assert_not_called()
 
     def test_reindex_aborts_before_touching_anything_on_a_bad_key(
         self, sample_epub, temp_db, monkeypatch
@@ -795,7 +839,7 @@ class TestEmbeddingFailureIsPartialSuccess:
 
         import httpx
 
-        ingest_book(sample_epub, temp_db, embed=False)
+        add(sample_epub, temp_db, embed=False)
 
         monkeypatch.setenv("MNEMO_EMBED_BASE_URL", "https://api.openai.com/v1")
         monkeypatch.setenv("MNEMO_EMBED_API_KEY", "your-api-key")
@@ -805,13 +849,13 @@ class TestEmbeddingFailureIsPartialSuccess:
         )
         with (
             patch("mnemo.embeddings.Embedder") as mock_embedder,
-            patch("mnemo.ingest.ingest_book") as mock_ingest,
+            patch("mnemo.ingest.store_book") as mock_store,
             pytest.raises(httpx.HTTPStatusError),
         ):
             mock_embedder.return_value.embed_one.side_effect = unauthorized
             reindex_all_books(db_path=temp_db, embed=True)
 
-        mock_ingest.assert_not_called()
+        mock_store.assert_not_called()
 
     def test_reindex_stops_after_the_first_embedding_failure(
         self, sample_epub, temp_db, tmp_path, monkeypatch
@@ -834,8 +878,8 @@ class TestEmbeddingFailureIsPartialSuccess:
             output_path=tmp_path / "second.epub",
         )
 
-        ingest_book(sample_epub, temp_db, embed=False)
-        ingest_book(second, temp_db, embed=False)
+        add(sample_epub, temp_db, embed=False)
+        add(second, temp_db, embed=False)
 
         monkeypatch.setenv("MNEMO_EMBED_BASE_URL", "https://example.invalid/v1")
         monkeypatch.setenv("MNEMO_EMBED_API_KEY", "expired")
@@ -858,7 +902,7 @@ class TestEmbeddingFailureIsPartialSuccess:
         """A book with nothing embeddable is structural, not a retriable gap.
 
         Re-running the embedding step can never give it vectors, so it must not
-        raise EmbeddingFailed and send the user chasing a retry.
+        be reported as a failed embedding and send the user chasing a retry.
         """
         from unittest.mock import patch
 
@@ -867,36 +911,20 @@ class TestEmbeddingFailureIsPartialSuccess:
         assert issubclass(NothingToEmbed, ValueError)
 
         with patch("mnemo.ingest.embed_book", side_effect=NothingToEmbed("all boilerplate")):
-            book, count = ingest_book(sample_epub, temp_db, embed=True)
+            book, count = add(sample_epub, temp_db, embed=True)
 
         assert count > 0
         assert book.id is not None
 
-    def test_embedding_failed_is_a_value_error(self, sample_epub, temp_db):
-        """ingest_book has always documented embedding failure as a ValueError.
-
-        mnemo exports ingest_book as public API, so an out-of-repo caller
-        wrapping it in `except ValueError` must keep working.
-        """
-        from unittest.mock import patch
-
-        from mnemo.ingest import EmbeddingFailed
-
-        assert issubclass(EmbeddingFailed, ValueError)
-
-        with (
-            patch("mnemo.ingest.embed_book", side_effect=RuntimeError("boom")),
-            pytest.raises(ValueError),
-        ):
-            ingest_book(sample_epub, temp_db, embed=True)
-
 
 class TestConnectionLifetime:
-    """ingest_book must not leak its SQLite handle when a step raises."""
+    """Intake and the pipeline must not leak SQLite handles when a step fails."""
 
     @staticmethod
     def _capture(monkeypatch) -> list[sqlite3.Connection]:
-        """Record every connection ingest_book opens."""
+        """Record every connection intake and store_book open."""
+        from mnemo.services import book_service
+
         opened: list[sqlite3.Connection] = []
         real = mnemo_ingest.get_connection
 
@@ -906,6 +934,7 @@ class TestConnectionLifetime:
             return conn
 
         monkeypatch.setattr(mnemo_ingest, "get_connection", spy)
+        monkeypatch.setattr(book_service, "get_connection", spy)
         return opened
 
     @staticmethod
@@ -919,32 +948,46 @@ class TestConnectionLifetime:
     def test_parse_failure_closes_the_connection(
         self, sample_epub: Path, temp_db: Path, monkeypatch
     ):
-        """A book that fails to parse must not leave the handle open.
+        """Intake holds a connection while it parses; the MCP server is long-lived."""
+        from mnemo.services import book_service
 
-        The connection is opened before parsing, and the MCP server is
-        long-lived, so leaked handles accumulate across add_book calls.
-        """
         opened = self._capture(monkeypatch)
         monkeypatch.setattr(
-            mnemo_ingest, "parse_book", lambda _: (_ for _ in ()).throw(ValueError("bad epub"))
+            book_service, "parse_book", lambda _: (_ for _ in ()).throw(ValueError("bad epub"))
         )
 
-        with pytest.raises(ValueError, match="bad epub"):
-            ingest_book(sample_epub, temp_db)
+        outcome = intake(sample_epub, db_path=temp_db, embed=False)
 
-        assert opened, "ingest_book opened no connection"
+        assert outcome.reason == "parse_failed"
+        assert opened, "intake opened no connection"
         assert all(self._is_closed(c) for c in opened)
 
     def test_duplicate_closes_the_connection(self, sample_epub: Path, temp_db: Path, monkeypatch):
-        """The DuplicateBook path closes too, now that finally owns the handle."""
-        ingest_book(sample_epub, temp_db)
+        add(sample_epub, temp_db)
 
         opened = self._capture(monkeypatch)
-        with pytest.raises(DuplicateBook):
-            ingest_book(sample_epub, temp_db)
+        outcome = intake(sample_epub, db_path=temp_db, embed=False)
 
-        assert opened, "ingest_book opened no connection"
+        assert outcome.reason == "duplicate"
+        assert opened, "intake opened no connection"
         assert all(self._is_closed(c) for c in opened)
+
+    def test_store_failure_closes_the_connection(
+        self, sample_epub: Path, temp_db: Path, monkeypatch
+    ):
+        opened = self._capture(monkeypatch)
+        monkeypatch.setattr(
+            mnemo_ingest.ChunkRepository,
+            "add_many",
+            lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("disk full")),
+        )
+
+        outcome = intake(sample_epub, db_path=temp_db, embed=False)
+
+        assert outcome.reason == "pipeline_error"
+        assert len(opened) == 2, "intake and store_book each open one"
+        assert all(self._is_closed(c) for c in opened)
+        assert _stored(temp_db) == []
 
     def test_vector_delete_failure_closes_the_store(
         self, sample_epub: Path, temp_db: Path, monkeypatch
@@ -954,7 +997,7 @@ class TestConnectionLifetime:
         Same exposure as the SQLite handle: reached from MCP add_book(force=True)
         in a long-lived process.
         """
-        ingest_book(sample_epub, temp_db)
+        add(sample_epub, temp_db)
 
         closed: list[bool] = []
 
@@ -969,7 +1012,7 @@ class TestConnectionLifetime:
 
         monkeypatch.setattr("mnemo.vectors.VectorStore", ExplodingStore)
 
-        with pytest.raises(RuntimeError, match="chroma is unhappy"):
-            ingest_book(sample_epub, temp_db, force=True)
+        outcome = intake(sample_epub, db_path=temp_db, embed=False, on_duplicate="replace")
 
+        assert outcome.status == "replaced" and not outcome.embedded
         assert closed == [True]

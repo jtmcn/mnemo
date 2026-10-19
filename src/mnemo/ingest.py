@@ -7,12 +7,13 @@ components to provide a simple API for adding and removing books.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, TypedDict, TypeVar
 
 from mnemo.chunking import Chunker, ChunkerConfig
 from mnemo.models import Book, is_boilerplate_section
-from mnemo.parsing import parse_book
+from mnemo.parsing import ContentBlock, parse_book
 from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_db
 
 logger = __import__("logging").getLogger(__name__)
@@ -33,43 +34,9 @@ class ReindexResult(TypedDict):
 class NothingToEmbed(ValueError):
     """The book has no chunks worth embedding (all front/back matter).
 
-    Distinct from EmbeddingFailed: re-running the embedding step can never
-    produce vectors for this book, so callers must not advise a retry.
+    Re-running the embedding step can never produce vectors for this book,
+    so callers must not advise a retry.
     """
-
-
-class DuplicateBook(ValueError):
-    """The file hash or parsed content is already indexed and force was not set.
-
-    Raised instead of a bare ValueError so callers can tell "already have it"
-    from "the pipeline broke" — pydantic's ValidationError is a ValueError
-    too, and a malformed book was being reported as a duplicate.
-
-    Subclasses ValueError because ingest_book has always documented this as
-    one; existing `except ValueError` callers keep working.
-    """
-
-    def __init__(self, book: Book, message: str) -> None:
-        super().__init__(message)
-        self.book = book
-
-
-class EmbeddingFailed(ValueError):
-    """Book was stored and is keyword-searchable, but embedding did not run.
-
-    ingest_book commits the book and its chunks before embedding, so an
-    embedding error leaves a durable, usable book. Raised instead of the
-    underlying error so callers can tell "nothing was written" from
-    "written, vectors missing" and report the latter as partial success.
-
-    Subclasses ValueError because ingest_book has always documented embedding
-    failure as a ValueError; existing `except ValueError` callers keep working.
-    """
-
-    def __init__(self, book: Book, chunk_count: int, cause: Exception) -> None:
-        super().__init__(str(cause))
-        self.book = book
-        self.chunk_count = chunk_count
 
 
 def _batch_items(items: list[T], batch_size: int = 50) -> Iterator[list[T]]:
@@ -169,7 +136,7 @@ def embed_book(
 _EDITABLE_FIELDS = ("title", "authors", "isbn", "publisher", "year", "description")
 
 
-def _carry_over(parsed: Book, previous: Book, force_metadata: bool) -> Book:
+def carry_over(parsed: Book, previous: Book, force_metadata: bool) -> Book:
     """The parsed book under the previous one's id, keeping its edited metadata."""
     updates: dict[str, object] = {"id": previous.id, "added_at": previous.added_at}
     for name in _EDITABLE_FIELDS:
@@ -194,101 +161,42 @@ def _delete_vectors(book_ids: set[str], chroma_path: Path | None) -> None:
         store.close()
 
 
-def ingest_book(
-    book_path: Path,
-    db_path: Path | None = None,
+EmbedStatus = Literal["embedded", "nothing_to_embed", "failed", "not_requested"]
+
+
+@dataclass(frozen=True)
+class Stored:
+    """What the pipeline did with a book it was told to store."""
+
+    book: Book
+    chunks: int
+    embedding: EmbedStatus
+    embed_error: str | None = None
+
+
+def store_book(
+    book: Book,
+    blocks: list[ContentBlock],
+    *,
+    replaces: frozenset[str] = frozenset(),
     chunker_config: ChunkerConfig | None = None,
-    force: bool = False,
     embed: bool = False,
+    db_path: Path | None = None,
     chroma_path: Path | None = None,
-    collection: str | None = None,
-    replaces: str | None = None,
-    force_metadata: bool = False,
-) -> tuple[Book, int]:
-    """Ingest a book file into the database.
+) -> Stored:
+    """Chunk, store and optionally embed `book`, removing the books in `replaces`.
 
-    Parses the book, chunks the content, stores in SQLite, and optionally
-    generates embeddings for vector search.
-
-    Args:
-        book_path: Path to book file (.epub, .docx, .pdf)
-        db_path: Database path (default: ~/.mnemo/mnemo.db)
-        chunker_config: Chunking configuration
-        force: If True, re-ingest even if duplicate detected. A replace keeps
-            the existing book's id and metadata.
-        embed: If True, generate embeddings after storing chunks
-        chroma_path: ChromaDB path for vectors (default: ~/.mnemo/chroma)
-        collection: Optional collection name to tag this book at ingest. Empty
-            string is treated the same as None (no collection). Only applied to
-            fresh ingests; for duplicates without force=True, the existing book's
-            collection is unchanged.
-        replaces: Book id this ingest supersedes, deleted along with any
-            byte-identical file match. The resulting book keeps this id, and
-            no content match is looked up. Reindex passes it because an edited
-            file hashes differently.
-        force_metadata: On a replace, take title/authors/etc. from the file
-            instead of keeping the existing book's.
-
-    Returns:
-        Tuple of (Book, chunk_count)
-
-    Raises:
-        FileNotFoundError: File doesn't exist
-        DuplicateBook: Duplicate book (unless force=True). A ValueError subclass.
-        EmbeddingFailed: Book was stored successfully but embedding failed. A
-            ValueError subclass. The book is committed and keyword-searchable;
-            only vectors are missing.
+    Executes a decision intake already made: no duplicate lookups, no policy.
+    Raises only before the commit, when nothing has changed.
     """
-    # 1. Validate input
-    book_path = Path(book_path)
-    if not book_path.exists():
-        raise FileNotFoundError(f"File not found: {book_path}")
+    chunks = Chunker(chunker_config).chunk(book.id, blocks)
 
-    # 2. Initialize database
     init_db(db_path)
     conn = get_connection(db_path)
-    book_repo = BookRepository(conn)
-    chunk_repo = ChunkRepository(conn)
-
-    # parse_book and chunker.chunk both fail on real-world files, and the MCP
-    # server is long-lived, so a leaked handle here accumulates.
     try:
-        # 3. Parse book (dispatches to format-specific parser)
-        book, content_blocks = parse_book(book_path)
-
-        # 3b. Store resolved absolute file_path and optional collection
-        updates: dict[str, str] = {"file_path": str(book_path.resolve())}
-        # Empty string is treated as no collection at ingest (no existing value to clear).
-        # This differs from BookRepository.update where collection="" clears to NULL.
-        if collection:
-            updates["collection"] = collection
-        book = book.model_copy(update=updates)
-
-        # 4. Check for duplicate: same bytes, or (outside reindex) same content
-        # under edited metadata. Reindex keeps each entry in place, so it never
-        # folds away a different, possibly hand-edited, book by content.
-        existing = book_repo.get_by_hash(book.file_hash)
-        if existing is None and book.content_hash and not replaces:
-            existing = book_repo.get_by_content_hash(book.content_hash)
-        if existing and not force:
-            raise DuplicateBook(
-                existing, f"Book already indexed (id: {existing.id}). Use force=True to re-index."
-            )
-
-        # 5. The new book takes the old version's id and edits.
-        previous = (book_repo.get(replaces) if replaces else None) or existing
-        if previous is not None:
-            book = _carry_over(book, previous, force_metadata)
-        stale_ids = {existing.id} if existing and force else set()
-        if replaces:
-            stale_ids.add(replaces)
-
-        # 6. Chunk before touching the database, so a failure here changes nothing.
-        chunker = Chunker(chunker_config)
-        chunks = chunker.chunk(book.id, content_blocks)
-
-        # 7. Swap old rows for new in one transaction; an error rolls it all back.
-        for stale_id in stale_ids:
+        book_repo = BookRepository(conn)
+        chunk_repo = ChunkRepository(conn)
+        for stale_id in replaces:
             book_repo.delete(stale_id, commit=False)
         book_repo.add(book, commit=False)
         chunk_repo.add_many(chunks, commit=False)
@@ -296,26 +204,24 @@ def ingest_book(
     finally:
         conn.close()
 
-    # 7b. Old vectors go only once the SQL swap is committed.
-    if stale_ids:
-        _delete_vectors(stale_ids, chroma_path)
-
-    # 8. Optionally embed. The book is already committed at this point, so an
-    # embedding failure is partial success, not an ingest failure.
-    if embed:
+    # Past the commit the book is durable, so vector trouble is partial success.
+    if replaces:
         try:
-            embed_book(book.id, db_path=db_path, chroma_path=chroma_path)
-        except NothingToEmbed:
-            # Structural, not a failure: there is nothing here to embed and a
-            # retry would not change that.
-            logger.info("Nothing to embed for %s (%s)", book.id, book.title)
+            _delete_vectors(set(replaces), chroma_path)
         except Exception as e:
-            # info, not warning: every caller reports this to the user itself, and a
-            # warning would double-print over the CLI spinner.
-            logger.info("Embedding failed for %s (%s): %s", book.id, book.title, e)
-            raise EmbeddingFailed(book, len(chunks), e) from e
+            logger.info("Removing old vectors failed for %s: %s", book.id, e)
+            return Stored(book, len(chunks), "failed", f"Old vectors could not be removed: {e}")
 
-    return book, len(chunks)
+    if not embed:
+        return Stored(book, len(chunks), "not_requested")
+    try:
+        embed_book(book.id, db_path=db_path, chroma_path=chroma_path)
+    except NothingToEmbed:
+        return Stored(book, len(chunks), "nothing_to_embed")
+    except Exception as e:
+        logger.info("Embedding failed for %s (%s): %s", book.id, book.title, e)
+        return Stored(book, len(chunks), "failed", str(e))
+    return Stored(book, len(chunks), "embedded")
 
 
 def reindex_all_books(
@@ -327,8 +233,8 @@ def reindex_all_books(
     """Re-ingest all books in the library.
 
     Iterates over all indexed books, validates their file paths still exist,
-    and re-ingests each with force=True. Useful when the chunking or embedding
-    pipeline has been updated.
+    and re-stores each in place under its own id. Useful when the chunking or
+    embedding pipeline has been updated.
 
     Args:
         db_path: Database path (default: ~/.mnemo/mnemo.db)
@@ -352,8 +258,8 @@ def reindex_all_books(
             request (bad key, unknown model, unreachable host). Both are
             raised before any book is touched, since reindexing is destructive.
     """
-    # ingest_book deletes a book's existing vectors before re-embedding it
-    # (step 5), so a provider that fails mid-run strips the library one book at
+    # store_book deletes a book's existing vectors before re-embedding it,
+    # so a provider that fails mid-run strips the library one book at
     # a time. A real round-trip is the only preflight that catches a bad key or
     # model, not just a missing base URL. Costs one embedding of one word.
     if embed:
@@ -385,66 +291,70 @@ def reindex_all_books(
             continue
 
         try:
-            new_book, chunk_count = ingest_book(
-                Path(book_file),
+            parsed, blocks = parse_book(Path(book_file))
+            parsed = parsed.model_copy(
+                update={"file_path": str(Path(book_file).resolve()), "collection": book.collection}
+            )
+            conn = get_connection(db_path)
+            try:
+                repo = BookRepository(conn)
+                twin = repo.get_by_hash(parsed.file_hash)
+                current = repo.get(book.id)
+            finally:
+                conn.close()
+            if current is None and twin is not None and twin.id in file_hashes:
+                # Already folded into a byte-twin this run re-indexed; storing again re-embeds it.
+                results.append(_merged_row(book, twin.id))
+                continue
+            previous = current or twin
+            stored = store_book(
+                carry_over(parsed, previous, False) if previous else parsed,
+                blocks,
+                replaces=frozenset({book.id} | ({twin.id} if twin else set())),
+                chunker_config=chunker_config,
+                embed=embed,
                 db_path=db_path,
                 chroma_path=chroma_path,
-                chunker_config=chunker_config,
-                force=True,
-                embed=embed,
-                collection=book.collection,
-                replaces=book.id,
             )
-            file_hashes[new_book.id] = new_book.file_hash
-            if new_book.id != book.id:
-                # An earlier iteration already folded this entry into new_book.id.
+            file_hashes[stored.book.id] = stored.book.file_hash
+            if stored.embedding == "failed":
+                # Re-parsed, re-chunked and committed; only the vectors are missing.
                 results.append(
                     {
-                        "book_id": book.id,
-                        "title": book.title,
-                        "status": "merged",
-                        "chunks": 0,
-                        "error": f"same file as {new_book.id}",
+                        "book_id": stored.book.id,
+                        "title": stored.book.title,
+                        "status": "partial",
+                        "chunks": stored.chunks,
+                        "error": stored.embed_error,
                     }
                 )
+                # Every book is re-embedded the same way, so a failure here is a
+                # failure for the rest too — and each one loses its vectors first.
+                # Stop rather than strip the library on an expired token or outage.
+                remaining = books[index + 1 :]
+                results.extend(
+                    {
+                        "book_id": other.id,
+                        "title": other.title,
+                        "status": "skipped",
+                        "chunks": 0,
+                        "error": "Stopped after an embedding failure; not re-indexed",
+                    }
+                    for other in remaining
+                )
+                break
+            if stored.book.id != book.id:
+                results.append(_merged_row(book, stored.book.id))
                 continue
             results.append(
                 {
-                    "book_id": new_book.id,
-                    "title": new_book.title,
+                    "book_id": stored.book.id,
+                    "title": stored.book.title,
                     "status": "success",
-                    "chunks": chunk_count,
+                    "chunks": stored.chunks,
                     "error": None,
                 }
             )
-        except EmbeddingFailed as e:
-            # Re-parsed, re-chunked and committed; only the vectors are missing.
-            results.append(
-                {
-                    "book_id": e.book.id,
-                    "title": e.book.title,
-                    "status": "partial",
-                    "chunks": e.chunk_count,
-                    "error": str(e),
-                }
-            )
-            # Every book is re-embedded the same way, so a failure here is a
-            # failure for the rest too — and each iteration deletes that book's
-            # vectors first (step 5). Carrying on would strip the whole library
-            # for an expired token or a provider outage, neither of which the
-            # credential preflight can see. Stop and leave the rest untouched.
-            remaining = books[index + 1 :]
-            results.extend(
-                {
-                    "book_id": other.id,
-                    "title": other.title,
-                    "status": "skipped",
-                    "chunks": 0,
-                    "error": "Stopped after an embedding failure; not re-indexed",
-                }
-                for other in remaining
-            )
-            break
         except Exception as e:
             results.append(
                 {
@@ -458,6 +368,16 @@ def reindex_all_books(
 
     _mark_merged(results, file_hashes, db_path)
     return results
+
+
+def _merged_row(book: Book, survivor_id: str) -> ReindexResult:
+    return {
+        "book_id": book.id,
+        "title": book.title,
+        "status": "merged",
+        "chunks": 0,
+        "error": f"same file as {survivor_id}",
+    }
 
 
 def _mark_merged(

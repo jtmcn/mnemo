@@ -81,11 +81,11 @@ def _render_intake(outcome: "IntakeOutcome") -> str:
     book = outcome.book
 
     if outcome.status == "rejected":
-        if outcome.reason == "duplicate" and book is not None:
+        if outcome.reason in ("duplicate", "duplicate_content") and book is not None:
             authors = ", ".join(book.authors) if book.authors else "Unknown"
             what = (
                 "Book with the same content but different file metadata already exists"
-                if "same content" in outcome.message
+                if outcome.reason == "duplicate_content"
                 else "Book already exists"
             )
             return (
@@ -265,9 +265,10 @@ async def add_book(
         chunk_max_tokens: Maximum tokens per chunk (default 800, max 2000);
             must exceed chunk_min_tokens, defaulted or not
         collection: Optional collection name to group this book with related
-            ones (e.g., "ERCOT Nodal Protocols"). Only applied to fresh ingests;
-            for duplicates without force=True, the existing book's collection is
-            unchanged. Use update_book_metadata to retag an existing book.
+            ones (e.g., "ERCOT Nodal Protocols"). With force=True it replaces
+            the existing book's collection; when omitted, that one is kept. A
+            rejected or skipped duplicate is unchanged. Use
+            update_book_metadata to retag an existing book.
         skip_existing: If true, an already-indexed book is reported as skipped
             instead of an error. For unattended batches. Cannot be combined
             with force.
@@ -283,10 +284,10 @@ async def add_book(
     # Hash the file before the thread starts: a timeout leaves no return value
     # to clean up from, so the hash has to be captured up front. Validation
     # itself belongs to intake, which reports a bad path as a rejection.
-    from mnemo.parsing import pre_parse_metadata
+    from mnemo.parsing import hash_file
 
     try:
-        file_hash: str | None = pre_parse_metadata(Path(file_path)).file_hash
+        file_hash: str | None = hash_file(Path(file_path))
     except Exception:
         file_hash = None
 

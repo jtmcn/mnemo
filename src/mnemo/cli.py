@@ -129,11 +129,11 @@ def add(
         if outcome.status == "rejected":
             extra = (
                 {"existing_id": outcome.book.id}
-                if outcome.reason == "duplicate" and outcome.book
+                if outcome.reason in ("duplicate", "duplicate_content") and outcome.book
                 else None
             )
             message = outcome.message
-            if outcome.reason == "duplicate":
+            if outcome.reason in ("duplicate", "duplicate_content"):
                 message += " Use --force to re-index."
             _emit_error(message, json_output, extra)
             raise typer.Exit(1)
@@ -495,9 +495,9 @@ def reindex(
         try:
             results = reindex_all_books(embed=True)
         except (ValueError, httpx.HTTPError) as e:
-            # Only the embedding preflight escapes here (per-book
-            # EmbeddingFailed is handled inside reindex_all_books), so nothing
-            # has been touched. Report after the spinner stops.
+            # Only the embedding preflight escapes here (per-book embedding
+            # failures are results), so nothing has been touched. Report after
+            # the spinner stops.
             preflight_error = str(e)
 
     if preflight_error is not None:
