@@ -290,10 +290,8 @@ class TestReindexAllBooks:
         assert by_id[newer.id]["status"] == "merged"
         assert by_id[newer.id]["error"] == f"same file as {older.id}"
 
-    def test_embedding_failure_while_folding_stops_the_run(
-        self, tmp_path: Path, temp_db: Path, monkeypatch
-    ):
-        """The fold re-embeds the survivor, so a failure there strips it and must stop."""
+    def test_folded_entry_is_not_stored_again(self, tmp_path: Path, temp_db: Path, monkeypatch):
+        """Each entry gets one row, and the fold does not re-embed the survivor."""
         import shutil
         from unittest.mock import patch
 
@@ -313,8 +311,11 @@ class TestReindexAllBooks:
             results = reindex_all_books(db_path=temp_db, embed=True)
 
         statuses = [(r["book_id"], r["status"]) for r in results]
-        assert (newer.id, "partial") in statuses
-        assert (earliest.id, "skipped") in statuses
+        assert statuses == [
+            (newer.id, "success"),
+            (older.id, "merged"),
+            (earliest.id, "partial"),
+        ]
 
     def test_reindex_folds_a_byte_identical_older_entry_into_the_newer(
         self, tmp_path: Path, temp_db: Path

@@ -299,10 +299,14 @@ def reindex_all_books(
             try:
                 repo = BookRepository(conn)
                 twin = repo.get_by_hash(parsed.file_hash)
-                # An earlier iteration may have folded this entry into its byte-twin.
-                previous = repo.get(book.id) or twin
+                current = repo.get(book.id)
             finally:
                 conn.close()
+            if current is None and twin is not None and twin.id in file_hashes:
+                # Already folded into a byte-twin this run re-indexed; storing again re-embeds it.
+                results.append(_merged_row(book, twin.id))
+                continue
+            previous = current or twin
             stored = store_book(
                 carry_over(parsed, previous, False) if previous else parsed,
                 blocks,
@@ -340,15 +344,7 @@ def reindex_all_books(
                 )
                 break
             if stored.book.id != book.id:
-                results.append(
-                    {
-                        "book_id": book.id,
-                        "title": book.title,
-                        "status": "merged",
-                        "chunks": 0,
-                        "error": f"same file as {stored.book.id}",
-                    }
-                )
+                results.append(_merged_row(book, stored.book.id))
                 continue
             results.append(
                 {
@@ -372,6 +368,16 @@ def reindex_all_books(
 
     _mark_merged(results, file_hashes, db_path)
     return results
+
+
+def _merged_row(book: Book, survivor_id: str) -> ReindexResult:
+    return {
+        "book_id": book.id,
+        "title": book.title,
+        "status": "merged",
+        "chunks": 0,
+        "error": f"same file as {survivor_id}",
+    }
 
 
 def _mark_merged(

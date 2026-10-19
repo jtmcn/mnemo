@@ -10,6 +10,8 @@ import pytest
 from mnemo.ingest import NothingToEmbed, Stored, store_book
 from mnemo.parsing import hash_file, parse_book
 from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_db
+from tests.fixtures.docx_factory import create_test_docx
+from tests.fixtures.pdf_factory import create_test_pdf
 
 SAMPLE = Path("tests/fixtures/sample.epub")
 
@@ -28,9 +30,19 @@ def _books(db: Path) -> list[tuple[str, str]]:
         conn.close()
 
 
-def test_hash_file_matches_the_parsers_file_hash():
-    book, _ = parse_book(SAMPLE)
-    assert hash_file(SAMPLE) == book.file_hash
+@pytest.mark.parametrize(
+    "make",
+    [
+        lambda d: SAMPLE,
+        lambda d: create_test_pdf(d / "book.pdf"),
+        lambda d: create_test_docx(d / "book.docx"),
+    ],
+    ids=["epub", "pdf", "docx"],
+)
+def test_hash_file_matches_the_parsers_file_hash(tmp_path: Path, make):
+    path = make(tmp_path)
+    book, _ = parse_book(path)
+    assert hash_file(path) == book.file_hash
 
 
 def test_stores_the_book_it_is_given(db: Path):

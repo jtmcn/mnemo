@@ -265,9 +265,10 @@ async def add_book(
         chunk_max_tokens: Maximum tokens per chunk (default 800, max 2000);
             must exceed chunk_min_tokens, defaulted or not
         collection: Optional collection name to group this book with related
-            ones (e.g., "ERCOT Nodal Protocols"). Only applied to fresh ingests;
-            for duplicates without force=True, the existing book's collection is
-            unchanged. Use update_book_metadata to retag an existing book.
+            ones (e.g., "ERCOT Nodal Protocols"). With force=True it replaces
+            the existing book's collection; when omitted, that one is kept. A
+            rejected or skipped duplicate is unchanged. Use
+            update_book_metadata to retag an existing book.
         skip_existing: If true, an already-indexed book is reported as skipped
             instead of an error. For unattended batches. Cannot be combined
             with force.
