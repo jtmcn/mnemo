@@ -137,7 +137,10 @@ rm -rf ~/.mnemo/chroma && mnemo reindex
 - **3.2.0** changes section paths and chunks: EPUB chapters now appear in
   their subsections' paths (so `section="8. Instance Matching"` matches), PDF
   lines join into paragraphs, and prose before a code listing stays `text`.
-  Run `mnemo reindex` to rebuild existing books.
+  EPUB section names now come from the table of contents where it has an
+  entry, so a saved `section=` may need the TOC's spelling (`8.4. Two Step
+  Pipeline`, not `8.4 Two-Step Pipeline`). Run `mnemo reindex` to rebuild
+  existing books.
 
 ## CLI
 

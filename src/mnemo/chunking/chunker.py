@@ -91,9 +91,8 @@ class Chunker:
     - Undersized chunks merge into a neighbour in the same section (or carry
       down into a child section), up to max_tokens; only a short lead-in joins
       a large atomic block, so prose before a listing may stay undersized; an
-      undersized lead joins a
-      following TEXT block that fits alone whole, so that chunk may exceed
-      max_tokens by at most min_tokens
+      undersized lead joins a following TEXT block that fits alone whole, so
+      that chunk may exceed max_tokens by at most min_tokens
     - Empty or whitespace-only blocks are skipped
     - All chunks are linked via prev_chunk_id and next_chunk_id
     - Section boundaries are tracked for context
