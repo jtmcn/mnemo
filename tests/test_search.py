@@ -2308,6 +2308,46 @@ class TestSemanticScoreFloor:
         assert results[0].score == pytest.approx(0.8)
 
 
+class TestSemanticMinScoreEnv:
+    """MNEMO_SEMANTIC_MIN_SCORE overrides MIN_SEMANTIC_SCORE for other models' scales."""
+
+    @staticmethod
+    def _search_at_similarity(similarity: float) -> list[SearchResult]:
+        svc = SearchService()
+        svc._chunk_repo = MagicMock()
+        svc._book_repo = MagicMock()
+        svc._vector_store = MagicMock()
+        svc._embedder = MagicMock()
+        svc._embedder.embed_one.return_value = [0.1] * 1024
+        svc._vector_store.query.return_value = [
+            {"id": "chunk-1", "distance": 1.0 - similarity, "metadata": {}, "document": None},
+        ]
+        svc._chunk_repo.get.return_value = MagicMock(
+            id="chunk-1",
+            book_id="abc123",
+            content="x" * 200,
+            content_type=ContentType.TEXT,
+            section_path=["Ch1"],
+        )
+        svc._book_cache["abc123"] = "Test Book"
+        return svc.search("test", mode="semantic")
+
+    def test_env_raises_floor(self, monkeypatch):
+        monkeypatch.setenv("MNEMO_SEMANTIC_MIN_SCORE", "0.5")
+        assert self._search_at_similarity(0.45) == []
+
+    def test_env_lowers_floor(self, monkeypatch):
+        monkeypatch.setenv("MNEMO_SEMANTIC_MIN_SCORE", "0.1")
+        assert len(self._search_at_similarity(0.2)) == 1
+
+    @pytest.mark.parametrize("raw", ["abc", "1.5", "-0.1", "nan"])
+    def test_invalid_env_falls_back_to_default(self, monkeypatch, caplog, raw):
+        monkeypatch.setenv("MNEMO_SEMANTIC_MIN_SCORE", raw)
+        assert len(self._search_at_similarity(0.3)) == 1
+        assert self._search_at_similarity(0.2) == []
+        assert "MNEMO_SEMANTIC_MIN_SCORE" in caplog.text
+
+
 class TestSearchServiceCollection:
     """Tests for collection-based search filtering."""
 
