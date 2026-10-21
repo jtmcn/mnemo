@@ -366,6 +366,7 @@ class ChunkRepository:
         content_type: ContentType | None = None,
         limit: int = 20,
         section: str | None = None,
+        match_all: bool = False,
     ) -> list[Chunk]:
         """Full-text search with optional filters.
 
@@ -380,12 +381,13 @@ class ChunkRepository:
             book_id: Optional filter by book
             content_type: Optional filter by content type
             limit: Maximum results to return (default 20)
+            match_all: Require every query term instead of any
 
         Returns:
             List of matching Chunk instances, ranked by relevance
         """
         # Sanitize query for FTS5 - escape special characters
-        sanitized_query = self._sanitize_fts_query(query)
+        sanitized_query = self._sanitize_fts_query(query, match_all=match_all)
         if not sanitized_query:
             return []
 
@@ -572,7 +574,7 @@ class ChunkRepository:
         }
     )
 
-    def _sanitize_fts_query(self, query: str) -> str:
+    def _sanitize_fts_query(self, query: str, match_all: bool = False) -> str:
         """Sanitize a query for FTS5.
 
         Wraps search terms in quotes to safely handle special characters.
@@ -580,6 +582,7 @@ class ChunkRepository:
 
         Args:
             query: Raw user query
+            match_all: Join terms with AND instead of OR
 
         Returns:
             Sanitized query safe for FTS5 MATCH
@@ -589,7 +592,8 @@ class ChunkRepository:
         if not query:
             return ""
 
-        words = query.split()
+        # Punctuation-only words have no FTS tokens; under AND they would match nothing.
+        words = [w for w in query.split() if any(ch.isalnum() for ch in w)]
         if not words:
             return ""
 
@@ -600,7 +604,8 @@ class ChunkRepository:
 
         # Escape any quotes in words by doubling them (FTS5 escape sequence)
         escaped_words = [w.replace('"', '""') for w in meaningful]
-        return " OR ".join(f'"{w}"' for w in escaped_words if w)
+        joiner = " AND " if match_all else " OR "
+        return joiner.join(f'"{w}"' for w in escaped_words if w)
 
     def get_distinct_sections(self, book_id: str | None = None) -> list[str]:
         """Return unique section path elements across chunks.

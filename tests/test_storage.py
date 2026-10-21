@@ -941,6 +941,40 @@ class TestFTSSearch:
         assert len(text_results) == 1
         assert text_results[0].content_type == ContentType.TEXT
 
+    def test_search_fts_match_all_requires_every_term(
+        self,
+        book_repo: BookRepository,
+        chunk_repo: ChunkRepository,
+        sample_book: Book,
+    ):
+        """match_all=True only returns chunks containing every query term."""
+        book_repo.add(sample_book)
+        chunk_repo.add_many(
+            [
+                Chunk(
+                    id=str(uuid.uuid4()),
+                    book_id=sample_book.id,
+                    content=text,
+                    content_type=ContentType.TEXT,
+                    token_count=5,
+                    section_path=[],
+                    sections=[],
+                    sequence=i,
+                )
+                for i, text in enumerate(
+                    ["Bake bread at home.", "Sourdough starters need care.", "Graphs of entities."]
+                )
+            ]
+        )
+
+        assert len(chunk_repo.search_fts("bake sourdough bread")) == 2
+        assert chunk_repo.search_fts("bake sourdough bread", match_all=True) == []
+        matched = chunk_repo.search_fts("bake bread", match_all=True)
+        assert [c.content for c in matched] == ["Bake bread at home."]
+        # A punctuation-only word has no FTS tokens; under AND it would match nothing.
+        matched = chunk_repo.search_fts("bake & bread", match_all=True)
+        assert [c.content for c in matched] == ["Bake bread at home."]
+
     def test_search_fts_limit(
         self,
         book_repo: BookRepository,

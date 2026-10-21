@@ -2,14 +2,15 @@
 
 import pytest
 
-# Every var that steers the embedding client. Anything reading real values
-# here would make results depend on the machine running the suite.
+# Every var that steers the embedding client or search scoring. Anything
+# reading real values here would make results depend on the machine running the suite.
 _EMBED_ENV = (
     "MNEMO_EMBED_BASE_URL",
     "MNEMO_EMBED_API_KEY",
     "MNEMO_EMBED_MODEL",
     "MNEMO_EMBED_MAX_TOKENS",
     "MNEMO_EMBED_MAX_REQUEST_TOKENS",
+    "MNEMO_SEMANTIC_MIN_SCORE",
 )
 
 

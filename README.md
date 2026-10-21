@@ -130,6 +130,10 @@ rm -rf ~/.mnemo/chroma && mnemo reindex
   a content fingerprint on their next `mnemo reindex`. Reindex skips books
   whose source file is missing, so they keep their old chunks and get no
   fingerprint until re-added.
+- **3.1.0** stops embedding List of Figures and List of Tables sections; run
+  `mnemo reindex` to drop vectors already stored for them. Hybrid and semantic
+  search now return nothing for off-topic queries, but only once
+  `MNEMO_SEMANTIC_MIN_SCORE` suits your embedding model (see `.env.example`).
 
 ## CLI
 
