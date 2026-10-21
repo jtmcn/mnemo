@@ -592,7 +592,8 @@ class ChunkRepository:
         if not query:
             return ""
 
-        words = query.split()
+        # Punctuation-only words have no FTS tokens; under AND they would match nothing.
+        words = [w for w in query.split() if any(ch.isalnum() for ch in w)]
         if not words:
             return ""
 

@@ -971,6 +971,9 @@ class TestFTSSearch:
         assert chunk_repo.search_fts("bake sourdough bread", match_all=True) == []
         matched = chunk_repo.search_fts("bake bread", match_all=True)
         assert [c.content for c in matched] == ["Bake bread at home."]
+        # A punctuation-only word has no FTS tokens; under AND it would match nothing.
+        matched = chunk_repo.search_fts("bake & bread", match_all=True)
+        assert [c.content for c in matched] == ["Bake bread at home."]
 
     def test_search_fts_limit(
         self,
