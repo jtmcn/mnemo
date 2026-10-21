@@ -1738,6 +1738,34 @@ class TestGetBookStructure:
         assert "    - Section 1.1" in result
         assert "  - Chapter 2" in result
 
+    def test_headings_without_own_chunks_are_listed(self):
+        """A chapter whose text all sits in subsections still gets its line."""
+        from mnemo.mcp.tools_search import _get_book_structure_impl
+
+        mock_book_repo = MagicMock()
+        mock_book_repo.get.return_value = self._make_book()
+        mock_chunk_repo = MagicMock()
+        mock_chunk_repo.get_section_structure.return_value = [
+            ["Overview"],
+            ["Ontology"],
+            ["Vocabularies", "Data catalogs"],
+            ["Vocabularies", "Discovery", "Data catalogs"],
+            ["Ontology", "Before we get started"],
+        ]
+
+        result = _get_book_structure_impl("abc123", mock_book_repo, mock_chunk_repo)
+
+        assert result.splitlines()[2:] == [
+            "- Overview",
+            "- Ontology",
+            "- Vocabularies",
+            "  - Data catalogs",
+            "  - Discovery",
+            "    - Data catalogs",
+            "- Ontology",
+            "  - Before we get started",
+        ]
+
     def test_book_structure_header_contains_title(self):
         """Output starts with '## {book.title}'."""
         from mnemo.mcp.tools_search import _get_book_structure_impl

@@ -126,13 +126,19 @@ def _get_book_structure_impl(
             return f"## {book.title}\n\nNo sections found."
 
         lines = [f"## {book.title}", ""]
+        previous: list[str] = []
         for sp in rows:
             if not sp:
                 continue
-            depth = len(sp) - 1
-            indent = "  " * depth
-            label = sp[-1]
-            lines.append(f"{indent}- {label}")
+            # Print the ancestors this path doesn't share with the last one: a
+            # chapter whose text all sits in subsections has no row of its own.
+            shared = 0
+            while shared < min(len(sp), len(previous)) and sp[shared] == previous[shared]:
+                shared += 1
+            shared = min(shared, len(sp) - 1)
+            for depth in range(shared, len(sp)):
+                lines.append(f"{'  ' * depth}- {sp[depth]}")
+            previous = sp
 
         return "\n".join(lines)
 
