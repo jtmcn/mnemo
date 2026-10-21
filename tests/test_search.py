@@ -2184,6 +2184,12 @@ class TestIsBoilerplateSection:
     def test_appendix(self):
         assert is_boilerplate_section(["Appendix A"]) is True
 
+    def test_frontmatter_list_of_figures(self):
+        assert is_boilerplate_section(["List of Figures"]) is True
+
+    def test_frontmatter_list_of_tables(self):
+        assert is_boilerplate_section(["List of Tables"]) is True
+
     def test_normal_chapter(self):
         assert is_boilerplate_section(["Chapter 3", "Graphs"]) is False
 

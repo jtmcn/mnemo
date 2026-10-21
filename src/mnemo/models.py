@@ -56,6 +56,8 @@ FRONTMATTER_SECTIONS = frozenset(
         "cover",
         "table of contents",
         "contents",
+        "list of figures",
+        "list of tables",
     }
 )
 
