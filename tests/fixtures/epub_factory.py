@@ -355,3 +355,40 @@ def create_epub_with_nested_toc(output_path: Path | None = None, ncx_only: bool 
         output_path = Path(path_str)
     epub.write_epub(str(output_path), book)
     return output_path
+
+
+TocEntry = tuple[str, str, list["TocEntry"]]
+
+
+def create_epub_from_toc(output_path: Path, files: dict[str, str], toc: list[TocEntry]) -> Path:
+    """An EPUB of the given file bodies (spine in dict order) and a (title, href, children) TOC."""
+    book = epub.EpubBook()
+    book.set_identifier("test-toc-shape-epub-id")
+    book.set_title("TOC Shape Book")
+    book.set_language("en")
+    book.add_author("Test Author")
+
+    items = []
+    for name, body in files.items():
+        item = epub.EpubHtml(title=name, file_name=name, lang="en")
+        item.set_content(
+            f'<html xmlns="http://www.w3.org/1999/xhtml"><head><title>{name}</title></head>'
+            f"<body>{body}</body></html>".encode()
+        )
+        book.add_item(item)
+        items.append(item)
+
+    def _entries(entries: list[TocEntry]) -> list[Any]:
+        return [
+            (epub.Section(title, href=href), _entries(children))
+            if children
+            else epub.Link(href, title, f"toc{abs(hash((title, href)))}")
+            for title, href, children in entries
+        ]
+
+    book.toc = _entries(toc)
+    book.spine = ["nav", *items]
+    book.add_item(epub.EpubNcx())
+    book.add_item(epub.EpubNav())
+    epub.write_epub(str(output_path), book)
+    return output_path

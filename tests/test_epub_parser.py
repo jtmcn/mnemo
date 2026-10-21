@@ -14,6 +14,7 @@ from mnemo.epub.metadata import extract_metadata, normalize_isbn, normalize_isbn
 from mnemo.models import Book, ContentType
 from mnemo.parsing.models import ContentBlock
 from tests.fixtures.epub_factory import (
+    create_epub_from_toc,
     create_epub_with_code,
     create_epub_with_front_matter,
     create_epub_with_nested_toc,
@@ -353,6 +354,98 @@ class TestTocParsing:
         _, blocks = EPUBParser().parse(epub_path)
 
         assert {b.content: b.section_path for b in blocks}["Body."] == ["3. Best Practices"]
+
+    def _paths(self, tmp_path: Path, files: dict[str, str], toc: list) -> dict[str, list[str]]:
+        _, blocks = EPUBParser().parse(create_epub_from_toc(tmp_path / "b.epub", files, toc))
+        return {b.content: b.section_path for b in blocks}
+
+    def test_toc_title_whitespace_is_collapsed(self, tmp_path: Path) -> None:
+        files = {"ch1.xhtml": '<h1>Ch 1</h1><p>Intro.</p><h2><a id="s1"/>1.1</h2><p>Body.</p>'}
+        toc = [("Ch 1", "ch1.xhtml", [("1.1 Two\n  Lines", "ch1.xhtml#s1", [])])]
+
+        assert self._paths(tmp_path, files, toc)["Body."] == ["Ch 1", "1.1 Two Lines"]
+
+    def test_anchor_in_a_docbook_titlepage_wrapper_starts_its_section(self, tmp_path: Path) -> None:
+        sect = (
+            '<div class="sect1"><div class="titlepage"><div><div><h2><a id="{id}"/>{t}</h2>'
+            "</div></div></div><p>{body}</p></div>"
+        )
+        files = {
+            "ch1.xhtml": '<div class="chapter"><div class="titlepage"><h1>Chapter 1. Basics</h1>'
+            "</div><p>Intro body.</p>"
+            + sect.format(id="s11", t="1.1 First", body="First body.")
+            + sect.format(id="s12", t="1.2 Second", body="Second body.")
+            + "</div>"
+        }
+        toc = [
+            (
+                "Chapter 1. Basics",
+                "ch1.xhtml",
+                [("1.1 First", "ch1.xhtml#s11", []), ("1.2 Second", "ch1.xhtml#s12", [])],
+            )
+        ]
+
+        paths = self._paths(tmp_path, files, toc)
+
+        chapter = "Chapter 1. Basics"
+        assert paths["Intro body."] == [chapter]
+        assert paths["First body."] == [chapter, "1.1 First"]
+        assert paths["Second body."] == [chapter, "1.2 Second"]
+
+    def test_heading_alone_in_a_div_labels_what_follows(self, tmp_path: Path) -> None:
+        files = {
+            "ch1.xhtml": '<h1>Chapter 1</h1><p>Intro.</p><div class="h"><h2>1.1 First</h2></div>'
+            "<p>First body.</p>"
+        }
+
+        paths = self._paths(tmp_path, files, [("Chapter 1", "ch1.xhtml", [])])
+
+        assert paths["First body."] == ["Chapter 1", "1.1 First"]
+
+    def test_file_opening_on_a_subsection_heading_keeps_its_chapter(self, tmp_path: Path) -> None:
+        files = {
+            "ch5.xhtml": '<img src="t.png" alt=""/><h2>Introduction</h2><p>Intro body.</p>'
+            "<h2>5.2 Details</h2><p>Details body.</p>"
+        }
+
+        paths = self._paths(tmp_path, files, [("Chapter 5: Foo", "ch5.xhtml", [])])
+
+        assert paths["Intro body."][0] == "Chapter 5: Foo"
+        assert paths["Details body."] == ["Chapter 5: Foo", "5.2 Details"]
+
+    def test_part_pointing_at_its_first_chapter_file_keeps_the_chapter(
+        self, tmp_path: Path
+    ) -> None:
+        files = {
+            "ch1.xhtml": "<h1>Chapter 1 Basics</h1><p>One body.</p>",
+            "ch2.xhtml": "<h1>Chapter 2 More</h1><p>Two body.</p>",
+        }
+        toc = [
+            (
+                "Part I",
+                "ch1.xhtml",
+                [("Chapter 1 Basics", "ch1.xhtml", []), ("Chapter 2 More", "ch2.xhtml", [])],
+            )
+        ]
+
+        paths = self._paths(tmp_path, files, toc)
+
+        assert paths["One body."] == ["Part I", "Chapter 1 Basics"]
+        assert paths["Two body."] == ["Part I", "Chapter 2 More"]
+
+    def test_part_page_before_its_chapter_in_one_file_adds_no_duplicate_level(
+        self, tmp_path: Path
+    ) -> None:
+        files = {
+            "ch1.xhtml": "<h1>Part I</h1><p>Part intro.</p><h1>Chapter 1 Basics</h1>"
+            "<p>One body.</p><h2>1.1 First</h2><p>First body.</p>"
+        }
+        toc = [("Part I", "ch1.xhtml", [("Chapter 1 Basics", "ch1.xhtml", [])])]
+
+        paths = self._paths(tmp_path, files, toc)
+
+        assert paths["One body."] == ["Part I", "Chapter 1 Basics"]
+        assert paths["First body."] == ["Part I", "Chapter 1 Basics", "1.1 First"]
 
     def test_heading_after_body_text_starts_a_sibling_section(self, tmp_path: Path) -> None:
         epub_path = create_test_epub(

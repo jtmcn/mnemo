@@ -41,15 +41,15 @@ def _attr(tag: Tag, name: str) -> str:
 
 
 def _add_toc_entry(mapping: dict[str, list[str]], href: str, path: list[str]) -> None:
-    """Map a fragment entry under its full href; a file's first plain entry is its section.
+    """Map a fragment entry under its full href, and a plain one under its file.
 
     One file often holds a chapter and its "#sec8-4" entries, and letting the last
-    entry win labelled the whole chapter with its final subsection.
+    entry win labelled the whole chapter with its final subsection. Among plain
+    entries the deepest of one chain wins: a Part often points at its first chapter.
     """
-    if "#" in href:
+    existing = mapping.get(href)
+    if "#" in href or existing is None or path[: len(existing)] == existing:
         mapping[href] = path
-    else:
-        mapping.setdefault(href, path)
 
 
 class EPUBParser:
@@ -214,7 +214,7 @@ class EPUBParser:
                 continue
 
             href = _attr(a, "href")
-            title = a.get_text(strip=True)
+            title = " ".join(a.get_text().split())
 
             if not href or not title:
                 continue
@@ -280,7 +280,7 @@ class EPUBParser:
             # Get label text
             nav_label = navpoint.find("navLabel")
             text_elem = nav_label.find("text") if nav_label else None
-            title = text_elem.get_text(strip=True) if text_elem else ""
+            title = " ".join(text_elem.get_text().split()) if text_elem else ""
 
             # Get content href
             content = navpoint.find("content")

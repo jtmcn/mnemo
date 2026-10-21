@@ -147,6 +147,8 @@ class _SectionCursor:
     toc_level: int | None = None
     sub: list[tuple[int, str]] = field(default_factory=list)
     has_content: bool = False
+    # toc_level came from a first heading that didn't name the entry.
+    guessed: bool = False
 
     @property
     def path(self) -> list[str]:
@@ -155,32 +157,44 @@ class _SectionCursor:
     def copy(self) -> _SectionCursor:
         return replace(self, toc_path=list(self.toc_path), sub=list(self.sub))
 
+    def adopt(self, other: _SectionCursor) -> None:
+        vars(self).update(vars(other))
+
     def enter(self, toc_path: list[str], level: int | None = None) -> None:
-        self.toc_path, self.toc_level, self.sub, self.has_content = list(toc_path), level, [], False
+        self.toc_path, self.toc_level, self.sub = list(toc_path), level, []
+        self.has_content = self.guessed = False
 
     def heading(self, level: int, title: str) -> None:
         entry = self.toc_path[-1].lower() if self.toc_path else ""
+        named = bool(entry) and (entry in title.lower() or title.lower() in entry)
         if self.toc_level is None:
             # The file's first heading restates its entry, even after a chapter-number line.
-            if entry and (entry in title.lower() or title.lower() in entry or not self.has_content):
-                self._restate(level, title)
+            if named or (entry and not self.has_content):
+                self._restate(level, title, guessed=not named)
                 return
             if self.has_content:
                 # Body text came first, so the entry's own title wasn't a heading.
                 self.toc_level = level - 1
+        elif level <= self.toc_level and self.has_content and self.guessed:
+            if named:
+                # The guess was a page before the title (a Part sharing the file).
+                self._restate(level, title, guessed=False)
+                return
+            # A same-level heading after body text: the guessed title was a subsection.
+            self.toc_level, self.guessed = level - 1, False
         if self.toc_level is None or level <= self.toc_level:
             if self.has_content or not entry:
                 self.enter(self.toc_path[:-1] + [title], level)
             else:
                 # A second line of the title ("8", then "Instance Matching").
-                self._restate(level, title)
+                self._restate(level, title, guessed=self.guessed)
             return
         while self.sub and self.sub[-1][0] >= level:
             self.sub.pop()
         self.sub.append((level, title))
 
-    def _restate(self, level: int, title: str) -> None:
-        self.toc_level = level
+    def _restate(self, level: int, title: str, guessed: bool) -> None:
+        self.toc_level, self.guessed = level, guessed
         # A fuller heading ("Chapter 3: Best Practices" for "Best Practices") names the entry.
         if self.toc_path[-1].lower() in title.lower():
             self.toc_path[-1] = title
@@ -315,7 +329,11 @@ def _extract_blocks_from_element(
                 child, nested, source_file, default_language
             )
             blocks.extend(nested_blocks)
-            cursor.has_content = cursor.has_content or bool(nested_blocks)
+            if nested_blocks:
+                cursor.has_content = True
+            else:
+                # A wrapper holding only a heading or anchor (DocBook's titlepage div).
+                cursor.adopt(nested)
             continue
 
         # For other elements, accumulate their text.
