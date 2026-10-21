@@ -154,9 +154,9 @@ def _format_enriched_results(
             if exp["start_seq"] > want_start or exp["end_seq"] < want_end:
                 lines.append("")
                 lines.append(
-                    "*[Context stops at the section boundary \u2014 "
+                    "*[Context stops at the section boundary (or book edge) \u2014 "
                     f'get_book_chunks(book_id="{result.book_id}", start_sequence={want_start},'
-                    f" end_sequence={want_end}) reads across it]*"
+                    f" end_sequence={want_end}) reads past it]*"
                 )
 
         lines.append("")
