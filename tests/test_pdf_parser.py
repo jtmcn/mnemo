@@ -217,6 +217,15 @@ class TestPdfText:
         content = self._parse_para(parser, tmp_path, ["the first line", "and the second"])
         assert "the first line and the second" in content
 
+    def test_loosely_leaded_lines_stay_one_paragraph(
+        self, parser: PdfParser, tmp_path: Path
+    ) -> None:
+        lines = ["the first line", "and the second", "then a third"]
+        items = [Heading("Chapter 1"), Para(lines, leading=18), Para(["Next paragraph."])]
+        _, blocks = parser.parse(create_test_pdf(tmp_path / "book.pdf", items=items))
+        content = _block_containing(blocks, "third").content
+        assert "Chapter 1\n\nthe first line and the second then a third\n\nNext" in content
+
     def test_lowercase_hyphenation_is_rejoined(self, parser: PdfParser, tmp_path: Path) -> None:
         content = self._parse_para(parser, tmp_path, ["the core con-", "cepts of storage"])
         assert "the core concepts of storage" in content
