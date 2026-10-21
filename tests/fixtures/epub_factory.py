@@ -26,6 +26,7 @@ def create_test_epub(
         isbn: ISBN identifier
         language: Book language code
         chapters: List of chapter dicts with 'title', 'content', and optional 'filename'
+            and 'heading' (the h1 above the content; defaults to the title, "" for none)
         output_path: Where to save the EPUB (temp file if None)
         raw_creators: Raw dc:creator strings added as-is (bypasses add_author splitting).
             Use this to test semicolon-delimited author strings like "Smith; Jones".
@@ -76,6 +77,7 @@ def create_test_epub(
         ch_title = ch.get("title", f"Chapter {i + 1}")
         ch_content = ch.get("content", "<p>Default content</p>")
         ch_filename = ch.get("filename", f"chap_{i + 1:02d}.xhtml")
+        ch_heading = ch.get("heading", ch_title)
 
         chapter = epub.EpubHtml(title=ch_title, file_name=ch_filename, lang=language)
         # Use set_content which properly encodes the content
@@ -83,7 +85,7 @@ def create_test_epub(
             f"""<html xmlns="http://www.w3.org/1999/xhtml">
 <head><title>{ch_title}</title></head>
 <body>
-<h1>{ch_title}</h1>
+{f"<h1>{ch_heading}</h1>" if ch_heading else ""}
 {ch_content}
 </body>
 </html>""".encode()

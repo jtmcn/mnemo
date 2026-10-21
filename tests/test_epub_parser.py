@@ -336,6 +336,24 @@ class TestTocParsing:
         assert paths["Sliding window text."] == [*blocking, "Sliding windows"]
         assert paths["Exercise text."] == [part, chapter, "8.13. Exercises"]
 
+    def test_title_heading_after_a_chapter_number_paragraph_is_not_a_subsection(
+        self, tmp_path: Path
+    ) -> None:
+        epub_path = create_test_epub(
+            chapters=[
+                {
+                    "title": "3. Best Practices",
+                    "heading": "",
+                    "content": '<p class="chapnum">3</p><h1>Best Practices</h1><p>Body.</p>',
+                }
+            ],
+            output_path=tmp_path / "chapnum.epub",
+        )
+
+        _, blocks = EPUBParser().parse(epub_path)
+
+        assert {b.content: b.section_path for b in blocks}["Body."] == ["3. Best Practices"]
+
     def test_heading_after_body_text_starts_a_sibling_section(self, tmp_path: Path) -> None:
         epub_path = create_test_epub(
             chapters=[

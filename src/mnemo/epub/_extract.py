@@ -159,22 +159,31 @@ class _SectionCursor:
         self.toc_path, self.toc_level, self.sub, self.has_content = list(toc_path), level, [], False
 
     def heading(self, level: int, title: str) -> None:
-        if self.toc_level is None and self.has_content:
-            # Body text came first, so the entry's own title wasn't a heading.
-            self.toc_level = level - 1
+        entry = self.toc_path[-1].lower() if self.toc_path else ""
+        if self.toc_level is None:
+            # The file's first heading restates its entry, even after a chapter-number line.
+            if entry and (entry in title.lower() or title.lower() in entry or not self.has_content):
+                self._restate(level, title)
+                return
+            if self.has_content:
+                # Body text came first, so the entry's own title wasn't a heading.
+                self.toc_level = level - 1
         if self.toc_level is None or level <= self.toc_level:
-            if self.has_content or not self.toc_path:
+            if self.has_content or not entry:
                 self.enter(self.toc_path[:-1] + [title], level)
             else:
-                # Restates the entry's title, possibly over two headings ("8", "Instance Matching").
-                # A fuller one ("Chapter 3: Best Practices" for "Best Practices") names it.
-                self.toc_level = level
-                if self.toc_path[-1].lower() in title.lower():
-                    self.toc_path[-1] = title
+                # A second line of the title ("8", then "Instance Matching").
+                self._restate(level, title)
             return
         while self.sub and self.sub[-1][0] >= level:
             self.sub.pop()
         self.sub.append((level, title))
+
+    def _restate(self, level: int, title: str) -> None:
+        self.toc_level = level
+        # A fuller heading ("Chapter 3: Best Practices" for "Best Practices") names the entry.
+        if self.toc_path[-1].lower() in title.lower():
+            self.toc_path[-1] = title
 
 
 def _anchored_path(tag: Tag, anchors: dict[str, list[str]], deep: bool) -> list[str] | None:
