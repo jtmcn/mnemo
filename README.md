@@ -134,6 +134,10 @@ rm -rf ~/.mnemo/chroma && mnemo reindex
   `mnemo reindex` to drop vectors already stored for them. Hybrid and semantic
   search now return nothing for off-topic queries, but only once
   `MNEMO_SEMANTIC_MIN_SCORE` suits your embedding model (see `.env.example`).
+- **3.2.0** changes section paths and chunks: EPUB chapters now appear in
+  their subsections' paths (so `section="8. Instance Matching"` matches), PDF
+  lines join into paragraphs, and prose before a code listing stays `text`.
+  Run `mnemo reindex` to rebuild existing books.
 
 ## CLI
 
