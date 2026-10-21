@@ -873,6 +873,17 @@ class TestUndersizedMerging:
 
         assert [c.section_path for c in chunks] == [["Ch1"], ["Ch1", "1.1"]]
 
+    def test_prose_before_a_listing_is_not_labelled_code(self):
+        listing = "\n".join(f":Sarah :knows :Person{i} ." for i in range(5))
+        blocks = [_block(_words(200)), _block(listing, ContentType.CODE)]
+
+        chunks = Chunker().chunk("a1b2c3", blocks)
+
+        assert [(c.content_type, c.content) for c in chunks] == [
+            (ContentType.TEXT, _words(200)),
+            (ContentType.CODE, listing),
+        ]
+
     def test_text_after_whole_block_is_not_merged_into_it(self):
         blocks = [
             _block(LISTING, ContentType.CODE),
