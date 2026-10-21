@@ -556,6 +556,18 @@ class SearchService:
             vr["id"]: max(0.0, min(1.0, 1.0 - vr["distance"])) for vr in vector_results
         }
 
+        # Weak best match means off-topic, unless a chunk holds every term (e.g. an identifier).
+        if max(semantic_sim_map.values()) < self._min_semantic_score and not (
+            self._chunk_repo.search_fts(
+                query=query,
+                book_id=book_id,
+                content_type=content_type_enum,
+                limit=1,
+                match_all=True,
+            )
+        ):
+            return []
+
         # Filter keyword-only results that ranked poorly (beyond top_k in keyword list).
         # These are long-tail matches on common words that add noise.
         keyword_set = set(keyword_ids)
@@ -583,11 +595,6 @@ class SearchService:
             else:
                 # Keyword-only hit: discount since we can't verify semantic relevance
                 rrf_scores[chunk_id] = 0.3 * norm_rrf
-
-        # Minimum score threshold: if best blended score is very low, the query
-        # is likely gibberish and all results are noise.
-        if rrf_scores and max(rrf_scores.values()) < 0.25:
-            return []
 
         # Sort by score descending and take top_k
         sorted_ids = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)[:top_k]

@@ -1759,19 +1759,41 @@ class TestHybridScoreNormalization:
         # Keyword-only hit should score lower than semantic hit
         assert kw_result.score < sem_result.score
 
-    def test_minimum_score_threshold_filters_low_results(self, service):
-        """When all blended scores are below 0.25, hybrid returns empty results."""
-        # Create keyword-only hits (not in semantic) — these get 0.3 * norm_rrf.
-        # With enough low-scoring keyword-only results, max blended < 0.25 is possible
-        # only if 0.3 * (1/61)/(max_rrf) < 0.25. But norm_rrf for top = 1.0, so
-        # 0.3 * 1.0 = 0.3 > 0.25. Keyword-only alone can't trigger the threshold.
-        #
-        # The threshold triggers when semantic results have very low similarity.
-        # All results keyword+semantic with distance ~0.99 => sim 0.01:
-        # blended = 0.5 * 1.0 + 0.5 * 0.01 = 0.505 — still above.
-        #
-        # Test the threshold directly by calling _hybrid_search and verifying
-        # the minimum score logic works via the search method.
+    @staticmethod
+    def _off_topic_search(service, similarity: float, every_term_matches: bool):
+        """Hybrid search where keyword OR-matches exist but semantic similarity is `similarity`."""
+        chunk = MagicMock(
+            id="c0",
+            book_id="abc123",
+            content="x" * 200,
+            content_type=ContentType.TEXT,
+            section_path=["Ch1"],
+        )
+        service._chunk_repo.search_fts.side_effect = lambda query, **kw: (
+            ([chunk] if every_term_matches else []) if kw.get("match_all") else [chunk]
+        )
+        service._vector_store.query.return_value = [{"id": "c0", "distance": 1.0 - similarity}]
+        service._chunk_repo.get.side_effect = lambda cid: chunk if cid == "c0" else None
+        return service.search("how do I bake sourdough bread", mode="hybrid", top_k=5)
+
+    def test_off_topic_query_returns_nothing(self, service):
+        """A weak best semantic match with only partial keyword overlap is off-topic."""
+        assert self._off_topic_search(service, 0.2, every_term_matches=False) == []
+
+    def test_weak_semantic_kept_when_every_term_matches(self, service):
+        """A chunk containing every query term is a real keyword match, e.g. an identifier."""
+        assert len(self._off_topic_search(service, 0.2, every_term_matches=True)) == 1
+
+    def test_off_topic_gate_uses_env_floor(self, service, monkeypatch):
+        """The gate follows MNEMO_SEMANTIC_MIN_SCORE, so it works on other models' scales."""
+        monkeypatch.setenv("MNEMO_SEMANTIC_MIN_SCORE", "0.5")
+        svc = SearchService()
+        svc._chunk_repo, svc._vector_store = service._chunk_repo, service._vector_store
+        svc._embedder, svc._book_cache = service._embedder, service._book_cache
+        assert self._off_topic_search(svc, 0.45, every_term_matches=False) == []
+
+    def test_good_semantic_match_passes_gate(self, service):
+        """Semantic-only hits with decent similarity still return results."""
         chunks = [
             MagicMock(
                 id=f"c{i}",
