@@ -16,6 +16,7 @@ from mnemo.parsing.models import ContentBlock
 from tests.fixtures.epub_factory import (
     create_epub_with_code,
     create_epub_with_front_matter,
+    create_epub_with_nested_toc,
     create_test_epub,
 )
 
@@ -317,6 +318,40 @@ class TestTocParsing:
         # Check that section paths are populated
         section_paths = [b.section_path for b in blocks if b.section_path]
         assert len(section_paths) > 0
+
+    @pytest.mark.parametrize("ncx_only", [False, True])
+    def test_nested_toc_paths_keep_every_ancestor(self, tmp_path: Path, ncx_only: bool) -> None:
+        epub_path = create_epub_with_nested_toc(tmp_path / "nested.epub", ncx_only=ncx_only)
+
+        _, blocks = EPUBParser().parse(epub_path)
+
+        part, chapter = "III: Knowledge Graph Completion", "8. Instance Matching"
+        paths = {b.content: b.section_path for b in blocks}
+        assert paths["Part overview text."] == [part]
+        assert paths["Chapter overview text."] == [part, chapter]
+        assert paths["Introduction text."] == [part, chapter, "8.1. Introduction"]
+        assert paths["Pipeline text."] == [part, chapter, "8.4. Two Step Pipeline"]
+        blocking = [part, chapter, "8.4. Two Step Pipeline", "8.4.1. Blocking"]
+        assert paths["Blocking text."] == blocking
+        assert paths["Sliding window text."] == [*blocking, "Sliding windows"]
+        assert paths["Exercise text."] == [part, chapter, "8.13. Exercises"]
+
+    def test_heading_after_body_text_starts_a_sibling_section(self, tmp_path: Path) -> None:
+        epub_path = create_test_epub(
+            chapters=[
+                {
+                    "title": "Chapter 1",
+                    "content": "<p>Opening text.</p><h1>Chapter 2</h1><p>Second text.</p>",
+                }
+            ],
+            output_path=tmp_path / "two_chapters_one_file.epub",
+        )
+
+        _, blocks = EPUBParser().parse(epub_path)
+
+        paths = {b.content: b.section_path for b in blocks}
+        assert paths["Opening text."] == ["Chapter 1"]
+        assert paths["Second text."] == ["Chapter 2"]
 
 
 class TestEPUBParser:

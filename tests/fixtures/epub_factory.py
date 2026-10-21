@@ -288,3 +288,68 @@ def create_epub_with_front_matter(
     epub.write_epub(str(output_path), book)
 
     return output_path
+
+
+def create_epub_with_nested_toc(output_path: Path | None = None, ncx_only: bool = False) -> Path:
+    """Create an EPUB laid out like an MIT Press book: part > chapter > anchored sections.
+
+    The chapter file opens with two h1s (number, then title) and its sections are
+    TOC entries pointing at fragments inside that one file. One h4 is not in the TOC.
+    """
+    book = epub.EpubBook()
+    book.set_identifier("test-nested-toc-epub-id")
+    book.set_title("Nested TOC Book")
+    book.set_language("en")
+    book.add_author("Test Author")
+
+    part = epub.EpubHtml(title="Part III", file_name="part_3.xhtml", lang="en")
+    part.set_content(
+        b"""<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Part III</title></head>
+<body><h1>III Knowledge Graph Completion</h1><p>Part overview text.</p></body></html>"""
+    )
+    chapter = epub.EpubHtml(title="Chapter 8", file_name="chapter_8.xhtml", lang="en")
+    chapter.set_content(
+        b"""<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Chapter 8</title></head>
+<body><section>
+<h1 class="chapter-number" id="ch8">8</h1>
+<h1 class="chapter-title"><b>Instance Matching</b></h1>
+<p>Chapter overview text.</p>
+<section><h2><a id="sec8-1"/><b>8.1 Introduction</b></h2><p>Introduction text.</p></section>
+<section><h2><a id="sec8-4"/><b>8.4 Two-Step Pipeline</b></h2><p>Pipeline text.</p>
+<section><h3><a id="sec8-4-1"/><b>8.4.1 Blocking</b></h3><p>Blocking text.</p>
+<h4>Sliding windows</h4><p>Sliding window text.</p></section>
+</section>
+<section><h2><a id="sec8-13"/><b>8.13 Exercises</b></h2><p>Exercise text.</p></section>
+</section></body></html>"""
+    )
+    book.add_item(part)
+    book.add_item(chapter)
+
+    book.toc = [
+        (
+            epub.Section("III: Knowledge Graph Completion", href="part_3.xhtml"),
+            [
+                (
+                    epub.Section("8. Instance Matching", href="chapter_8.xhtml"),
+                    [
+                        epub.Link("chapter_8.xhtml#sec8-1", "8.1. Introduction", "s81"),
+                        (
+                            epub.Section("8.4. Two Step Pipeline", href="chapter_8.xhtml#sec8-4"),
+                            [epub.Link("chapter_8.xhtml#sec8-4-1", "8.4.1. Blocking", "s841")],
+                        ),
+                        epub.Link("chapter_8.xhtml#sec8-13", "8.13. Exercises", "s813"),
+                    ],
+                )
+            ],
+        )
+    ]
+    book.spine = [part, chapter] if ncx_only else ["nav", part, chapter]
+    book.add_item(epub.EpubNcx())
+    if not ncx_only:
+        book.add_item(epub.EpubNav())
+
+    if output_path is None:
+        fd, path_str = tempfile.mkstemp(suffix=".epub")
+        output_path = Path(path_str)
+    epub.write_epub(str(output_path), book)
+    return output_path
