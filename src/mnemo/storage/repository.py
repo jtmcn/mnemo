@@ -607,6 +607,16 @@ class ChunkRepository:
         joiner = " AND " if match_all else " OR "
         return joiner.join(f'"{w}"' for w in escaped_words if w)
 
+    def count_by_section_path(self, book_id: str | None = None) -> list[tuple[list[str], int]]:
+        """Chunk count per distinct section path, optionally within one book."""
+        sql = "SELECT section_path, COUNT(*) AS n FROM chunks"
+        params: tuple[str, ...] = ()
+        if book_id:
+            sql += " WHERE book_id = ?"
+            params = (book_id,)
+        rows = self.conn.execute(sql + " GROUP BY section_path", params).fetchall()
+        return [(json.loads(row["section_path"]), row["n"]) for row in rows]
+
     def get_distinct_sections(self, book_id: str | None = None) -> list[str]:
         """Return unique section path elements across chunks.
 

@@ -707,6 +707,17 @@ class SearchService:
         results.sort(key=lambda r: r.score, reverse=True)
         return results
 
+    def count_section_chunks(self, section: str, book_id: str | None = None) -> int:
+        """How many chunks the section filter admits, before any query matching."""
+        self._ensure_initialized()
+        assert self._chunk_repo is not None
+        section_norm = normalize_unicode(section)
+        return sum(
+            n
+            for path, n in self._chunk_repo.count_by_section_path(book_id)
+            if path and _section_matches(section_norm, normalize_unicode(" > ".join(path)))
+        )
+
     def suggest_sections(
         self, section_query: str, book_id: str | None = None, max_suggestions: int = 5
     ) -> list[str]:

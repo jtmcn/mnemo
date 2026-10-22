@@ -1559,6 +1559,40 @@ class TestAddBookChunkParams:
 # ============================================================================
 
 
+class TestSearchBooksSectionMessages:
+    """What search_books says when a section filter finds nothing."""
+
+    def test_existing_section_says_the_query_missed(self):
+        from mnemo.mcp.tools_search import _search_books_impl
+
+        mock_service = MagicMock()
+        mock_service.search.return_value = []
+        mock_service.count_section_chunks.return_value = 1
+
+        result = _search_books_impl(
+            "PREFIX SELECT WHERE", section="Example SPARQL query", search_service=mock_service
+        )
+
+        assert 'Section "Example SPARQL query" has 1 chunk' in result
+        assert 'mode="keyword"' in result
+        assert "Did you mean" not in result
+
+    def test_unknown_section_suggests_names_other_than_its_own(self):
+        from mnemo.mcp.tools_search import _search_books_impl
+
+        mock_service = MagicMock()
+        mock_service.search.return_value = []
+        mock_service.count_section_chunks.return_value = 0
+        mock_service.suggest_sections.return_value = ["glossary", "Vocabulary"]
+
+        result = _search_books_impl("axiom", section="Glossary", search_service=mock_service)
+
+        assert (
+            result
+            == 'No results found for: axiom in section "Glossary". Did you mean: "Vocabulary"?'
+        )
+
+
 class TestSearchBooksContextWindow:
     """Tests for context_window parameter on search_books MCP tool."""
 

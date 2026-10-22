@@ -2169,6 +2169,47 @@ class TestSuggestSections:
         assert len(suggestions) >= 1
         assert "Experimenting with Graph Data Science" in suggestions
 
+    def test_section_chunk_count_uses_the_filter_rules(self, tmp_path):
+        service = SearchService(db_path=tmp_path / "test.db", chroma_path=tmp_path / "chroma")
+        service._ensure_initialized()
+        assert service._chunk_repo is not None and service._book_repo is not None
+        for book_id, paths in {
+            "a1b2c3": [
+                ["Chapter 6", "Prot\u00e9g\u00e9"],
+                ["Chapter 6", "Prot\u00e9g\u00e9"],
+                ["Chapter 60"],
+            ],
+            "d4e5f6": [["Chapter 6"]],
+        }.items():
+            service._book_repo.add(
+                Book(
+                    id=book_id,
+                    title="T",
+                    authors=[],
+                    file_hash=(book_id * 11)[:64],
+                    structure_source="toc",
+                )
+            )
+            service._chunk_repo.add_many(
+                [
+                    Chunk(
+                        book_id=book_id,
+                        content="x" * 200,
+                        content_type=ContentType.TEXT,
+                        token_count=100,
+                        section_path=path,
+                        sections=[],
+                        sequence=i,
+                    )
+                    for i, path in enumerate(paths)
+                ]
+            )
+
+        assert service.count_section_chunks("chapter 6", book_id="a1b2c3") == 2
+        assert service.count_section_chunks("Protege") == 2
+        assert service.count_section_chunks("Chapter 6") == 3
+        assert service.count_section_chunks("Glossary") == 0
+
     def test_empty_library_returns_empty(self, tmp_path):
         """Returns empty list when no sections exist."""
         service = SearchService(
