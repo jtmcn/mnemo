@@ -34,6 +34,8 @@ SEMANTIC_FLOOR = 0.45
 SHORT_CONTENT_THRESHOLD = 100
 SHORT_CONTENT_PENALTY = 0.5
 MIN_SEMANTIC_SCORE = 0.25
+# Another book's best result moves up only if it scores at least this share of the one it passes.
+DIVERSITY_RATIO = 0.9
 
 
 def _min_semantic_score() -> float:
@@ -646,49 +648,29 @@ class SearchService:
 
     @staticmethod
     def _diversify_results(results: list[SearchResult], top_k: int) -> list[SearchResult]:
-        """Re-rank results using round-robin interleaving by book_id.
+        """Let each book's best result move up once, if it scores close to the one it displaces.
 
-        Groups results by book, then picks one per book per round.
-        Book order each round is determined by best remaining score.
-        Within-book ordering (by score) is preserved.
+        Strict round-robin put a weak match from a second book above strong ones from
+        the first. Once every book has appeared, results follow score order.
 
         Args:
             results: Scored search results, already sorted by score descending
             top_k: Maximum results to return
 
         Returns:
-            Diversified list of up to top_k results
+            Re-ranked list of up to top_k results
         """
-        if not results:
-            return results
-
-        # Group by book_id, preserving score order within each group
-        groups: dict[str, list[SearchResult]] = {}
-        for r in results:
-            groups.setdefault(r.book_id, []).append(r)
-
-        # If only one book, no diversification needed
-        if len(groups) <= 1:
-            return results
-
-        # Round-robin interleaving
+        remaining = list(results)
         diversified: list[SearchResult] = []
-        while len(diversified) < top_k:
-            # Remove exhausted groups
-            groups = {bid: g for bid, g in groups.items() if g}
-            if not groups:
-                break
-
-            # Order books by their best remaining score (descending)
-            ordered_books = sorted(
-                groups.keys(), key=lambda bid: groups[bid][0].score, reverse=True
-            )
-
-            for bid in ordered_books:
-                if len(diversified) >= top_k:
-                    break
-                diversified.append(groups[bid].pop(0))
-
+        shown: set[str] = set()
+        while remaining and len(diversified) < top_k:
+            pick = remaining[0]
+            unseen = next((r for r in remaining if r.book_id not in shown), None)
+            if unseen is not None and unseen.score >= DIVERSITY_RATIO * pick.score:
+                pick = unseen
+            remaining.remove(pick)
+            diversified.append(pick)
+            shown.add(pick.book_id)
         return diversified
 
     @staticmethod

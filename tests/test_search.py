@@ -1404,19 +1404,35 @@ class TestDiversifyResults:
             source="keyword",
         )
 
-    def test_diversify_results_round_robin(self):
-        """Two books interleave in round-robin fashion."""
+    def test_close_result_from_another_book_moves_up(self):
+        results = [
+            self._make_result("a1", "bookA", 0.9),
+            self._make_result("a2", "bookA", 0.88),
+            self._make_result("b1", "bookB", 0.85),
+        ]
+        diversified = SearchService._diversify_results(results, top_k=3)
+        assert [r.chunk_id for r in diversified] == ["a1", "b1", "a2"]
+
+    def test_distant_result_from_another_book_keeps_its_rank(self):
         results = [
             self._make_result("a1", "bookA", 0.9),
             self._make_result("a2", "bookA", 0.8),
-            self._make_result("b1", "bookB", 0.85),
             self._make_result("a3", "bookA", 0.7),
-            self._make_result("b2", "bookB", 0.6),
+            self._make_result("b1", "bookB", 0.3),
+        ]
+        diversified = SearchService._diversify_results(results, top_k=4)
+        assert [r.chunk_id for r in diversified] == ["a1", "a2", "a3", "b1"]
+
+    def test_once_every_book_has_appeared_results_follow_score(self):
+        results = [
+            self._make_result("a1", "bookA", 0.9),
+            self._make_result("a2", "bookA", 0.89),
+            self._make_result("b1", "bookB", 0.88),
+            self._make_result("b2", "bookB", 0.87),
+            self._make_result("a3", "bookA", 0.86),
         ]
         diversified = SearchService._diversify_results(results, top_k=5)
-        book_ids = [r.book_id for r in diversified]
-        # Round 1: bookA(0.9), bookB(0.85); Round 2: bookA(0.8), bookB(0.6); Round 3: bookA(0.7)
-        assert book_ids == ["bookA", "bookB", "bookA", "bookB", "bookA"]
+        assert [r.chunk_id for r in diversified] == ["a1", "b1", "a2", "b2", "a3"]
 
     def test_diversify_results_single_book_passthrough(self):
         """Single book returns results unchanged."""

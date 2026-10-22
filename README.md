@@ -139,8 +139,11 @@ rm -rf ~/.mnemo/chroma && mnemo reindex
   lines join into paragraphs, and prose before a code listing stays `text`.
   EPUB section names now come from the table of contents where it has an
   entry, so a saved `section=` may need the TOC's spelling (`8.4. Two Step
-  Pipeline`, not `8.4 Two-Step Pipeline`). Run `mnemo reindex` to rebuild
-  existing books.
+  Pipeline`, not `8.4 Two-Step Pipeline`). PDF back matter the outline
+  leaves out (a glossary, an index) gets its own section. Run `mnemo reindex`
+  to rebuild existing books. Results from several books no longer strictly
+  alternate by book: another book's best match moves up only when it scores
+  close to the result it passes.
 
 ## CLI
 
