@@ -884,6 +884,25 @@ class TestUndersizedMerging:
             (ContentType.CODE, listing),
         ]
 
+    def test_listing_records_the_length_of_its_lead_in(self):
+        listing = "\n".join(f":Sarah :knows :Person{i} ." for i in range(5))
+        lead = "Examples of relational properties:"
+        blocks = [_block(lead), _block(listing, ContentType.CODE)]
+
+        chunks = Chunker().chunk("a1b2c3", blocks)
+
+        assert len(chunks) == 1
+        assert chunks[0].content_type == ContentType.CODE
+        assert chunks[0].content[: chunks[0].lead_in] == lead
+
+    def test_tiny_code_before_a_listing_is_not_a_lead_in(self):
+        listing = "\n".join(f":Sarah :knows :Person{i} ." for i in range(5))
+        blocks = [_block("x = 1", ContentType.CODE), _block(listing, ContentType.CODE)]
+
+        chunks = Chunker().chunk("a1b2c3", blocks)
+
+        assert [(c.content_type, c.lead_in) for c in chunks] == [(ContentType.CODE, 0)]
+
     def test_text_after_whole_block_is_not_merged_into_it(self):
         blocks = [
             _block(LISTING, ContentType.CODE),

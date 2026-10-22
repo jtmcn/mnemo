@@ -197,6 +197,7 @@ class Chunk(BaseModel):
         sequence: Ordering within book (0-indexed)
         prev_chunk_id: ID of preceding chunk (for context)
         next_chunk_id: ID of following chunk (for context)
+        lead_in: Length of the prose lead-in before a listing or table (0 if none)
     """
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -210,6 +211,7 @@ class Chunk(BaseModel):
     sequence: int = Field(ge=0)
     prev_chunk_id: str | None = None
     next_chunk_id: str | None = None
+    lead_in: int = Field(default=0, ge=0)
 
     # mypy can't see through a decorator stacked on @property (python/mypy#1362);
     # pydantic documents this ignore as the workaround for @computed_field.

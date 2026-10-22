@@ -46,6 +46,15 @@ def _truncate_at_boundary(content: str, max_chars: int) -> str:
     return content[:max_chars]
 
 
+def _body(content: str, is_code: bool, lead_in: int, note: str) -> str:
+    """Content with code fenced after its prose lead-in, then the truncation note."""
+    code = content[lead_in:].lstrip("\n") if is_code else ""
+    if code:
+        lead = content[:lead_in]
+        content = f"{lead}\n\n```\n{code}\n```" if lead else f"```\n{code}\n```"
+    return content + note
+
+
 def _source_lines(result: SearchResult) -> list[str]:
     """The Source line, plus a Spans line when the chunk runs through several headings."""
     section = " > ".join(result.section_path) if result.section_path else "Unknown section"
@@ -84,20 +93,16 @@ def _format_search_results(results: list[SearchResult], max_chars: int = 2000) -
         lines.append("")
 
         # Format content based on type
-        content = result.content
+        content, note = result.content, ""
         if len(content) > max_chars:
-            content = (
-                _truncate_at_boundary(content, max_chars)
-                + f"\n\n[truncated at ~{max_chars} chars"
+            content = _truncate_at_boundary(content, max_chars)
+            note = (
+                f"\n\n[truncated at ~{max_chars} chars"
                 + f' — use get_book_chunks(book_id="{result.book_id}",'
                 + f" start_sequence={result.sequence},"
                 + f" end_sequence={result.sequence}) to read full text]"
             )
-
-        if result.content_type == "code":
-            lines.append(f"```\n{content}\n```")
-        else:
-            lines.append(content)
+        lines.append(_body(content, result.content_type == "code", result.lead_in, note))
 
         lines.append("")
 
@@ -136,20 +141,16 @@ def _format_enriched_results(
                 lines.append(f"*[Context \u2014 seq {chunk.sequence}]*")
             lines.append("")
 
-            content = chunk.content
+            content, note = chunk.content, ""
             if len(content) > max_chars:
-                content = (
-                    _truncate_at_boundary(content, max_chars)
-                    + f"\n\n[truncated at ~{max_chars} chars"
+                content = _truncate_at_boundary(content, max_chars)
+                note = (
+                    f"\n\n[truncated at ~{max_chars} chars"
                     + f' — use get_book_chunks(book_id="{result.book_id}",'
                     + f" start_sequence={chunk.sequence},"
                     + f" end_sequence={chunk.sequence}) to read full text]"
                 )
-
-            if chunk.content_type.value == "code":
-                lines.append(f"```\n{content}\n```")
-            else:
-                lines.append(content)
+            lines.append(_body(content, chunk.content_type.value == "code", chunk.lead_in, note))
 
         matched_seqs = [c.sequence for c in exp["chunks"] if c.id in matched_ids]
         if matched_seqs and context_window:
@@ -204,20 +205,17 @@ def _format_mixed_results(
                     lines.append(f"*[Context \u2014 seq {chunk.sequence}]*")
                 lines.append("")
 
-                content = chunk.content
+                content, note = chunk.content, ""
                 if len(content) > max_chars:
-                    content = (
-                        content[:max_chars]
-                        + f"\n\n[truncated at {max_chars} chars"
+                    content = content[:max_chars]
+                    note = (
+                        f"\n\n[truncated at {max_chars} chars"
                         + f' \u2014 use get_book_chunks(book_id="{result.book_id}",'
                         + f" start_sequence={chunk.sequence},"
                         + f" end_sequence={chunk.sequence}) to read full text]"
                     )
-
-                if chunk.content_type.value == "code":
-                    lines.append(f"```\n{content}\n```")
-                else:
-                    lines.append(content)
+                is_code = chunk.content_type.value == "code"
+                lines.append(_body(content, is_code, chunk.lead_in, note))
 
             lines.append("")
         else:
@@ -233,20 +231,16 @@ def _format_mixed_results(
             )
             lines.append("")
 
-            content = result.content
+            content, note = result.content, ""
             if len(content) > max_chars:
-                content = (
-                    content[:max_chars]
-                    + f"\n\n[truncated at {max_chars} chars"
+                content = content[:max_chars]
+                note = (
+                    f"\n\n[truncated at {max_chars} chars"
                     + f' \u2014 use get_book_chunks(book_id="{result.book_id}",'
                     + f" start_sequence={result.sequence},"
                     + f" end_sequence={result.sequence}) to read full text]"
                 )
-
-            if result.content_type == "code":
-                lines.append(f"```\n{content}\n```")
-            else:
-                lines.append(content)
+            lines.append(_body(content, result.content_type == "code", result.lead_in, note))
 
             lines.append("")
 

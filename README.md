@@ -136,7 +136,8 @@ rm -rf ~/.mnemo/chroma && mnemo reindex
   `MNEMO_SEMANTIC_MIN_SCORE` suits your embedding model (see `.env.example`).
 - **3.2.0** changes section paths and chunks: EPUB chapters now appear in
   their subsections' paths (so `section="8. Instance Matching"` matches), PDF
-  lines join into paragraphs, and prose before a code listing stays `text`.
+  lines join into paragraphs, and prose before a code listing stays `text`
+  (a short lead-in that joins its listing renders above the code fence).
   EPUB section names now come from the table of contents where it has an
   entry, so a saved `section=` may need the TOC's spelling (`8.4. Two Step
   Pipeline`, not `8.4 Two-Step Pipeline`). PDF back matter the outline

@@ -344,6 +344,102 @@ class TestOutputFormatting:
         assert "```" in output
         assert "def hello():" in output
 
+    def test_code_lead_in_renders_outside_the_fence(self):
+        from mnemo.mcp.formatters import _format_search_results
+
+        lead = "Examples of object properties:"
+        result = SearchResult(
+            chunk_id="c",
+            book_id="abc123",
+            book_title="B",
+            content=f"{lead}\n\n:Sarah :worksAt :Acme\n:Sarah :hasFriend :John",
+            content_type="code",
+            section_path=["Glossary"],
+            score=0.5,
+            source="both",
+            lead_in=len(lead),
+        )
+
+        output = _format_search_results([result])
+
+        assert f"{lead}\n\n```\n:Sarah :worksAt :Acme\n:Sarah :hasFriend :John\n```" in output
+
+    def test_lead_in_cut_by_truncation_renders_without_a_fence(self):
+        from mnemo.mcp.formatters import _format_search_results
+
+        lead = "word " * 20
+        result = SearchResult(
+            chunk_id="c",
+            book_id="abc123",
+            book_title="B",
+            content=f"{lead}\n\nx = 1\ny = 2",
+            content_type="code",
+            section_path=[],
+            score=0.5,
+            source="both",
+            lead_in=len(lead),
+        )
+
+        output = _format_search_results([result], max_chars=50)
+
+        assert "```" not in output
+        assert "[truncated at ~50 chars" in output
+
+    def test_truncation_note_follows_the_closed_fence(self):
+        from mnemo.mcp.formatters import _format_search_results
+
+        result = SearchResult(
+            chunk_id="c",
+            book_id="abc123",
+            book_title="B",
+            content="\n".join(f"x{i} = {i}" for i in range(100)),
+            content_type="code",
+            section_path=[],
+            score=0.5,
+            source="keyword",
+        )
+
+        output = _format_search_results([result], max_chars=100)
+
+        assert "\n```\n\n[truncated at ~100 chars" in output
+
+    def test_enriched_code_chunk_lead_in_renders_outside_the_fence(self):
+        from mnemo.mcp.formatters import _format_enriched_results
+
+        lead = "Examples of object properties:"
+        chunk = Chunk(
+            id="c",
+            book_id="abc123",
+            content=f"{lead}\n\n:Sarah :worksAt :Acme",
+            content_type=ContentType.CODE,
+            token_count=10,
+            sequence=4,
+            lead_in=len(lead),
+        )
+        result = SearchResult(
+            chunk_id="c",
+            book_id="abc123",
+            book_title="B",
+            content=chunk.content,
+            content_type="code",
+            section_path=[],
+            score=0.5,
+            source="both",
+            sequence=4,
+            lead_in=len(lead),
+        )
+        expanded = {
+            "result": result,
+            "chunks": [chunk],
+            "matched_chunk_ids": {"c"},
+            "start_seq": 4,
+            "end_seq": 4,
+        }
+
+        output = _format_enriched_results([expanded])
+
+        assert f"{lead}\n\n```\n:Sarah :worksAt :Acme\n```" in output
+
     def test_format_search_results_truncates_long_content(self):
         """Content > 2000 chars should be truncated."""
         from mnemo.mcp.formatters import _format_search_results
@@ -2057,6 +2153,7 @@ class TestSmallCodeChunkAutoExpansion:
             content_type=ContentType.CODE,
             section_path=["Chapter 1"],
             sequence=5,
+            lead_in=0,
         )
 
         expanded_map = {
@@ -2162,6 +2259,7 @@ class TestSmallCodeChunkAutoExpansion:
             content_type=ContentType.CODE,
             section_path=["Ch1"],
             sequence=5,
+            lead_in=0,
         )
 
         # Only index 0 (small code) is expanded
