@@ -15,6 +15,8 @@ _COURIER_10_WIDTH = 6.0
 class Heading:
     text: str
     level: int = 1
+    # False draws the heading without an outline entry, like back matter a publisher left out.
+    bookmark: bool = True
 
 
 @dataclass
@@ -120,7 +122,7 @@ def create_test_pdf(
             y -= 10
             canvas.setFont("Times-Bold", 14)
             canvas.drawString(72, y, item.text)
-            if outline:
+            if outline and item.bookmark:
                 key = f"h{n}"
                 canvas.bookmarkPage(key, fit="XYZ", top=y + 14)
                 canvas.addOutlineEntry(item.text, key, level=item.level - 1)

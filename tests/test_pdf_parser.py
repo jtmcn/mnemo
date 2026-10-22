@@ -117,6 +117,24 @@ class TestPdfSections:
         _, blocks = parser.parse(create_landscape_pdf(tmp_path / "landscape.pdf"))
         assert _block_containing(blocks, "Landscape caption").section_path == ["Chapter 1"]
 
+    def test_unlisted_heading_after_the_outline_starts_a_top_level_section(
+        self, parser: PdfParser, tmp_path: Path
+    ) -> None:
+        items = [
+            Heading("Chapter 1"),
+            Para(["Chapter text."]),
+            Heading("Conclusion", level=2),
+            Para(["Closing text.", "Index"]),
+            PageBreak(),
+            Heading("Glossary", bookmark=False),
+            Para(["Axiom: a formal statement."]),
+        ]
+
+        _, blocks = parser.parse(create_test_pdf(tmp_path / "book.pdf", items=items))
+
+        assert _block_containing(blocks, "Closing").section_path == ["Chapter 1", "Conclusion"]
+        assert _block_containing(blocks, "Axiom").section_path == ["Glossary"]
+
     def test_broken_outline_falls_back_to_inferred(self, parser: PdfParser, tmp_path: Path) -> None:
         book, blocks = parser.parse(create_cyclic_outline_pdf(tmp_path / "loop.pdf"))
         assert book.structure_source == "inferred"
