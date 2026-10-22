@@ -2210,6 +2210,31 @@ class TestSuggestSections:
         assert service.count_section_chunks("Chapter 6") == 3
         assert service.count_section_chunks("Glossary") == 0
 
+    def test_keyword_results_carry_every_section_the_chunk_spans(self, tmp_path):
+        service = SearchService(db_path=tmp_path / "test.db", chroma_path=tmp_path / "chroma")
+        service._ensure_initialized()
+        assert service._chunk_repo is not None and service._book_repo is not None
+        service._book_repo.add(
+            Book(id="a1b2c3", title="T", authors=[], file_hash="a" * 64, structure_source="toc")
+        )
+        service._chunk_repo.add_many(
+            [
+                Chunk(
+                    book_id="a1b2c3",
+                    content="The query layer answers SPARQL queries. " * 5,
+                    content_type=ContentType.TEXT,
+                    token_count=40,
+                    section_path=["KG", "The query layer", "Example SPARQL query"],
+                    sections=["The query layer", "Example SPARQL query"],
+                    sequence=0,
+                )
+            ]
+        )
+
+        results = service.search("SPARQL", mode="keyword")
+
+        assert results[0].sections == ["The query layer", "Example SPARQL query"]
+
     def test_empty_library_returns_empty(self, tmp_path):
         """Returns empty list when no sections exist."""
         service = SearchService(

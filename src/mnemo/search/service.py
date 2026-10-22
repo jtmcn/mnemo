@@ -443,6 +443,7 @@ class SearchService:
                     score=score,
                     source="keyword",
                     sequence=chunk.sequence,
+                    sections=chunk.sections,
                 )
             )
 
@@ -495,6 +496,7 @@ class SearchService:
                     score=score,
                     source="semantic",
                     sequence=chunk.sequence,
+                    sections=chunk.sections,
                 )
             )
 
@@ -636,6 +638,7 @@ class SearchService:
                     score=rrf_scores[chunk_id],
                     source=source,
                     sequence=chunk.sequence,
+                    sections=chunk.sections,
                 )
             )
 

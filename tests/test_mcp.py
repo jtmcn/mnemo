@@ -1559,6 +1559,44 @@ class TestAddBookChunkParams:
 # ============================================================================
 
 
+class TestSourceLineSpans:
+    def test_chunk_spanning_two_headings_names_both(self):
+        from mnemo.mcp.formatters import _format_search_results
+
+        result = SearchResult(
+            chunk_id="c1",
+            book_id="abc123",
+            book_title="Ontology-Pipeline",
+            content="The query layer ... Example SPARQL query ...",
+            content_type="text",
+            section_path=["Knowledge Graph", "The query layer", "Example SPARQL query"],
+            score=0.5,
+            source="keyword",
+            sections=["The query layer", "Example SPARQL query"],
+        )
+
+        output = _format_search_results([result])
+
+        assert "**Spans:** The query layer \u2192 Example SPARQL query" in output
+
+    def test_single_section_chunk_has_no_spans_line(self):
+        from mnemo.mcp.formatters import _format_search_results
+
+        result = SearchResult(
+            chunk_id="c1",
+            book_id="abc123",
+            book_title="T",
+            content="text",
+            content_type="text",
+            section_path=["Ch 1"],
+            score=0.5,
+            source="keyword",
+            sections=["Ch 1"],
+        )
+
+        assert "Spans" not in _format_search_results([result])
+
+
 class TestSearchBooksSectionMessages:
     """What search_books says when a section filter finds nothing."""
 

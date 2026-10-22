@@ -46,6 +46,15 @@ def _truncate_at_boundary(content: str, max_chars: int) -> str:
     return content[:max_chars]
 
 
+def _source_lines(result: SearchResult) -> list[str]:
+    """The Source line, plus a Spans line when the chunk runs through several headings."""
+    section = " > ".join(result.section_path) if result.section_path else "Unknown section"
+    lines = [f"**Source:** {result.book_title} > {section}"]
+    if len(result.sections) > 1:
+        lines.append("**Spans:** " + " \u2192 ".join(result.sections))
+    return lines
+
+
 def _format_search_results(results: list[SearchResult], max_chars: int = 2000) -> str:
     """Format search results as markdown with attribution.
 
@@ -63,10 +72,8 @@ def _format_search_results(results: list[SearchResult], max_chars: int = 2000) -
     lines = [f"Found {len(results)} results:\n"]
 
     for result in results:
-        section = " > ".join(result.section_path) if result.section_path else "Unknown section"
-
         lines.append("---")
-        lines.append(f"**Source:** {result.book_title} > {section}")
+        lines.extend(_source_lines(result))
         lines.append(
             f"**Book ID:** `{result.book_id}` | "
             f"**Seq:** {result.sequence} | "
@@ -111,10 +118,8 @@ def _format_enriched_results(
         result = exp["result"]
         matched_ids = exp["matched_chunk_ids"]
 
-        section = " > ".join(result.section_path) if result.section_path else "Unknown section"
-
         lines.append("---")
-        lines.append(f"**Source:** {result.book_title} > {section}")
+        lines.extend(_source_lines(result))
         lines.append(
             f"**Book ID:** `{result.book_id}` | "
             f"**Type:** {result.content_type} | "
@@ -181,10 +186,8 @@ def _format_mixed_results(
             # Render as enriched result with context
             exp = expanded_map[i]
             matched_ids = exp["matched_chunk_ids"]
-            section = " > ".join(result.section_path) if result.section_path else "Unknown section"
-
             lines.append("---")
-            lines.append(f"**Source:** {result.book_title} > {section}")
+            lines.extend(_source_lines(result))
             lines.append(
                 f"**Book ID:** `{result.book_id}` | "
                 f"**Seq:** {result.sequence} | "
@@ -219,10 +222,8 @@ def _format_mixed_results(
             lines.append("")
         else:
             # Render as normal result
-            section = " > ".join(result.section_path) if result.section_path else "Unknown section"
-
             lines.append("---")
-            lines.append(f"**Source:** {result.book_title} > {section}")
+            lines.extend(_source_lines(result))
             lines.append(
                 f"**Book ID:** `{result.book_id}` | "
                 f"**Seq:** {result.sequence} | "
