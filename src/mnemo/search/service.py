@@ -575,14 +575,14 @@ class SearchService:
             limit=fetch_k,
             match_all=True,
         )
-        best_sim = max(semantic_sim_map.values())
-        # Weak best match means off-topic, unless a chunk holds every term (e.g. an identifier).
-        if best_sim < self._min_semantic_score and not every_term_chunks:
-            return []
         # An index or bibliography holds every term of most queries.
         every_term_ids = {
             c.id for c in every_term_chunks if not is_boilerplate_section(c.section_path)
         }
+        best_sim = max(semantic_sim_map.values())
+        # Weak best match means off-topic, unless a chunk holds every term (e.g. an identifier).
+        if best_sim < self._min_semantic_score and not every_term_ids:
+            return []
 
         # Filter keyword-only results that ranked poorly (beyond top_k in keyword list).
         # These are long-tail matches on common words that add noise.
@@ -617,9 +617,7 @@ class SearchService:
                 rrf_scores[chunk_id] = 0.3 * norm_rrf
 
         # Sort by score descending and take top_k
-        sorted_ids = sorted(
-            rrf_scores, key=lambda x: (rrf_scores[x], x in every_term_ids), reverse=True
-        )[:top_k]
+        sorted_ids = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)[:top_k]
 
         # Build chunk lookup from keyword results (already loaded)
         chunk_map = {c.id: c for c in keyword_chunks}

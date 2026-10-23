@@ -1824,7 +1824,7 @@ class TestHybridScoreNormalization:
 
         results = service.search("Swoosh", mode="hybrid", top_k=5)
 
-        # Each exact hit scores like the best semantic hit at its list rank and wins the tie.
+        # Each exact hit scores like the best semantic hit at its list rank; fusion lists it first.
         assert [r.chunk_id for r in results] == ["exact1", "noise1", "exact2", "noise2", "noise3"]
 
     def test_bibliography_holding_every_term_gets_no_boost(self, service):
@@ -1847,6 +1847,21 @@ class TestHybridScoreNormalization:
         results = service.search("entity resolution", mode="hybrid", top_k=1)
 
         assert [r.chunk_id for r in results] == ["topical"]
+
+    def test_bibliography_holding_every_term_does_not_pass_the_off_topic_gate(self, service):
+        biblio = MagicMock(
+            id="biblio",
+            book_id="abc123",
+            content="x" * 200,
+            content_type=ContentType.TEXT,
+            section_path=["Bibliography"],
+            sequence=0,
+        )
+        service._chunk_repo.search_fts.side_effect = lambda query, **kw: [biblio]
+        service._vector_store.query.return_value = [{"id": "biblio", "distance": 0.8}]
+        service._chunk_repo.get.side_effect = {"biblio": biblio}.get
+
+        assert service.search("how do I bake sourdough bread", mode="hybrid") == []
 
     def test_off_topic_gate_uses_env_floor(self, service, monkeypatch):
         """The gate follows MNEMO_SEMANTIC_MIN_SCORE, so it works on other models' scales."""
