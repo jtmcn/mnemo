@@ -34,6 +34,8 @@ SEMANTIC_FLOOR = 0.45
 SHORT_CONTENT_THRESHOLD = 100
 SHORT_CONTENT_PENALTY = 0.5
 MIN_SEMANTIC_SCORE = 0.25
+# Another book's best result moves up only if it scores at least this share of the one it passes.
+DIVERSITY_RATIO = 0.9
 
 
 def _min_semantic_score() -> float:
@@ -246,6 +248,12 @@ class SearchService:
                 if r.section_path
                 and _section_matches(section_norm, normalize_unicode(" > ".join(r.section_path)))
             ]
+            if not results:
+                # Better matches elsewhere can fill the over-fetch window, so look inside.
+                paths = [p for p, _ in self._section_counts(section, book_id)]
+                results = self._apply_quality_penalties(
+                    self._keyword_search(query, fetch_k, book_id, content_type_enum, paths)
+                )
 
         # Apply collection post-filter
         if collection_book_ids is not None:
@@ -413,6 +421,7 @@ class SearchService:
         top_k: int,
         book_id: str | None,
         content_type: ContentType | None,
+        section_paths: list[list[str]] | None = None,
     ) -> list[SearchResult]:
         """Execute keyword-only search via FTS5."""
         assert self._chunk_repo is not None
@@ -422,6 +431,7 @@ class SearchService:
             book_id=book_id,
             content_type=content_type,
             limit=top_k,
+            section_paths=section_paths,
         )
 
         # Compute RRF-style scores and normalize to 0-1 range
@@ -443,6 +453,7 @@ class SearchService:
                     score=score,
                     source="keyword",
                     sequence=chunk.sequence,
+                    sections=chunk.sections,
                 )
             )
 
@@ -495,6 +506,7 @@ class SearchService:
                     score=score,
                     source="semantic",
                     sequence=chunk.sequence,
+                    sections=chunk.sections,
                 )
             )
 
@@ -636,6 +648,7 @@ class SearchService:
                     score=rrf_scores[chunk_id],
                     source=source,
                     sequence=chunk.sequence,
+                    sections=chunk.sections,
                 )
             )
 
@@ -643,49 +656,29 @@ class SearchService:
 
     @staticmethod
     def _diversify_results(results: list[SearchResult], top_k: int) -> list[SearchResult]:
-        """Re-rank results using round-robin interleaving by book_id.
+        """Let each book's best result move up once, if it scores close to the one it displaces.
 
-        Groups results by book, then picks one per book per round.
-        Book order each round is determined by best remaining score.
-        Within-book ordering (by score) is preserved.
+        Strict round-robin put a weak match from a second book above strong ones from
+        the first. Once every book has appeared, results follow score order.
 
         Args:
             results: Scored search results, already sorted by score descending
             top_k: Maximum results to return
 
         Returns:
-            Diversified list of up to top_k results
+            Re-ranked list of up to top_k results
         """
-        if not results:
-            return results
-
-        # Group by book_id, preserving score order within each group
-        groups: dict[str, list[SearchResult]] = {}
-        for r in results:
-            groups.setdefault(r.book_id, []).append(r)
-
-        # If only one book, no diversification needed
-        if len(groups) <= 1:
-            return results
-
-        # Round-robin interleaving
+        remaining = list(results)
         diversified: list[SearchResult] = []
-        while len(diversified) < top_k:
-            # Remove exhausted groups
-            groups = {bid: g for bid, g in groups.items() if g}
-            if not groups:
-                break
-
-            # Order books by their best remaining score (descending)
-            ordered_books = sorted(
-                groups.keys(), key=lambda bid: groups[bid][0].score, reverse=True
-            )
-
-            for bid in ordered_books:
-                if len(diversified) >= top_k:
-                    break
-                diversified.append(groups[bid].pop(0))
-
+        shown: set[str] = set()
+        while remaining and len(diversified) < top_k:
+            pick = remaining[0]
+            unseen = next((r for r in remaining if r.book_id not in shown), None)
+            if unseen is not None and unseen.score >= DIVERSITY_RATIO * pick.score:
+                pick = unseen
+            remaining.remove(pick)
+            diversified.append(pick)
+            shown.add(pick.book_id)
         return diversified
 
     @staticmethod
@@ -706,6 +699,41 @@ class SearchService:
 
         results.sort(key=lambda r: r.score, reverse=True)
         return results
+
+    def count_section_chunks(
+        self,
+        section: str,
+        book_id: str | None = None,
+        content_type: str | None = None,
+        collection: str | None = None,
+    ) -> int:
+        """How many chunks the section and other filters admit, before any query matching."""
+        self._ensure_initialized()
+        assert self._book_repo is not None
+        try:
+            type_enum = ContentType(content_type) if content_type else None
+        except ValueError:
+            type_enum = None  # search() ignores an invalid type too
+        book_ids = (
+            {b.id for b in self._book_repo.list_by_collection(collection)} if collection else None
+        )
+        return sum(n for _, n in self._section_counts(section, book_id, type_enum, book_ids))
+
+    def _section_counts(
+        self,
+        section: str,
+        book_id: str | None,
+        content_type: ContentType | None = None,
+        book_ids: set[str] | None = None,
+    ) -> list[tuple[list[str], int]]:
+        """Each section path the section filter admits, with its chunk count."""
+        assert self._chunk_repo is not None
+        section_norm = normalize_unicode(section)
+        return [
+            (path, n)
+            for path, n in self._chunk_repo.count_by_section_path(book_id, content_type, book_ids)
+            if path and _section_matches(section_norm, normalize_unicode(" > ".join(path)))
+        ]
 
     def suggest_sections(
         self, section_query: str, book_id: str | None = None, max_suggestions: int = 5

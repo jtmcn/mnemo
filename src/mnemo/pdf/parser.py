@@ -204,9 +204,13 @@ class PdfParser:
 
         margin_keys: list[set[str]] = []
         pending: deque[tuple[int, LTPage]] = deque()
+        # Font size of each top-level bookmark's heading, to spot unlisted ones past the outline.
+        chapter_sizes: list[float] = []
+        entered = -1
+        unlisted: list[str] = []
 
         def _emit(page_number: int, layout: LTPage) -> None:
-            nonlocal run_path
+            nonlocal run_path, entered, unlisted
             nearby = range(
                 max(0, page_number - _FURNITURE_WINDOW),
                 min(len(margin_keys), page_number + _FURNITURE_WINDOW + 1),
@@ -227,6 +231,16 @@ class PdfParser:
                 # A box belongs to the last bookmark above its midline.
                 i = bisect_right(starts, (page_number, -(box.y0 + box.y1) / 2)) - 1
                 path = outline[i][1] if i >= 0 else []
+                size = max((char.size for char in chars), default=0.0)
+                if i != entered:
+                    entered = i
+                    if len(path) == 1:
+                        chapter_sizes.append(size)
+                elif i == len(outline) - 1 and _is_unlisted_heading(box, size, chapter_sizes):
+                    # Back matter (a glossary, an index) the outline stops short of.
+                    unlisted = [_WHITESPACE.sub(" ", box.get_text()).strip()]
+                if unlisted:
+                    path = unlisted
                 if path != run_path:
                     _flush()
                     run_path = path
@@ -293,6 +307,17 @@ def _visible_chars(box: LTTextBox) -> list[LTChar]:
         for char in line
         if isinstance(char, LTChar) and not char.get_text().isspace()
     ]
+
+
+def _is_unlisted_heading(box: LTTextBox, size: float, chapter_sizes: list[float]) -> bool:
+    """A short single line set at least as large as the outline's chapter headings."""
+    lines = [line for line in box if isinstance(line, LTTextLine)]
+    return (
+        bool(chapter_sizes)
+        and size >= max(chapter_sizes) - 0.5
+        and len(lines) == 1
+        and len(box.get_text().split()) <= 8
+    )
 
 
 def _is_monospace(chars: list[LTChar]) -> bool:

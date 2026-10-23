@@ -8,7 +8,7 @@ Defines structured representations of search results and filters:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, TypedDict
 
 if TYPE_CHECKING:
@@ -42,6 +42,8 @@ class SearchResult:
     score: float
     source: Literal["semantic", "keyword", "both"]
     sequence: int = 0
+    # Every heading the chunk's text runs through; more than one when it spans sections.
+    sections: list[str] = field(default_factory=list)
 
 
 @dataclass

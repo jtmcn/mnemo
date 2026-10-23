@@ -367,6 +367,7 @@ class ChunkRepository:
         limit: int = 20,
         section: str | None = None,
         match_all: bool = False,
+        section_paths: list[list[str]] | None = None,
     ) -> list[Chunk]:
         """Full-text search with optional filters.
 
@@ -382,13 +383,14 @@ class ChunkRepository:
             content_type: Optional filter by content type
             limit: Maximum results to return (default 20)
             match_all: Require every query term instead of any
+            section_paths: Only chunks with exactly one of these section paths
 
         Returns:
             List of matching Chunk instances, ranked by relevance
         """
         # Sanitize query for FTS5 - escape special characters
         sanitized_query = self._sanitize_fts_query(query, match_all=match_all)
-        if not sanitized_query:
+        if not sanitized_query or section_paths == []:
             return []
 
         # Build query with optional filters
@@ -413,6 +415,10 @@ class ChunkRepository:
             section_normalized = "".join(c for c in nfkd if not unicodedata.combining(c))
             sql += " AND LOWER(c.section_path) LIKE ?"
             params.append(f"%{section_normalized.lower()}%")
+
+        if section_paths:
+            sql += " AND c.section_path IN (SELECT value FROM json_each(?))"
+            params.append(json.dumps([json.dumps(p) for p in section_paths]))
 
         sql += " ORDER BY rank LIMIT ?"
         params.append(limit)
@@ -606,6 +612,27 @@ class ChunkRepository:
         escaped_words = [w.replace('"', '""') for w in meaningful]
         joiner = " AND " if match_all else " OR "
         return joiner.join(f'"{w}"' for w in escaped_words if w)
+
+    def count_by_section_path(
+        self,
+        book_id: str | None = None,
+        content_type: ContentType | None = None,
+        book_ids: set[str] | None = None,
+    ) -> list[tuple[list[str], int]]:
+        """Chunk count per distinct section path, optionally within books or one type."""
+        sql = "SELECT section_path, COUNT(*) AS n FROM chunks WHERE 1"
+        params: list[str] = []
+        if book_id:
+            sql += " AND book_id = ?"
+            params.append(book_id)
+        if content_type is not None:
+            sql += " AND content_type = ?"
+            params.append(content_type.value)
+        if book_ids is not None:
+            sql += " AND book_id IN (SELECT value FROM json_each(?))"
+            params.append(json.dumps(sorted(book_ids)))
+        rows = self.conn.execute(sql + " GROUP BY section_path", params).fetchall()
+        return [(json.loads(row["section_path"]), row["n"]) for row in rows]
 
     def get_distinct_sections(self, book_id: str | None = None) -> list[str]:
         """Return unique section path elements across chunks.

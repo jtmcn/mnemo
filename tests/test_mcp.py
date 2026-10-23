@@ -1559,6 +1559,125 @@ class TestAddBookChunkParams:
 # ============================================================================
 
 
+class TestSourceLineSpans:
+    def test_chunk_spanning_two_headings_names_both(self):
+        from mnemo.mcp.formatters import _format_search_results
+
+        result = SearchResult(
+            chunk_id="c1",
+            book_id="abc123",
+            book_title="Ontology-Pipeline",
+            content="The query layer ... Example SPARQL query ...",
+            content_type="text",
+            section_path=["Knowledge Graph", "The query layer", "Example SPARQL query"],
+            score=0.5,
+            source="keyword",
+            sections=["The query layer", "Example SPARQL query"],
+        )
+
+        output = _format_search_results([result])
+
+        assert "**Spans:** The query layer \u2192 Example SPARQL query" in output
+
+    def test_single_section_chunk_has_no_spans_line(self):
+        from mnemo.mcp.formatters import _format_search_results
+
+        result = SearchResult(
+            chunk_id="c1",
+            book_id="abc123",
+            book_title="T",
+            content="text",
+            content_type="text",
+            section_path=["Ch 1"],
+            score=0.5,
+            source="keyword",
+            sections=["Ch 1"],
+        )
+
+        assert "Spans" not in _format_search_results([result])
+
+
+class TestSearchBooksSectionMessages:
+    """What search_books says when a section filter finds nothing."""
+
+    @staticmethod
+    def _glossary_service(tmp_path):
+        from mnemo.search import SearchService
+
+        service = SearchService(db_path=tmp_path / "t.db", chroma_path=tmp_path / "chroma")
+        service._ensure_initialized()
+        assert service._chunk_repo is not None and service._book_repo is not None
+        service._book_repo.add(
+            Book(id="a1b2c3", title="T", authors=[], file_hash="a" * 64, structure_source="toc")
+        )
+        service._chunk_repo.add_many(
+            [
+                Chunk(
+                    book_id="a1b2c3",
+                    content="An axiom is a statement taken to be true. " * 5,
+                    content_type=ContentType.TEXT,
+                    token_count=50,
+                    section_path=["Back", "Glossary terms"],
+                    sequence=0,
+                )
+            ]
+        )
+        return service
+
+    def test_existing_section_says_no_chunk_holds_a_query_word(self, tmp_path):
+        from mnemo.mcp.tools_search import _search_books_impl
+
+        result = _search_books_impl(
+            "zebra",
+            section="Glossary terms",
+            mode="keyword",
+            search_service=self._glossary_service(tmp_path),
+        )
+
+        assert result == 'Section "Glossary terms" has 1 chunk, but none contains a word of: zebra.'
+
+    def test_section_count_applies_the_content_type_filter(self, tmp_path):
+        from mnemo.mcp.tools_search import _search_books_impl
+
+        result = _search_books_impl(
+            "axiom",
+            section="Glossary terms",
+            content_type="code",
+            mode="keyword",
+            search_service=self._glossary_service(tmp_path),
+        )
+
+        assert result == "No results found for: axiom"
+
+    def test_section_count_applies_the_collection_filter(self, tmp_path):
+        from mnemo.mcp.tools_search import _search_books_impl
+
+        result = _search_books_impl(
+            "axiom",
+            section="Glossary terms",
+            collection="Other books",
+            mode="keyword",
+            search_service=self._glossary_service(tmp_path),
+        )
+
+        assert result == "No results found for: axiom"
+
+    def test_unknown_section_suggests_names_other_than_its_own(self):
+        from mnemo.mcp.tools_search import _search_books_impl
+
+        mock_service = MagicMock()
+        mock_service.search.return_value = []
+        mock_service.count_section_chunks.return_value = 0
+        mock_service.suggest_sections.return_value = ["glossary", "Vocabulary"]
+
+        result = _search_books_impl("axiom", section="Glossary", search_service=mock_service)
+
+        assert (
+            result
+            == 'No results found for: axiom in section "Glossary". Did you mean: "Vocabulary"?'
+        )
+
+
 class TestSearchBooksContextWindow:
     """Tests for context_window parameter on search_books MCP tool."""
 

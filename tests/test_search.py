@@ -1404,19 +1404,35 @@ class TestDiversifyResults:
             source="keyword",
         )
 
-    def test_diversify_results_round_robin(self):
-        """Two books interleave in round-robin fashion."""
+    def test_close_result_from_another_book_moves_up(self):
+        results = [
+            self._make_result("a1", "bookA", 0.9),
+            self._make_result("a2", "bookA", 0.88),
+            self._make_result("b1", "bookB", 0.85),
+        ]
+        diversified = SearchService._diversify_results(results, top_k=3)
+        assert [r.chunk_id for r in diversified] == ["a1", "b1", "a2"]
+
+    def test_distant_result_from_another_book_keeps_its_rank(self):
         results = [
             self._make_result("a1", "bookA", 0.9),
             self._make_result("a2", "bookA", 0.8),
-            self._make_result("b1", "bookB", 0.85),
             self._make_result("a3", "bookA", 0.7),
-            self._make_result("b2", "bookB", 0.6),
+            self._make_result("b1", "bookB", 0.3),
+        ]
+        diversified = SearchService._diversify_results(results, top_k=4)
+        assert [r.chunk_id for r in diversified] == ["a1", "a2", "a3", "b1"]
+
+    def test_once_every_book_has_appeared_results_follow_score(self):
+        results = [
+            self._make_result("a1", "bookA", 0.9),
+            self._make_result("a2", "bookA", 0.89),
+            self._make_result("b1", "bookB", 0.88),
+            self._make_result("b2", "bookB", 0.87),
+            self._make_result("a3", "bookA", 0.86),
         ]
         diversified = SearchService._diversify_results(results, top_k=5)
-        book_ids = [r.book_id for r in diversified]
-        # Round 1: bookA(0.9), bookB(0.85); Round 2: bookA(0.8), bookB(0.6); Round 3: bookA(0.7)
-        assert book_ids == ["bookA", "bookB", "bookA", "bookB", "bookA"]
+        assert [r.chunk_id for r in diversified] == ["a1", "b1", "a2", "b2", "a3"]
 
     def test_diversify_results_single_book_passthrough(self):
         """Single book returns results unchanged."""
@@ -2168,6 +2184,104 @@ class TestSuggestSections:
         suggestions = service.suggest_sections("Experimenting Graph Science", book_id="d4e5f6")
         assert len(suggestions) >= 1
         assert "Experimenting with Graph Data Science" in suggestions
+
+    def test_section_chunk_count_uses_the_filter_rules(self, tmp_path):
+        service = SearchService(db_path=tmp_path / "test.db", chroma_path=tmp_path / "chroma")
+        service._ensure_initialized()
+        assert service._chunk_repo is not None and service._book_repo is not None
+        for book_id, paths in {
+            "a1b2c3": [
+                ["Chapter 6", "Prot\u00e9g\u00e9"],
+                ["Chapter 6", "Prot\u00e9g\u00e9"],
+                ["Chapter 60"],
+            ],
+            "d4e5f6": [["Chapter 6"]],
+        }.items():
+            service._book_repo.add(
+                Book(
+                    id=book_id,
+                    title="T",
+                    authors=[],
+                    file_hash=(book_id * 11)[:64],
+                    structure_source="toc",
+                )
+            )
+            service._chunk_repo.add_many(
+                [
+                    Chunk(
+                        book_id=book_id,
+                        content="x" * 200,
+                        content_type=ContentType.TEXT,
+                        token_count=100,
+                        section_path=path,
+                        sections=[],
+                        sequence=i,
+                    )
+                    for i, path in enumerate(paths)
+                ]
+            )
+
+        assert service.count_section_chunks("chapter 6", book_id="a1b2c3") == 2
+        assert service.count_section_chunks("Protege") == 2
+        assert service.count_section_chunks("Chapter 6") == 3
+        assert service.count_section_chunks("Glossary") == 0
+
+    def test_section_match_crowded_out_by_other_sections_is_still_found(self, tmp_path):
+        service = SearchService(db_path=tmp_path / "test.db", chroma_path=tmp_path / "chroma")
+        service._ensure_initialized()
+        assert service._chunk_repo is not None and service._book_repo is not None
+        service._book_repo.add(
+            Book(id="a1b2c3", title="T", authors=[], file_hash="a" * 64, structure_source="toc")
+        )
+        crowd = [
+            Chunk(
+                book_id="a1b2c3",
+                content="pipeline pipeline pipeline ontology " * 5,
+                content_type=ContentType.TEXT,
+                token_count=40,
+                section_path=["Ch1", f"S{i}"],
+                sequence=i,
+            )
+            for i in range(80)
+        ]
+        glossary = Chunk(
+            book_id="a1b2c3",
+            content="A long passage that mentions the pipeline once among other words. " * 6,
+            content_type=ContentType.TEXT,
+            token_count=200,
+            section_path=["Ch2", "Glossary terms"],
+            sequence=80,
+        )
+        service._chunk_repo.add_many([*crowd, glossary])
+
+        results = service.search("pipeline", mode="keyword", section="Glossary terms")
+
+        assert [r.chunk_id for r in results] == [glossary.id]
+
+    def test_keyword_results_carry_every_section_the_chunk_spans(self, tmp_path):
+        service = SearchService(db_path=tmp_path / "test.db", chroma_path=tmp_path / "chroma")
+        service._ensure_initialized()
+        assert service._chunk_repo is not None and service._book_repo is not None
+        service._book_repo.add(
+            Book(id="a1b2c3", title="T", authors=[], file_hash="a" * 64, structure_source="toc")
+        )
+        service._chunk_repo.add_many(
+            [
+                Chunk(
+                    book_id="a1b2c3",
+                    content="The query layer answers SPARQL queries. " * 5,
+                    content_type=ContentType.TEXT,
+                    token_count=40,
+                    section_path=["KG", "The query layer", "Example SPARQL query"],
+                    sections=["The query layer", "Example SPARQL query"],
+                    sequence=0,
+                )
+            ]
+        )
+
+        results = service.search("SPARQL", mode="keyword")
+
+        assert results[0].sections == ["The query layer", "Example SPARQL query"]
 
     def test_empty_library_returns_empty(self, tmp_path):
         """Returns empty list when no sections exist."""

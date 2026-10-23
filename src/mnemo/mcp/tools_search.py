@@ -63,7 +63,21 @@ def _search_books_impl(
 
         if not results:
             if section:
-                suggestions = search_service.suggest_sections(section, book_id)
+                in_section = search_service.count_section_chunks(
+                    section, book_id, content_type, collection
+                )
+                if in_section:
+                    # search() already fell back to any-word keyword matching inside it.
+                    noun = "chunk" if in_section == 1 else "chunks"
+                    return (
+                        f'Section "{section}" has {in_section} {noun}, but none contains '
+                        f"a word of: {query}."
+                    )
+                suggestions = [
+                    s
+                    for s in search_service.suggest_sections(section, book_id)
+                    if s.lower() != section.lower()
+                ]
                 if suggestions:
                     quoted = ", ".join(f'"{s}"' for s in suggestions)
                     return (
