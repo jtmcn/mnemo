@@ -568,16 +568,20 @@ class SearchService:
             vr["id"]: max(0.0, min(1.0, 1.0 - vr["distance"])) for vr in vector_results
         }
 
+        every_term_chunks = self._chunk_repo.search_fts(
+            query=query,
+            book_id=book_id,
+            content_type=content_type_enum,
+            limit=fetch_k,
+            match_all=True,
+        )
+        # An index or bibliography holds every term of most queries.
+        every_term_ids = {
+            c.id for c in every_term_chunks if not is_boilerplate_section(c.section_path)
+        }
+        best_sim = max(semantic_sim_map.values())
         # Weak best match means off-topic, unless a chunk holds every term (e.g. an identifier).
-        if max(semantic_sim_map.values()) < self._min_semantic_score and not (
-            self._chunk_repo.search_fts(
-                query=query,
-                book_id=book_id,
-                content_type=content_type_enum,
-                limit=1,
-                match_all=True,
-            )
-        ):
+        if best_sim < self._min_semantic_score and not every_term_ids:
             return []
 
         # Filter keyword-only results that ranked poorly (beyond top_k in keyword list).
@@ -599,6 +603,10 @@ class SearchService:
         for chunk_id in rrf_scores:
             norm_rrf = rrf_scores[chunk_id] / max_rrf if max_rrf > 0 else 0.0
             raw_sim = semantic_sim_map.get(chunk_id, 0.0)
+            if chunk_id in every_term_ids:
+                # Holding every term is as strong as the best semantic match: a rare
+                # identifier ("Swoosh") draws unrelated semantic hits that score well.
+                raw_sim = max(raw_sim, best_sim)
             if raw_sim >= SEMANTIC_FLOOR:
                 rrf_scores[chunk_id] = 0.5 * norm_rrf + 0.5 * raw_sim
             elif raw_sim > 0:

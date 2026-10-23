@@ -387,7 +387,8 @@ class TestSearchServiceMocked:
 
         service_with_mocks.search("test query", mode="hybrid")
 
-        mock_chunk_repo.search_fts.assert_called_once()
+        fts_calls = mock_chunk_repo.search_fts.call_args_list
+        assert any(not call.kwargs.get("match_all") for call in fts_calls)
         mock_vector_store.query.assert_called_once()
 
     def test_hybrid_requests_2x_results(
@@ -1800,6 +1801,68 @@ class TestHybridScoreNormalization:
         """A chunk containing every query term is a real keyword match, e.g. an identifier."""
         assert len(self._off_topic_search(service, 0.2, every_term_matches=True)) == 1
 
+    def test_chunks_holding_every_term_outrank_unrelated_semantic_hits(self, service):
+        """A rare identifier ("Swoosh") draws arbitrary semantic hits that score fairly high."""
+
+        def chunk(cid):
+            return MagicMock(
+                id=cid,
+                book_id="abc123",
+                content="x" * 200,
+                content_type=ContentType.TEXT,
+                section_path=["Ch1"],
+                sequence=0,
+            )
+
+        chunks = {cid: chunk(cid) for cid in ("exact1", "exact2", "noise1", "noise2", "noise3")}
+        exact = [chunks["exact1"], chunks["exact2"]]
+        service._chunk_repo.search_fts.side_effect = lambda query, **kw: exact
+        service._vector_store.query.return_value = [
+            {"id": cid, "distance": 0.36} for cid in ("noise1", "noise2", "noise3")
+        ]
+        service._chunk_repo.get.side_effect = chunks.get
+
+        results = service.search("Swoosh", mode="hybrid", top_k=5)
+
+        # Each exact hit scores like the best semantic hit at its list rank; fusion lists it first.
+        assert [r.chunk_id for r in results] == ["exact1", "noise1", "exact2", "noise2", "noise3"]
+
+    def test_bibliography_holding_every_term_gets_no_boost(self, service):
+        """Indexes and bibliographies hold every term of most queries."""
+        biblio, topical = (
+            MagicMock(
+                id=cid,
+                book_id="abc123",
+                content="x" * 200,
+                content_type=ContentType.TEXT,
+                section_path=path,
+                sequence=0,
+            )
+            for cid, path in (("biblio", ["Bibliography"]), ("topical", ["8. Instance Matching"]))
+        )
+        service._chunk_repo.search_fts.side_effect = lambda query, **kw: [biblio]
+        service._vector_store.query.return_value = [{"id": "topical", "distance": 0.3}]
+        service._chunk_repo.get.side_effect = {"biblio": biblio, "topical": topical}.get
+
+        results = service.search("entity resolution", mode="hybrid", top_k=1)
+
+        assert [r.chunk_id for r in results] == ["topical"]
+
+    def test_bibliography_holding_every_term_does_not_pass_the_off_topic_gate(self, service):
+        biblio = MagicMock(
+            id="biblio",
+            book_id="abc123",
+            content="x" * 200,
+            content_type=ContentType.TEXT,
+            section_path=["Bibliography"],
+            sequence=0,
+        )
+        service._chunk_repo.search_fts.side_effect = lambda query, **kw: [biblio]
+        service._vector_store.query.return_value = [{"id": "biblio", "distance": 0.8}]
+        service._chunk_repo.get.side_effect = {"biblio": biblio}.get
+
+        assert service.search("how do I bake sourdough bread", mode="hybrid") == []
+
     def test_off_topic_gate_uses_env_floor(self, service, monkeypatch):
         """The gate follows MNEMO_SEMANTIC_MIN_SCORE, so it works on other models' scales."""
         monkeypatch.setenv("MNEMO_SEMANTIC_MIN_SCORE", "0.5")
@@ -2082,7 +2145,9 @@ class TestSemanticFloor:
             content_type=ContentType.TEXT,
             section_path=["Ch1"],
         )
-        service._chunk_repo.search_fts.return_value = [kw_chunk, strong_chunk]
+        service._chunk_repo.search_fts.side_effect = lambda query, **kw: (
+            [] if kw.get("match_all") else [kw_chunk, strong_chunk]
+        )
         # c1: weak semantic (distance 0.7 => sim 0.3, below SEMANTIC_FLOOR)
         # c2: strong semantic (distance 0.1 => sim 0.9, above SEMANTIC_FLOOR)
         service._vector_store.query.return_value = [

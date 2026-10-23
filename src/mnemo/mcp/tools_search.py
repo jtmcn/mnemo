@@ -247,12 +247,11 @@ def search_books(
             'Generators'). Case-insensitive substring match against section
             hierarchy.
         context_window: Number of neighboring chunks to include around each
-            match (default 0 = current behavior). Use 1-2 for reading in
-            context. Larger windows produce more verbose output. Max 3.
-            Neighbors stop at the match's section boundary; the output says
-            so and gives the get_book_chunks call that reads across it.
-            Short code, diagram, and math matches get one neighbor each side
-            even at 0.
+            match (default 0, max 3). Short code, diagram, and math matches
+            get one neighbor each side even at 0. Use 1-2 for reading in
+            context; larger windows produce more verbose output. Neighbors
+            stop at the match's section boundary; the output says so and
+            gives the get_book_chunks call that reads across it.
         max_chars: Maximum characters per chunk in output (default 2000, max 10000).
             Truncated results include a hint to use get_book_chunks for full text.
         collection: Optional collection name to search within (e.g.,
