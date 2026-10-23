@@ -63,7 +63,9 @@ def _search_books_impl(
 
         if not results:
             if section:
-                in_section = search_service.count_section_chunks(section, book_id)
+                in_section = search_service.count_section_chunks(
+                    section, book_id, content_type, collection
+                )
                 if in_section:
                     # search() already fell back to any-word keyword matching inside it.
                     noun = "chunk" if in_section == 1 else "chunks"

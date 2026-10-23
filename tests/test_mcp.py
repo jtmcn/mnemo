@@ -1600,8 +1600,8 @@ class TestSourceLineSpans:
 class TestSearchBooksSectionMessages:
     """What search_books says when a section filter finds nothing."""
 
-    def test_existing_section_says_no_chunk_holds_a_query_word(self, tmp_path):
-        from mnemo.mcp.tools_search import _search_books_impl
+    @staticmethod
+    def _glossary_service(tmp_path):
         from mnemo.search import SearchService
 
         service = SearchService(db_path=tmp_path / "t.db", chroma_path=tmp_path / "chroma")
@@ -1622,12 +1622,45 @@ class TestSearchBooksSectionMessages:
                 )
             ]
         )
+        return service
+
+    def test_existing_section_says_no_chunk_holds_a_query_word(self, tmp_path):
+        from mnemo.mcp.tools_search import _search_books_impl
 
         result = _search_books_impl(
-            "zebra", section="Glossary terms", mode="keyword", search_service=service
+            "zebra",
+            section="Glossary terms",
+            mode="keyword",
+            search_service=self._glossary_service(tmp_path),
         )
 
         assert result == 'Section "Glossary terms" has 1 chunk, but none contains a word of: zebra.'
+
+    def test_section_count_applies_the_content_type_filter(self, tmp_path):
+        from mnemo.mcp.tools_search import _search_books_impl
+
+        result = _search_books_impl(
+            "axiom",
+            section="Glossary terms",
+            content_type="code",
+            mode="keyword",
+            search_service=self._glossary_service(tmp_path),
+        )
+
+        assert result == "No results found for: axiom"
+
+    def test_section_count_applies_the_collection_filter(self, tmp_path):
+        from mnemo.mcp.tools_search import _search_books_impl
+
+        result = _search_books_impl(
+            "axiom",
+            section="Glossary terms",
+            collection="Other books",
+            mode="keyword",
+            search_service=self._glossary_service(tmp_path),
+        )
+
+        assert result == "No results found for: axiom"
 
     def test_unknown_section_suggests_names_other_than_its_own(self):
         from mnemo.mcp.tools_search import _search_books_impl

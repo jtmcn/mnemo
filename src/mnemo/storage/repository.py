@@ -613,13 +613,24 @@ class ChunkRepository:
         joiner = " AND " if match_all else " OR "
         return joiner.join(f'"{w}"' for w in escaped_words if w)
 
-    def count_by_section_path(self, book_id: str | None = None) -> list[tuple[list[str], int]]:
-        """Chunk count per distinct section path, optionally within one book."""
-        sql = "SELECT section_path, COUNT(*) AS n FROM chunks"
-        params: tuple[str, ...] = ()
+    def count_by_section_path(
+        self,
+        book_id: str | None = None,
+        content_type: ContentType | None = None,
+        book_ids: set[str] | None = None,
+    ) -> list[tuple[list[str], int]]:
+        """Chunk count per distinct section path, optionally within books or one type."""
+        sql = "SELECT section_path, COUNT(*) AS n FROM chunks WHERE 1"
+        params: list[str] = []
         if book_id:
-            sql += " WHERE book_id = ?"
-            params = (book_id,)
+            sql += " AND book_id = ?"
+            params.append(book_id)
+        if content_type is not None:
+            sql += " AND content_type = ?"
+            params.append(content_type.value)
+        if book_ids is not None:
+            sql += " AND book_id IN (SELECT value FROM json_each(?))"
+            params.append(json.dumps(sorted(book_ids)))
         rows = self.conn.execute(sql + " GROUP BY section_path", params).fetchall()
         return [(json.loads(row["section_path"]), row["n"]) for row in rows]
 

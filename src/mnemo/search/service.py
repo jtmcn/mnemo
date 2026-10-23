@@ -700,18 +700,38 @@ class SearchService:
         results.sort(key=lambda r: r.score, reverse=True)
         return results
 
-    def count_section_chunks(self, section: str, book_id: str | None = None) -> int:
-        """How many chunks the section filter admits, before any query matching."""
+    def count_section_chunks(
+        self,
+        section: str,
+        book_id: str | None = None,
+        content_type: str | None = None,
+        collection: str | None = None,
+    ) -> int:
+        """How many chunks the section and other filters admit, before any query matching."""
         self._ensure_initialized()
-        return sum(n for _, n in self._section_counts(section, book_id))
+        assert self._book_repo is not None
+        try:
+            type_enum = ContentType(content_type) if content_type else None
+        except ValueError:
+            type_enum = None  # search() ignores an invalid type too
+        book_ids = (
+            {b.id for b in self._book_repo.list_by_collection(collection)} if collection else None
+        )
+        return sum(n for _, n in self._section_counts(section, book_id, type_enum, book_ids))
 
-    def _section_counts(self, section: str, book_id: str | None) -> list[tuple[list[str], int]]:
+    def _section_counts(
+        self,
+        section: str,
+        book_id: str | None,
+        content_type: ContentType | None = None,
+        book_ids: set[str] | None = None,
+    ) -> list[tuple[list[str], int]]:
         """Each section path the section filter admits, with its chunk count."""
         assert self._chunk_repo is not None
         section_norm = normalize_unicode(section)
         return [
             (path, n)
-            for path, n in self._chunk_repo.count_by_section_path(book_id)
+            for path, n in self._chunk_repo.count_by_section_path(book_id, content_type, book_ids)
             if path and _section_matches(section_norm, normalize_unicode(" > ".join(path)))
         ]
 
