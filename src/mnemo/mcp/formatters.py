@@ -97,11 +97,13 @@ def _format_search_results(results: list[SearchResult], max_chars: int = 2000) -
     return "\n".join(lines)
 
 
-def _format_enriched_results(expanded_results: list[ExpandedResult], max_chars: int = 2000) -> str:
+def _format_enriched_results(
+    expanded_results: list[ExpandedResult], max_chars: int = 2000, context_window: int = 0
+) -> str:
     """Format enriched search results with context chunk markers.
 
     Shows each expanded result with matched chunks clearly delineated
-    from surrounding context chunks.
+    from surrounding context chunks, and says when the window was cut short.
     """
     lines = [f"Found {len(expanded_results)} results (with context):\n"]
 
@@ -143,6 +145,19 @@ def _format_enriched_results(expanded_results: list[ExpandedResult], max_chars: 
                 lines.append(f"```\n{content}\n```")
             else:
                 lines.append(content)
+
+        matched_seqs = [c.sequence for c in exp["chunks"] if c.id in matched_ids]
+        if matched_seqs and context_window:
+            # Expansion stays inside the match's section; say so rather than look broken.
+            want_start = max(0, min(matched_seqs) - context_window)
+            want_end = max(matched_seqs) + context_window
+            if exp["start_seq"] > want_start or exp["end_seq"] < want_end:
+                lines.append("")
+                lines.append(
+                    "*[Context stops at the section boundary (or book edge) \u2014 "
+                    f'get_book_chunks(book_id="{result.book_id}", start_sequence={want_start},'
+                    f" end_sequence={want_end}) reads past it]*"
+                )
 
         lines.append("")
 

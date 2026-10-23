@@ -74,7 +74,9 @@ def _search_books_impl(
 
         if context_window >= 1:
             # context_window >= 1 is exactly when search() returns expanded results.
-            return _format_enriched_results(cast("list[ExpandedResult]", results), max_chars)
+            return _format_enriched_results(
+                cast("list[ExpandedResult]", results), max_chars, context_window
+            )
 
         plain = cast("list[SearchResult]", results)
 
@@ -126,13 +128,19 @@ def _get_book_structure_impl(
             return f"## {book.title}\n\nNo sections found."
 
         lines = [f"## {book.title}", ""]
+        previous: list[str] = []
         for sp in rows:
             if not sp:
                 continue
-            depth = len(sp) - 1
-            indent = "  " * depth
-            label = sp[-1]
-            lines.append(f"{indent}- {label}")
+            # Print the ancestors this path doesn't share with the last one: a
+            # chapter whose text all sits in subsections has no row of its own.
+            shared = 0
+            while shared < min(len(sp), len(previous)) and sp[shared] == previous[shared]:
+                shared += 1
+            shared = min(shared, len(sp) - 1)
+            for depth in range(shared, len(sp)):
+                lines.append(f"{'  ' * depth}- {sp[depth]}")
+            previous = sp
 
         return "\n".join(lines)
 
@@ -227,6 +235,10 @@ def search_books(
         context_window: Number of neighboring chunks to include around each
             match (default 0 = current behavior). Use 1-2 for reading in
             context. Larger windows produce more verbose output. Max 3.
+            Neighbors stop at the match's section boundary; the output says
+            so and gives the get_book_chunks call that reads across it.
+            Short code, diagram, and math matches get one neighbor each side
+            even at 0.
         max_chars: Maximum characters per chunk in output (default 2000, max 10000).
             Truncated results include a hint to use get_book_chunks for full text.
         collection: Optional collection name to search within (e.g.,

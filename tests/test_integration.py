@@ -14,9 +14,10 @@ import pytest
 from mnemo import ingest as mnemo_ingest
 from mnemo.ingest import reindex_all_books, remove_book
 from mnemo.models import Book, ContentType
+from mnemo.search import SearchService
 from mnemo.services.book_service import intake
 from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_db
-from tests.fixtures.epub_factory import create_test_epub
+from tests.fixtures.epub_factory import create_epub_with_nested_toc, create_test_epub
 from tests.fixtures.pdf_factory import create_test_pdf
 
 
@@ -574,6 +575,25 @@ class TestReplaceIsAtomic:
         ).fetchone()[0]
         conn.close()
         assert orphans == 0
+
+
+class TestSectionFilterMatchesStructure:
+    """Every heading get_book_structure lists must be a section filter that finds text."""
+
+    def test_every_listed_heading_finds_its_chunks(self, tmp_path: Path, temp_db: Path):
+        book, _ = add(create_epub_with_nested_toc(tmp_path / "nested.epub"), temp_db)
+        conn = get_connection(temp_db)
+        try:
+            paths = ChunkRepository(conn).get_section_structure(book.id)
+        finally:
+            conn.close()
+        service = SearchService(db_path=temp_db, chroma_path=tmp_path / "chroma")
+
+        headings = {heading for path in paths for heading in path}
+
+        assert "8. Instance Matching" in headings
+        for heading in headings:
+            assert service.search("text", mode="keyword", section=heading), heading
 
 
 class TestFTS:

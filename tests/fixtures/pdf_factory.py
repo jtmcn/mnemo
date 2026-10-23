@@ -20,6 +20,8 @@ class Heading:
 @dataclass
 class Para:
     lines: list[str]
+    # Baseline to baseline; 18pt on 11pt type leaves a gap past pdfminer's default line_margin.
+    leading: float = 14
 
 
 @dataclass
@@ -138,7 +140,7 @@ def create_test_pdf(
             canvas.setFont("Times-Roman", 11)
             for line in item.lines:
                 canvas.drawString(72, y, line)
-                y -= 14
+                y -= item.leading
             y -= 16
 
     _furniture()

@@ -17,7 +17,7 @@ from ebooklib import epub  # type: ignore[import-untyped]
 # EPUB content is XHTML but lxml HTML parser handles real-world EPUBs better
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
-from mnemo.epub.content import extract_content  # noqa: E402
+from mnemo.epub.content import extract_content, file_sections  # noqa: E402
 from mnemo.epub.metadata import extract_metadata  # noqa: E402
 from mnemo.models import Book  # noqa: E402
 from mnemo.parsing.models import ContentBlock  # noqa: E402
@@ -38,6 +38,18 @@ def _attr(tag: Tag, name: str) -> str:
     if isinstance(value, str):
         return value
     return " ".join(value) if value else ""
+
+
+def _add_toc_entry(mapping: dict[str, list[str]], href: str, path: list[str]) -> None:
+    """Map a fragment entry under its full href, and a plain one under its file.
+
+    One file often holds a chapter and its "#sec8-4" entries, and letting the last
+    entry win labelled the whole chapter with its final subsection. Among plain
+    entries the deepest of one chain wins: a Part often points at its first chapter.
+    """
+    existing = mapping.get(href)
+    if "#" in href or existing is None or path[: len(existing)] == existing:
+        mapping[href] = path
 
 
 class EPUBParser:
@@ -202,20 +214,14 @@ class EPUBParser:
                 continue
 
             href = _attr(a, "href")
-            title = a.get_text(strip=True)
+            title = " ".join(a.get_text().split())
 
             if not href or not title:
                 continue
 
-            # Remove fragment from href
-            href = href.split("#")[0]
-
             # Build path for this item
             item_path = current_path + [title]
-
-            # Store mapping
-            if href:
-                mapping[href] = item_path
+            _add_toc_entry(mapping, href, item_path)
 
             # Process nested items
             nested_ol = li.find("ol")
@@ -274,7 +280,7 @@ class EPUBParser:
             # Get label text
             nav_label = navpoint.find("navLabel")
             text_elem = nav_label.find("text") if nav_label else None
-            title = text_elem.get_text(strip=True) if text_elem else ""
+            title = " ".join(text_elem.get_text().split()) if text_elem else ""
 
             # Get content href
             content = navpoint.find("content")
@@ -283,15 +289,9 @@ class EPUBParser:
             if not href or not title:
                 continue
 
-            # Remove fragment from href
-            href = href.split("#")[0]
-
             # Build path
             item_path = current_path + [title]
-
-            # Store mapping
-            if href:
-                mapping[href] = item_path
+            _add_toc_entry(mapping, href, item_path)
 
             # Process nested navPoints
             self._parse_ncx_navpoint(navpoint, item_path, mapping)
@@ -314,7 +314,7 @@ class EPUBParser:
                 continue
 
             href = item.get_name()
-            if href in toc_mapping:
+            if file_sections(toc_mapping, href)[0]:
                 continue
 
             content = item.get_content()

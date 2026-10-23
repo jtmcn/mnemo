@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import warnings
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -53,6 +54,28 @@ def _infer_front_matter_label(href: str) -> list[str] | None:
     return None
 
 
+def file_sections(
+    toc_mapping: dict[str, list[str]], href: str
+) -> tuple[list[str], dict[str, list[str]]]:
+    """A file's TOC path and its "#fragment" entries by id.
+
+    A file the TOC reaches only through fragments takes its first one's path.
+    """
+    prefix = f"{href}#"
+    anchors = {k[len(prefix) :]: v for k, v in toc_mapping.items() if k.startswith(prefix)}
+    own = toc_mapping.get(href)
+    if own:
+        # Drop entries from another branch (a List of Figures pointing at a figure).
+        parents = {tuple(own), *(tuple(p) for p in anchors.values())}
+        anchors = {
+            k: p
+            for k, p in anchors.items()
+            if p[: len(own)] == own or tuple(p[:-1]) in parents or own[: len(p) - 1] == p[:-1]
+        }
+    path = own or next(iter(anchors.values()), [])
+    return list(path), anchors
+
+
 def extract_content(
     epub_book: ebooklib.epub.EpubBook,
     toc_mapping: dict[str, list[str]],
@@ -88,7 +111,7 @@ def extract_content(
     # Process each document item
     for item in spine_items:
         href = item.get_name()
-        section_path = toc_mapping.get(href, [])
+        section_path, anchors = file_sections(toc_mapping, href)
 
         # PARSE-03: infer label for front-matter items not in TOC
         if not section_path:
@@ -116,26 +139,129 @@ def extract_content(
             continue
 
         # Extract blocks from body
-        item_blocks = _extract_blocks_from_element(body, section_path, href, default_language)
+        cursor = _SectionCursor(section_path, anchors)
+        item_blocks = _extract_blocks_from_element(body, cursor, href, default_language)
         blocks.extend(item_blocks)
 
     return blocks
 
 
+@dataclass
+class _SectionCursor:
+    """Where extraction is in a file's TOC, so its headings nest under the right entry."""
+
+    toc_path: list[str]
+    anchors: dict[str, list[str]]
+    # Level of the heading that names toc_path; None until one is seen.
+    toc_level: int | None = None
+    sub: list[tuple[int, str]] = field(default_factory=list)
+    has_content: bool = False
+    # toc_level came from a first heading that didn't name the entry.
+    guessed: bool = False
+    guessed_title: str = ""
+    # Paths labelled under the guess, relabelled if it was a subsection after all.
+    guessed_paths: list[list[str]] = field(default_factory=list)
+    # toc_path came from an anchor, so the next heading is that entry's title.
+    anchored: bool = False
+
+    @property
+    def path(self) -> list[str]:
+        return self.toc_path + [title for _, title in self.sub]
+
+    def label(self) -> list[str]:
+        """The path for a block emitted now."""
+        path = self.path
+        if self.guessed:
+            self.guessed_paths.append(path)
+        return path
+
+    def copy(self) -> _SectionCursor:
+        return replace(self, toc_path=list(self.toc_path), sub=list(self.sub))
+
+    def adopt(self, other: _SectionCursor) -> None:
+        vars(self).update(vars(other))
+
+    def enter(self, toc_path: list[str], level: int | None = None) -> None:
+        self.toc_path, self.toc_level, self.sub = list(toc_path), level, []
+        self.has_content = self.guessed = False
+        self.guessed_paths, self.anchored = [], level is None
+
+    def heading(self, level: int, title: str) -> None:
+        entry = _name_key(self.toc_path[-1]) if self.toc_path else ""
+        key = _name_key(title)
+        named = bool(entry and key) and (entry in key or key in entry)
+        if self.toc_level is None:
+            # The file's first heading restates its entry, even after a chapter-number line.
+            if named or (entry and not self.has_content):
+                self._restate(level, title, guessed=not (named or self.anchored))
+                return
+            if self.has_content:
+                # Body text came first, so the entry's own title wasn't a heading.
+                self.toc_level = level - 1
+        elif level <= self.toc_level and self.has_content and self.guessed:
+            if named:
+                # The guess was a page before the title (a Part sharing the file).
+                self._restate(level, title, guessed=False)
+                return
+            # A same-level heading after body text: the guessed title was a subsection.
+            for path in self.guessed_paths:
+                path.insert(len(self.toc_path), self.guessed_title)
+            self.toc_level, self.guessed, self.guessed_paths = level - 1, False, []
+        if self.toc_level is None or level <= self.toc_level:
+            if self.has_content or not entry:
+                self.enter(self.toc_path[:-1] + [title], level)
+            else:
+                # A second line of the title ("8", then "Instance Matching").
+                self._restate(level, title, guessed=self.guessed)
+            return
+        while self.sub and self.sub[-1][0] >= level:
+            self.sub.pop()
+        self.sub.append((level, title))
+
+    def _restate(self, level: int, title: str, guessed: bool) -> None:
+        self.toc_level, self.guessed = level, guessed
+        if guessed:
+            self.guessed_title = title
+        # A fuller heading ("Chapter 3: Best Practices" for "Best Practices") names the entry.
+        if self.toc_path[-1].lower() in title.lower():
+            self.toc_path[-1] = title
+
+
+def _name_key(name: str) -> str:
+    """A heading or TOC title without case, punctuation or spacing ("8.4 Two-Step")."""
+    return re.sub(r"\W+", "", name).lower()
+
+
+def _anchored_path(tag: Tag, anchors: dict[str, list[str]], deep: bool) -> list[str] | None:
+    """The TOC path of a fragment id on tag (or, if deep, inside it), if any."""
+    if not anchors:
+        return None
+    tags = [tag, *tag.find_all(id=True)] if deep else [tag]
+    for t in tags:
+        anchor = t.get("id")
+        if isinstance(anchor, str) and anchor in anchors:
+            return anchors[anchor]
+    return None
+
+
+_CONTAINER_TAGS = ("div", "section", "article", "aside", "blockquote", "figure")
+
+
 def _extract_blocks_from_element(
     element: Tag,
-    section_path: list[str],
+    cursor: _SectionCursor,
     source_file: str,
     default_language: str | None,
 ) -> list[ContentBlock]:
     """Extract content blocks from an HTML element.
 
     Recursively processes elements, detecting content types and building
-    ContentBlock instances.
+    ContentBlock instances. A nested container gets its own copy of the cursor,
+    so its headings don't relabel what follows it.
 
     Args:
         element: BeautifulSoup Tag to process
-        section_path: Current section path for hierarchy
+        cursor: Section state, advanced by TOC anchors and headings
         source_file: Source EPUB item href
         default_language: Default language for untagged code
 
@@ -144,7 +270,24 @@ def _extract_blocks_from_element(
     """
     blocks: list[ContentBlock] = []
     current_text_parts: list[str] = []
-    current_section_path = list(section_path)
+
+    def flush_text() -> None:
+        if current_text_parts:
+            text = _normalize_text(" ".join(current_text_parts))
+            if text:
+                emit(text, ContentType.TEXT)
+            current_text_parts.clear()
+
+    def emit(content: str, content_type: ContentType) -> None:
+        blocks.append(
+            ContentBlock(
+                content=content,
+                content_type=content_type,
+                section_path=cursor.label(),
+                source_file=source_file,
+            )
+        )
+        cursor.has_content = True
 
     for child in element.children:
         if isinstance(child, NavigableString):
@@ -157,158 +300,72 @@ def _extract_blocks_from_element(
             continue
 
         tag_name = child.name.lower() if child.name else ""
+        is_heading = tag_name in ("h1", "h2", "h3", "h4", "h5", "h6")
+        is_container = tag_name in _CONTAINER_TAGS
+
+        anchored = _anchored_path(child, cursor.anchors, deep=not is_container)
+        if anchored is not None and not is_container:
+            flush_text()
+            cursor.enter(anchored, int(tag_name[1]) if is_heading else None)
+            if is_heading:
+                continue
 
         # Check for headings to update section path
-        if tag_name in ("h1", "h2", "h3", "h4", "h5", "h6"):
-            # Flush accumulated text before heading
-            if current_text_parts:
-                text = _normalize_text(" ".join(current_text_parts))
-                if text:
-                    blocks.append(
-                        ContentBlock(
-                            content=text,
-                            content_type=ContentType.TEXT,
-                            section_path=list(current_section_path),
-                            source_file=source_file,
-                        )
-                    )
-                current_text_parts = []
-
-            # Update section path based on heading level
+        if is_heading:
+            flush_text()
             heading_text = child.get_text(strip=True)
             if heading_text:
-                level = int(tag_name[1])
-                # Trim section path to appropriate depth
-                current_section_path = current_section_path[: level - 1]
-                current_section_path.append(heading_text)
+                cursor.heading(int(tag_name[1]), heading_text)
             continue
 
         # Check for code blocks
         if _is_code_block(child):
-            # Flush accumulated text
-            if current_text_parts:
-                text = _normalize_text(" ".join(current_text_parts))
-                if text:
-                    blocks.append(
-                        ContentBlock(
-                            content=text,
-                            content_type=ContentType.TEXT,
-                            section_path=list(current_section_path),
-                            source_file=source_file,
-                        )
-                    )
-                current_text_parts = []
-
-            # Extract code block
-            code_block = _extract_code_block(
-                child, current_section_path, source_file, default_language
-            )
+            flush_text()
+            code_block = _extract_code_block(child, cursor.label(), source_file, default_language)
             if code_block and code_block.content.strip():
                 blocks.append(code_block)
+                cursor.has_content = True
             continue
 
         # Check for diagrams (ASCII art in pre tags)
         if _is_diagram(child):
-            if current_text_parts:
-                text = _normalize_text(" ".join(current_text_parts))
-                if text:
-                    blocks.append(
-                        ContentBlock(
-                            content=text,
-                            content_type=ContentType.TEXT,
-                            section_path=list(current_section_path),
-                            source_file=source_file,
-                        )
-                    )
-                current_text_parts = []
-
+            flush_text()
             diagram_content = child.get_text()
             if diagram_content.strip():
-                blocks.append(
-                    ContentBlock(
-                        content=diagram_content,
-                        content_type=ContentType.DIAGRAM,
-                        section_path=list(current_section_path),
-                        source_file=source_file,
-                    )
-                )
+                emit(diagram_content, ContentType.DIAGRAM)
             continue
 
         # Check for tables
         if tag_name == "table":
-            if current_text_parts:
-                text = _normalize_text(" ".join(current_text_parts))
-                if text:
-                    blocks.append(
-                        ContentBlock(
-                            content=text,
-                            content_type=ContentType.TEXT,
-                            section_path=list(current_section_path),
-                            source_file=source_file,
-                        )
-                    )
-                current_text_parts = []
-
+            flush_text()
             table_text = _table_to_text(child)
             if table_text.strip():
-                blocks.append(
-                    ContentBlock(
-                        content=table_text,
-                        content_type=ContentType.TABLE,
-                        section_path=list(current_section_path),
-                        source_file=source_file,
-                    )
-                )
+                emit(table_text, ContentType.TABLE)
             continue
 
         # Check for math content
         if _is_math(child):
-            if current_text_parts:
-                text = _normalize_text(" ".join(current_text_parts))
-                if text:
-                    blocks.append(
-                        ContentBlock(
-                            content=text,
-                            content_type=ContentType.TEXT,
-                            section_path=list(current_section_path),
-                            source_file=source_file,
-                        )
-                    )
-                current_text_parts = []
-
+            flush_text()
             math_content = _extract_math(child)
             if math_content.strip():
-                blocks.append(
-                    ContentBlock(
-                        content=math_content,
-                        content_type=ContentType.MATH,
-                        section_path=list(current_section_path),
-                        source_file=source_file,
-                    )
-                )
+                emit(math_content, ContentType.MATH)
             continue
 
         # Check for block-level elements that should be processed recursively
-        if tag_name in ("div", "section", "article", "aside", "blockquote", "figure"):
-            # Flush accumulated text
-            if current_text_parts:
-                text = _normalize_text(" ".join(current_text_parts))
-                if text:
-                    blocks.append(
-                        ContentBlock(
-                            content=text,
-                            content_type=ContentType.TEXT,
-                            section_path=list(current_section_path),
-                            source_file=source_file,
-                        )
-                    )
-                current_text_parts = []
-
-            # Recursively process container
+        if is_container:
+            flush_text()
+            nested = cursor.copy()
+            if anchored is not None:
+                nested.enter(anchored)
             nested_blocks = _extract_blocks_from_element(
-                child, current_section_path, source_file, default_language
+                child, nested, source_file, default_language
             )
             blocks.extend(nested_blocks)
+            if nested_blocks:
+                cursor.has_content = True
+            else:
+                # A wrapper holding only a heading or anchor (DocBook's titlepage div).
+                cursor.adopt(nested)
             continue
 
         # For other elements, accumulate their text.
@@ -318,19 +375,7 @@ def _extract_blocks_from_element(
         if text:
             current_text_parts.append(text)
 
-    # Flush any remaining text
-    if current_text_parts:
-        text = _normalize_text(" ".join(current_text_parts))
-        if text:
-            blocks.append(
-                ContentBlock(
-                    content=text,
-                    content_type=ContentType.TEXT,
-                    section_path=list(current_section_path),
-                    source_file=source_file,
-                )
-            )
-
+    flush_text()
     return blocks
 
 

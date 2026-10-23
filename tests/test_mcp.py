@@ -1639,6 +1639,65 @@ class TestSearchBooksContextWindow:
         assert "Context \u2014 seq 2" in result
         assert "---" in result
 
+    def _expanded(self, sequences: list[int], matched: int):
+        from mnemo.models import Chunk, ContentType
+
+        chunks = [
+            Chunk(
+                id=f"c{seq}",
+                book_id="abc123",
+                content=f"Text {seq}",
+                content_type=ContentType.TEXT,
+                token_count=10,
+                section_path=["Chapter 1"],
+                sections=["Chapter 1"],
+                sequence=seq,
+            )
+            for seq in sequences
+        ]
+        result = SearchResult(
+            chunk_id=f"c{matched}",
+            book_id="abc123",
+            book_title="Test Book",
+            content=f"Text {matched}",
+            content_type="text",
+            section_path=["Chapter 1"],
+            score=0.5,
+            source="keyword",
+            sequence=matched,
+        )
+        return {
+            "matched_chunk_id": f"c{matched}",
+            "book_id": "abc123",
+            "start_seq": sequences[0],
+            "end_seq": sequences[-1],
+            "chunks": chunks,
+            "matched_chunk_ids": {f"c{matched}"},
+            "result": result,
+        }
+
+    def test_neighbours_cut_at_a_section_boundary_are_explained(self):
+        from mnemo.mcp.tools_search import _search_books_impl
+
+        mock_service = MagicMock()
+        mock_service.search.return_value = [self._expanded([368], matched=368)]
+
+        result = _search_books_impl("test", context_window=1, search_service=mock_service)
+
+        assert "Context stops at the section boundary" in result
+        assert 'get_book_chunks(book_id="abc123", start_sequence=367, end_sequence=369)' in result
+
+    def test_full_window_has_no_boundary_note(self):
+        from mnemo.mcp.tools_search import _search_books_impl
+
+        mock_service = MagicMock()
+        mock_service.search.return_value = [self._expanded([367, 368, 369], matched=368)]
+
+        result = _search_books_impl("test", context_window=1, search_service=mock_service)
+
+        assert "Context \u2014 seq 369" in result
+        assert "section boundary" not in result
+
     def test_search_books_context_window_clamped(self):
         """context_window=5 is clamped to 3."""
         from mnemo.mcp.tools_search import _search_books_impl
@@ -1737,6 +1796,34 @@ class TestGetBookStructure:
         assert "  - Chapter 1" in result
         assert "    - Section 1.1" in result
         assert "  - Chapter 2" in result
+
+    def test_headings_without_own_chunks_are_listed(self):
+        """A chapter whose text all sits in subsections still gets its line."""
+        from mnemo.mcp.tools_search import _get_book_structure_impl
+
+        mock_book_repo = MagicMock()
+        mock_book_repo.get.return_value = self._make_book()
+        mock_chunk_repo = MagicMock()
+        mock_chunk_repo.get_section_structure.return_value = [
+            ["Overview"],
+            ["Ontology"],
+            ["Vocabularies", "Data catalogs"],
+            ["Vocabularies", "Discovery", "Data catalogs"],
+            ["Ontology", "Before we get started"],
+        ]
+
+        result = _get_book_structure_impl("abc123", mock_book_repo, mock_chunk_repo)
+
+        assert result.splitlines()[2:] == [
+            "- Overview",
+            "- Ontology",
+            "- Vocabularies",
+            "  - Data catalogs",
+            "  - Discovery",
+            "    - Data catalogs",
+            "- Ontology",
+            "  - Before we get started",
+        ]
 
     def test_book_structure_header_contains_title(self):
         """Output starts with '## {book.title}'."""

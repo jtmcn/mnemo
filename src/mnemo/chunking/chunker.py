@@ -16,6 +16,9 @@ from mnemo.parsing.models import ContentBlock
 # Below this, or on one line, an atomic block is a fragment (an inline `data`),
 # not a listing, and folds into the text around it.
 _TINY_ATOMIC_TOKENS = 20
+# Text up to this size is a lead-in ("Here is the listing:") and joins the listing
+# after it; longer prose would be mislabelled as the listing's type.
+_LEAD_IN_TOKENS = 50
 _MIN_TOKENS_FLOOR = 100
 _MAX_TOKENS_CEILING = 2000
 
@@ -86,9 +89,10 @@ class Chunker:
     - CODE, DIAGRAM, MATH, TABLE blocks are NEVER split (atomic units)
     - TEXT blocks over max_tokens are split with overlap
     - Undersized chunks merge into a neighbour in the same section (or carry
-      down into a child section), up to max_tokens; an undersized lead joins a
-      following TEXT block that fits alone whole, so that chunk may exceed
-      max_tokens by at most min_tokens
+      down into a child section), up to max_tokens; only a short lead-in joins
+      a large atomic block, so prose before a listing may stay undersized; an
+      undersized lead joins a following TEXT block that fits alone whole, so
+      that chunk may exceed max_tokens by at most min_tokens
     - Empty or whitespace-only blocks are skipped
     - All chunks are linked via prev_chunk_id and next_chunk_id
     - Section boundaries are tracked for context
@@ -229,7 +233,7 @@ class Chunker:
             return False
         small = prev.token_count < self.config.min_tokens
         if draft.whole:
-            return small
+            return prev.token_count <= _LEAD_IN_TOKENS
         # Recount: the "\n\n" joiner can cost a token beyond the sum.
         fits = count_tokens(f"{prev.content}\n\n{draft.content}") <= self.config.max_tokens
         if deeper:

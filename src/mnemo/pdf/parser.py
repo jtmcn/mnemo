@@ -47,6 +47,10 @@ _PAGE_NUMBER = re.compile(r"\d{1,4}|[ivx]{1,7}", re.IGNORECASE)
 _MARGIN_FRACTION = 0.1
 _FURNITURE_WINDOW = 3
 
+# pdfminer's default 0.5 splits books set at ~1.6x leading into one box per line;
+# paragraph and heading gaps stay well above 0.8.
+_LINE_MARGIN = 0.8
+
 # (page index, negated y) so that ascending order is reading order.
 _Position = tuple[int, float]
 
@@ -174,7 +178,7 @@ class PdfParser:
         """Lay out each page and emit ContentBlocks under their outline section."""
         starts = [position for position, _ in outline]
         resources = PDFResourceManager()
-        device = PDFPageAggregator(resources, laparams=LAParams())
+        device = PDFPageAggregator(resources, laparams=LAParams(line_margin=_LINE_MARGIN))
         interpreter = PDFPageInterpreter(resources, device)
 
         blocks: list[ContentBlock] = []
