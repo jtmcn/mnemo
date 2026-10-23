@@ -410,8 +410,67 @@ class TestTocParsing:
 
         paths = self._paths(tmp_path, files, [("Chapter 5: Foo", "ch5.xhtml", [])])
 
-        assert paths["Intro body."][0] == "Chapter 5: Foo"
+        assert paths["Intro body."] == ["Chapter 5: Foo", "Introduction"]
         assert paths["Details body."] == ["Chapter 5: Foo", "5.2 Details"]
+
+    def test_chapter_title_spelled_unlike_its_entry_is_not_a_subsection(
+        self, tmp_path: Path
+    ) -> None:
+        files = {
+            "ch1.xhtml": "<h1>Chapter 1 - Getting Started</h1><p>Body.</p>"
+            "<h1>Summary</h1><p>Sum body.</p>"
+        }
+
+        paths = self._paths(tmp_path, files, [("1 Getting Started", "ch1.xhtml", [])])
+
+        assert paths["Body."] == ["1 Getting Started"]
+
+    def test_untocd_heading_after_an_anchored_section_is_its_sibling(self, tmp_path: Path) -> None:
+        files = {
+            "ch8.xhtml": "<h1>Chapter 8 Matching</h1><p>Ch body.</p>"
+            '<a id="s84"></a><h2>8.4 Two-Step Pipeline</h2><p>Pipe body.</p>'
+            "<h3>Blocking</h3><p>Block body.</p><h2>8.5 Untocd</h2><p>Untoc body.</p>"
+        }
+        toc = [("8. Matching", "ch8.xhtml", [("8.4. Two Step Pipeline", "ch8.xhtml#s84", [])])]
+
+        paths = self._paths(tmp_path, files, toc)
+
+        pipeline = ["8. Matching", "8.4. Two Step Pipeline"]
+        assert paths["Pipe body."] == pipeline
+        assert paths["Block body."] == [*pipeline, "Blocking"]
+        assert paths["Untoc body."] == ["8. Matching", "8.5 Untocd"]
+
+    def test_list_of_figures_entry_does_not_relabel_its_chapter(self, tmp_path: Path) -> None:
+        files = {
+            "ch1.xhtml": '<h1>Ch 1</h1><p>Intro.</p><p id="fig1">Figure 1.1 A thing</p>'
+            "<h2>1.1 Sec</h2><p>Sec body.</p>",
+            "lof.xhtml": "<h1>List of Figures</h1><p>Figures.</p>",
+        }
+        toc = [
+            ("Ch 1", "ch1.xhtml", []),
+            ("List of Figures", "lof.xhtml", [("Figure 1.1 A thing", "ch1.xhtml#fig1", [])]),
+        ]
+
+        paths = self._paths(tmp_path, files, toc)
+
+        assert paths["Sec body."] == ["Ch 1", "1.1 Sec"]
+
+    def test_single_file_chapters_listed_beside_its_own_entry_keep_their_anchors(
+        self, tmp_path: Path
+    ) -> None:
+        files = {
+            "book.xhtml": '<h1>Start</h1><p>Start body.</p><h1 id="c1">Chapter One</h1>'
+            '<p>One body.</p><h2 id="c11">1.1 Sub</h2><p>Sub body.</p>'
+        }
+        toc = [
+            ("Start", "book.xhtml", []),
+            ("Chapter One", "book.xhtml#c1", [("1.1 Sub", "book.xhtml#c11", [])]),
+        ]
+
+        paths = self._paths(tmp_path, files, toc)
+
+        assert paths["One body."] == ["Chapter One"]
+        assert paths["Sub body."] == ["Chapter One", "1.1 Sub"]
 
     def test_part_pointing_at_its_first_chapter_file_keeps_the_chapter(
         self, tmp_path: Path

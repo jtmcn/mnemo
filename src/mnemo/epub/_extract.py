@@ -63,7 +63,16 @@ def file_sections(
     """
     prefix = f"{href}#"
     anchors = {k[len(prefix) :]: v for k, v in toc_mapping.items() if k.startswith(prefix)}
-    path = toc_mapping.get(href) or next(iter(anchors.values()), [])
+    own = toc_mapping.get(href)
+    if own:
+        # Drop entries from another branch (a List of Figures pointing at a figure).
+        parents = {tuple(own), *(tuple(p) for p in anchors.values())}
+        anchors = {
+            k: p
+            for k, p in anchors.items()
+            if p[: len(own)] == own or tuple(p[:-1]) in parents or own[: len(p) - 1] == p[:-1]
+        }
+    path = own or next(iter(anchors.values()), [])
     return list(path), anchors
 
 
@@ -149,10 +158,22 @@ class _SectionCursor:
     has_content: bool = False
     # toc_level came from a first heading that didn't name the entry.
     guessed: bool = False
+    guessed_title: str = ""
+    # Paths labelled under the guess, relabelled if it was a subsection after all.
+    guessed_paths: list[list[str]] = field(default_factory=list)
+    # toc_path came from an anchor, so the next heading is that entry's title.
+    anchored: bool = False
 
     @property
     def path(self) -> list[str]:
         return self.toc_path + [title for _, title in self.sub]
+
+    def label(self) -> list[str]:
+        """The path for a block emitted now."""
+        path = self.path
+        if self.guessed:
+            self.guessed_paths.append(path)
+        return path
 
     def copy(self) -> _SectionCursor:
         return replace(self, toc_path=list(self.toc_path), sub=list(self.sub))
@@ -163,14 +184,16 @@ class _SectionCursor:
     def enter(self, toc_path: list[str], level: int | None = None) -> None:
         self.toc_path, self.toc_level, self.sub = list(toc_path), level, []
         self.has_content = self.guessed = False
+        self.guessed_paths, self.anchored = [], level is None
 
     def heading(self, level: int, title: str) -> None:
-        entry = self.toc_path[-1].lower() if self.toc_path else ""
-        named = bool(entry) and (entry in title.lower() or title.lower() in entry)
+        entry = _name_key(self.toc_path[-1]) if self.toc_path else ""
+        key = _name_key(title)
+        named = bool(entry and key) and (entry in key or key in entry)
         if self.toc_level is None:
             # The file's first heading restates its entry, even after a chapter-number line.
             if named or (entry and not self.has_content):
-                self._restate(level, title, guessed=not named)
+                self._restate(level, title, guessed=not (named or self.anchored))
                 return
             if self.has_content:
                 # Body text came first, so the entry's own title wasn't a heading.
@@ -181,7 +204,9 @@ class _SectionCursor:
                 self._restate(level, title, guessed=False)
                 return
             # A same-level heading after body text: the guessed title was a subsection.
-            self.toc_level, self.guessed = level - 1, False
+            for path in self.guessed_paths:
+                path.insert(len(self.toc_path), self.guessed_title)
+            self.toc_level, self.guessed, self.guessed_paths = level - 1, False, []
         if self.toc_level is None or level <= self.toc_level:
             if self.has_content or not entry:
                 self.enter(self.toc_path[:-1] + [title], level)
@@ -195,9 +220,16 @@ class _SectionCursor:
 
     def _restate(self, level: int, title: str, guessed: bool) -> None:
         self.toc_level, self.guessed = level, guessed
+        if guessed:
+            self.guessed_title = title
         # A fuller heading ("Chapter 3: Best Practices" for "Best Practices") names the entry.
         if self.toc_path[-1].lower() in title.lower():
             self.toc_path[-1] = title
+
+
+def _name_key(name: str) -> str:
+    """A heading or TOC title without case, punctuation or spacing ("8.4 Two-Step")."""
+    return re.sub(r"\W+", "", name).lower()
 
 
 def _anchored_path(tag: Tag, anchors: dict[str, list[str]], deep: bool) -> list[str] | None:
@@ -251,7 +283,7 @@ def _extract_blocks_from_element(
             ContentBlock(
                 content=content,
                 content_type=content_type,
-                section_path=cursor.path,
+                section_path=cursor.label(),
                 source_file=source_file,
             )
         )
@@ -289,7 +321,7 @@ def _extract_blocks_from_element(
         # Check for code blocks
         if _is_code_block(child):
             flush_text()
-            code_block = _extract_code_block(child, cursor.path, source_file, default_language)
+            code_block = _extract_code_block(child, cursor.label(), source_file, default_language)
             if code_block and code_block.content.strip():
                 blocks.append(code_block)
                 cursor.has_content = True
