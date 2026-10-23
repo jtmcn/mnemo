@@ -1600,20 +1600,34 @@ class TestSourceLineSpans:
 class TestSearchBooksSectionMessages:
     """What search_books says when a section filter finds nothing."""
 
-    def test_existing_section_says_the_query_missed(self):
+    def test_existing_section_says_no_chunk_holds_a_query_word(self, tmp_path):
         from mnemo.mcp.tools_search import _search_books_impl
+        from mnemo.search import SearchService
 
-        mock_service = MagicMock()
-        mock_service.search.return_value = []
-        mock_service.count_section_chunks.return_value = 1
-
-        result = _search_books_impl(
-            "PREFIX SELECT WHERE", section="Example SPARQL query", search_service=mock_service
+        service = SearchService(db_path=tmp_path / "t.db", chroma_path=tmp_path / "chroma")
+        service._ensure_initialized()
+        assert service._chunk_repo is not None and service._book_repo is not None
+        service._book_repo.add(
+            Book(id="a1b2c3", title="T", authors=[], file_hash="a" * 64, structure_source="toc")
+        )
+        service._chunk_repo.add_many(
+            [
+                Chunk(
+                    book_id="a1b2c3",
+                    content="An axiom is a statement taken to be true. " * 5,
+                    content_type=ContentType.TEXT,
+                    token_count=50,
+                    section_path=["Back", "Glossary terms"],
+                    sequence=0,
+                )
+            ]
         )
 
-        assert 'Section "Example SPARQL query" has 1 chunk' in result
-        assert 'mode="keyword"' in result
-        assert "Did you mean" not in result
+        result = _search_books_impl(
+            "zebra", section="Glossary terms", mode="keyword", search_service=service
+        )
+
+        assert result == 'Section "Glossary terms" has 1 chunk, but none contains a word of: zebra.'
 
     def test_unknown_section_suggests_names_other_than_its_own(self):
         from mnemo.mcp.tools_search import _search_books_impl

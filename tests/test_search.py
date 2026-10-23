@@ -2226,6 +2226,38 @@ class TestSuggestSections:
         assert service.count_section_chunks("Chapter 6") == 3
         assert service.count_section_chunks("Glossary") == 0
 
+    def test_section_match_crowded_out_by_other_sections_is_still_found(self, tmp_path):
+        service = SearchService(db_path=tmp_path / "test.db", chroma_path=tmp_path / "chroma")
+        service._ensure_initialized()
+        assert service._chunk_repo is not None and service._book_repo is not None
+        service._book_repo.add(
+            Book(id="a1b2c3", title="T", authors=[], file_hash="a" * 64, structure_source="toc")
+        )
+        crowd = [
+            Chunk(
+                book_id="a1b2c3",
+                content="pipeline pipeline pipeline ontology " * 5,
+                content_type=ContentType.TEXT,
+                token_count=40,
+                section_path=["Ch1", f"S{i}"],
+                sequence=i,
+            )
+            for i in range(80)
+        ]
+        glossary = Chunk(
+            book_id="a1b2c3",
+            content="A long passage that mentions the pipeline once among other words. " * 6,
+            content_type=ContentType.TEXT,
+            token_count=200,
+            section_path=["Ch2", "Glossary terms"],
+            sequence=80,
+        )
+        service._chunk_repo.add_many([*crowd, glossary])
+
+        results = service.search("pipeline", mode="keyword", section="Glossary terms")
+
+        assert [r.chunk_id for r in results] == [glossary.id]
+
     def test_keyword_results_carry_every_section_the_chunk_spans(self, tmp_path):
         service = SearchService(db_path=tmp_path / "test.db", chroma_path=tmp_path / "chroma")
         service._ensure_initialized()

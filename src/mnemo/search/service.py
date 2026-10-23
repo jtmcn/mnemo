@@ -248,6 +248,12 @@ class SearchService:
                 if r.section_path
                 and _section_matches(section_norm, normalize_unicode(" > ".join(r.section_path)))
             ]
+            if not results:
+                # Better matches elsewhere can fill the over-fetch window, so look inside.
+                paths = [p for p, _ in self._section_counts(section, book_id)]
+                results = self._apply_quality_penalties(
+                    self._keyword_search(query, fetch_k, book_id, content_type_enum, paths)
+                )
 
         # Apply collection post-filter
         if collection_book_ids is not None:
@@ -415,6 +421,7 @@ class SearchService:
         top_k: int,
         book_id: str | None,
         content_type: ContentType | None,
+        section_paths: list[list[str]] | None = None,
     ) -> list[SearchResult]:
         """Execute keyword-only search via FTS5."""
         assert self._chunk_repo is not None
@@ -424,6 +431,7 @@ class SearchService:
             book_id=book_id,
             content_type=content_type,
             limit=top_k,
+            section_paths=section_paths,
         )
 
         # Compute RRF-style scores and normalize to 0-1 range
@@ -695,13 +703,17 @@ class SearchService:
     def count_section_chunks(self, section: str, book_id: str | None = None) -> int:
         """How many chunks the section filter admits, before any query matching."""
         self._ensure_initialized()
+        return sum(n for _, n in self._section_counts(section, book_id))
+
+    def _section_counts(self, section: str, book_id: str | None) -> list[tuple[list[str], int]]:
+        """Each section path the section filter admits, with its chunk count."""
         assert self._chunk_repo is not None
         section_norm = normalize_unicode(section)
-        return sum(
-            n
+        return [
+            (path, n)
             for path, n in self._chunk_repo.count_by_section_path(book_id)
             if path and _section_matches(section_norm, normalize_unicode(" > ".join(path)))
-        )
+        ]
 
     def suggest_sections(
         self, section_query: str, book_id: str | None = None, max_suggestions: int = 5
