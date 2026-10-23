@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS chunks (
     language TEXT,
     sequence INTEGER NOT NULL,
     prev_chunk_id TEXT,
-    next_chunk_id TEXT
+    next_chunk_id TEXT,
+    lead_in INTEGER NOT NULL DEFAULT 0 -- chars of prose before a listing
 );
 
 -- FTS5 virtual table for full-text search

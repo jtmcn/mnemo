@@ -454,6 +454,7 @@ class SearchService:
                     source="keyword",
                     sequence=chunk.sequence,
                     sections=chunk.sections,
+                    lead_in=chunk.lead_in,
                 )
             )
 
@@ -507,6 +508,7 @@ class SearchService:
                     source="semantic",
                     sequence=chunk.sequence,
                     sections=chunk.sections,
+                    lead_in=chunk.lead_in,
                 )
             )
 
@@ -657,6 +659,7 @@ class SearchService:
                     source=source,
                     sequence=chunk.sequence,
                     sections=chunk.sections,
+                    lead_in=chunk.lead_in,
                 )
             )
 

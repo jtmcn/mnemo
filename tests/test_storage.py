@@ -165,25 +165,25 @@ class TestSchemaVersion:
         conn.close()
 
     def test_fresh_db_at_latest_version(self, db_path: Path):
-        """Fresh database should be stamped at version 7 after init_db."""
+        """Fresh database should be stamped at version 8 after init_db."""
         import sqlite3
 
         init_db(db_path)
         conn = sqlite3.connect(db_path)
         row = conn.execute("SELECT version FROM schema_version").fetchone()
         assert row is not None
-        assert row[0] == 7
+        assert row[0] == 8
         conn.close()
 
     def test_versioned_db_idempotent(self, db_path: Path):
-        """Calling init_db twice should leave schema_version = 7 with exactly one row."""
+        """Calling init_db twice should leave schema_version = 8 with exactly one row."""
         import sqlite3
 
         init_db(db_path)
         init_db(db_path)
         conn = sqlite3.connect(db_path)
         version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
-        assert version == 7
+        assert version == 8
         count = conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0]
         assert count == 1
         conn.close()
@@ -221,7 +221,7 @@ class TestSchemaVersion:
         init_db(db_path)
         conn = sqlite3.connect(db_path)
         version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
-        assert version == 7
+        assert version == 8
         conn.close()
 
     def test_partial_legacy_db_migrated(self, db_path: Path):
@@ -276,7 +276,7 @@ class TestSchemaVersion:
         assert "description" in columns
         assert "collection" in columns
         version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
-        assert version == 7
+        assert version == 8
         conn.close()
 
     def test_migration_005_copies_epub_path_to_file_path(self, db_path: Path):
@@ -341,7 +341,7 @@ class TestSchemaVersion:
         row = conn.execute("SELECT file_path FROM books WHERE id = 'abc123'").fetchone()
         assert row[0] == "/path/to/book.epub"
         version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
-        assert version == 7
+        assert version == 8
         conn.close()
 
 
@@ -420,6 +420,53 @@ class TestMigration007ContentHash:
         cols = {row[1] for row in conn.execute("PRAGMA table_info(books)")}
         conn.close()
         assert "content_hash" in cols
+
+
+class TestMigration008ChunkLeadIn:
+    """Tests for migration 008: chunks.lead_in column."""
+
+    def test_v7_library_gets_the_column_with_existing_chunks_at_zero(self, db_path: Path):
+        import sqlite3
+
+        init_db(db_path)
+        conn = sqlite3.connect(db_path)
+        conn.execute("DROP TABLE chunks")
+        conn.execute(
+            """CREATE TABLE chunks (id TEXT PRIMARY KEY, book_id TEXT NOT NULL,
+               content TEXT NOT NULL, content_type TEXT NOT NULL,
+               token_count INTEGER NOT NULL, section_path TEXT NOT NULL,
+               sections TEXT NOT NULL, language TEXT, sequence INTEGER NOT NULL,
+               prev_chunk_id TEXT, next_chunk_id TEXT)"""
+        )
+        conn.execute(
+            "INSERT INTO chunks VALUES ('c1','abc123','x','code',1,'[]','[]',NULL,0,NULL,NULL)"
+        )
+        conn.execute("UPDATE schema_version SET version = 7")
+        conn.commit()
+        conn.close()
+
+        init_db(db_path)
+
+        conn = sqlite3.connect(db_path)
+        assert conn.execute("SELECT lead_in FROM chunks").fetchall() == [(0,)]
+        assert conn.execute("SELECT version FROM schema_version").fetchone()[0] == 8
+        conn.close()
+
+    def test_lead_in_round_trips(
+        self,
+        book_repo: BookRepository,
+        chunk_repo: ChunkRepository,
+        sample_book: Book,
+        sample_chunks: list[Chunk],
+    ):
+        book_repo.add(sample_book)
+        chunk = sample_chunks[0].model_copy(update={"lead_in": 12})
+        chunk_repo.add_many([chunk])
+
+        retrieved = chunk_repo.get(chunk.id)
+
+        assert retrieved is not None
+        assert retrieved.lead_in == 12
 
 
 class TestGetByContentHash:

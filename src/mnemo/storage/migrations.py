@@ -54,6 +54,14 @@ def _migration_007_add_content_hash(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE books ADD COLUMN content_hash TEXT")
 
 
+def _migration_008_add_chunk_lead_in(conn: sqlite3.Connection) -> None:
+    """Add lead_in to chunks: the prose lead-in before a listing or table."""
+    # No columns means no table yet; init_db's CREATE makes it with lead_in.
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(chunks)")}
+    if cols and "lead_in" not in cols:
+        conn.execute("ALTER TABLE chunks ADD COLUMN lead_in INTEGER NOT NULL DEFAULT 0")
+
+
 # Ordered list of (version_number, migration_function)
 MIGRATIONS: list[tuple[int, Callable[[sqlite3.Connection], None]]] = [
     (1, _migration_001_add_epub_path),
@@ -63,9 +71,10 @@ MIGRATIONS: list[tuple[int, Callable[[sqlite3.Connection], None]]] = [
     (5, _migration_005_add_file_path),
     (6, _migration_006_add_collection),
     (7, _migration_007_add_content_hash),
+    (8, _migration_008_add_chunk_lead_in),
 ]
 
-LATEST_VERSION: int = MIGRATIONS[-1][0]  # 7
+LATEST_VERSION: int = MIGRATIONS[-1][0]  # 8
 
 # --- Version helpers ---
 

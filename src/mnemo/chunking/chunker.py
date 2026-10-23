@@ -35,6 +35,7 @@ class _Draft:
     token_count: int
     # A large atomic block: never split, and nothing merges into it from behind.
     whole: bool
+    lead_in: int = 0
 
 
 @dataclass
@@ -159,6 +160,7 @@ class Chunker:
                 sections=draft.sections,
                 language=draft.language,
                 sequence=sequence,
+                lead_in=draft.lead_in,
             )
             for sequence, draft in enumerate(drafts)
         ]
@@ -256,6 +258,10 @@ class Chunker:
             sections=prev.sections + [s for s in draft.sections if s not in prev.sections],
             token_count=count_tokens(content),
             whole=draft.whole,
+            # Tiny code ahead of a listing is code, not a lead-in.
+            lead_in=len(prev.content)
+            if draft.whole and prev.content_type == ContentType.TEXT
+            else 0,
         )
 
     def _sections_from_path(self, section_path: list[str]) -> list[str]:

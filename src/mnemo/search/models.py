@@ -44,6 +44,8 @@ class SearchResult:
     sequence: int = 0
     # Every heading the chunk's text runs through; more than one when it spans sections.
     sections: list[str] = field(default_factory=list)
+    # Chars of prose lead-in before a listing; code renders it outside the fence.
+    lead_in: int = 0
 
 
 @dataclass

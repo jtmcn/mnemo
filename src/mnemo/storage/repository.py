@@ -306,8 +306,8 @@ class ChunkRepository:
             """
             INSERT INTO chunks (id, book_id, content, content_type, token_count,
                               section_path, sections, language, sequence,
-                              prev_chunk_id, next_chunk_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              prev_chunk_id, next_chunk_id, lead_in)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -322,6 +322,7 @@ class ChunkRepository:
                     chunk.sequence,
                     chunk.prev_chunk_id,
                     chunk.next_chunk_id,
+                    chunk.lead_in,
                 )
                 for chunk in chunks
             ],
@@ -673,4 +674,5 @@ class ChunkRepository:
             sequence=row["sequence"],
             prev_chunk_id=row["prev_chunk_id"],
             next_chunk_id=row["next_chunk_id"],
+            lead_in=row["lead_in"],
         )
