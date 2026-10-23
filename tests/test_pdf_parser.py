@@ -135,6 +135,116 @@ class TestPdfSections:
         assert _block_containing(blocks, "Closing").section_path == ["Chapter 1", "Conclusion"]
         assert _block_containing(blocks, "Axiom").section_path == ["Glossary"]
 
+    def test_outline_entries_printed_as_sections_nest_under_the_unlisted_chapter(
+        self, parser: PdfParser, tmp_path: Path
+    ) -> None:
+        # Ontology-Pipeline: its Introduction is unbookmarked, and its sections are top-level.
+        items = [
+            Heading("Introduction", size=22, bookmark=False),
+            Heading("Taxonomy", size=12),
+            Para(["Overview of taxonomies."]),
+            Heading("Taxonomy history", level=2, size=12),
+            Para(["Overview of their history."]),
+            PageBreak(),
+            Heading("Taxonomy", size=22),
+            Para(["Chapter on taxonomies."]),
+        ]
+
+        _, blocks = parser.parse(create_test_pdf(tmp_path / "book.pdf", items=items))
+
+        assert _block_containing(blocks, "Overview of taxonomies").section_path == [
+            "Introduction",
+            "Taxonomy",
+        ]
+        assert _block_containing(blocks, "Overview of their").section_path == [
+            "Introduction",
+            "Taxonomy",
+            "Taxonomy history",
+        ]
+        assert _block_containing(blocks, "Chapter on").section_path == ["Taxonomy"]
+
+    def test_unlisted_heading_before_the_outline_starts_a_top_level_section(
+        self, parser: PdfParser, tmp_path: Path
+    ) -> None:
+        items = [
+            Heading("Foreword", size=22, bookmark=False),
+            Para(["Foreword text."]),
+            PageBreak(),
+            Heading("Chapter 1", size=22),
+            Para(["Chapter text."]),
+        ]
+
+        _, blocks = parser.parse(create_test_pdf(tmp_path / "book.pdf", items=items))
+
+        assert _block_containing(blocks, "Foreword text").section_path == ["Foreword"]
+        assert _block_containing(blocks, "Chapter text").section_path == ["Chapter 1"]
+
+    def test_title_page_text_larger_than_chapter_headings_is_not_a_section(
+        self, parser: PdfParser, tmp_path: Path
+    ) -> None:
+        items = [
+            Heading("JESSICA TALISMAN", size=36, bookmark=False),
+            Para(["Technics Publications."]),
+            PageBreak(),
+            Heading("Chapter 1", size=22),
+            Para(["Chapter text."]),
+        ]
+
+        _, blocks = parser.parse(create_test_pdf(tmp_path / "book.pdf", items=items))
+
+        assert _block_containing(blocks, "Technics").section_path == []
+
+    def test_entry_whose_first_text_is_not_its_heading_stays_top_level(
+        self, parser: PdfParser, tmp_path: Path
+    ) -> None:
+        items = [
+            Heading("Chapter 1", size=22),
+            Para(["Chapter one text."]),
+            PageBreak(),
+            Heading("Figure 3 caption", size=11, outline_text="Chapter 2"),
+            Para(["Chapter two text."]),
+            PageBreak(),
+            Heading("Chapter 3", size=22),
+            Para(["Chapter three text."]),
+        ]
+
+        _, blocks = parser.parse(create_test_pdf(tmp_path / "book.pdf", items=items))
+
+        assert _block_containing(blocks, "Chapter two").section_path == ["Chapter 2"]
+
+    def test_chapter_headings_of_slightly_different_sizes_stay_top_level(
+        self, parser: PdfParser, tmp_path: Path
+    ) -> None:
+        # Cracking the Coding Interview sets its part headings between 61.5 and 64pt.
+        items = [
+            Heading("Chapter 1", size=64),
+            Para(["Chapter one text."]),
+            PageBreak(),
+            Heading("Chapter 2", size=61.5),
+            Para(["Chapter two text."]),
+        ]
+
+        _, blocks = parser.parse(create_test_pdf(tmp_path / "book.pdf", items=items))
+
+        assert _block_containing(blocks, "Chapter two").section_path == ["Chapter 2"]
+
+    def test_heading_numeral_alone_does_not_name_its_entry(
+        self, parser: PdfParser, tmp_path: Path
+    ) -> None:
+        items = [
+            Heading("Chapter 1", size=22),
+            Para(["Chapter one text."]),
+            PageBreak(),
+            Heading("IV", size=12, outline_text="IV. Before the Interview"),
+            Para(["Interview text."]),
+        ]
+
+        _, blocks = parser.parse(create_test_pdf(tmp_path / "book.pdf", items=items))
+
+        assert _block_containing(blocks, "Interview text").section_path == [
+            "IV. Before the Interview"
+        ]
+
     def test_broken_outline_falls_back_to_inferred(self, parser: PdfParser, tmp_path: Path) -> None:
         book, blocks = parser.parse(create_cyclic_outline_pdf(tmp_path / "loop.pdf"))
         assert book.structure_source == "inferred"

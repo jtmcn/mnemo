@@ -17,6 +17,9 @@ class Heading:
     level: int = 1
     # False draws the heading without an outline entry, like back matter a publisher left out.
     bookmark: bool = True
+    size: float = 14
+    # The outline entry's title, when it differs from the printed heading.
+    outline_text: str | None = None
 
 
 @dataclass
@@ -119,14 +122,14 @@ def create_test_pdf(
             canvas.setFont(item.font, 8)
             canvas.drawString(72, 20, item.text)
         elif isinstance(item, Heading):
-            y -= 10
-            canvas.setFont("Times-Bold", 14)
+            y -= item.size - 4
+            canvas.setFont("Times-Bold", item.size)
             canvas.drawString(72, y, item.text)
             if outline and item.bookmark:
                 key = f"h{n}"
-                canvas.bookmarkPage(key, fit="XYZ", top=y + 14)
-                canvas.addOutlineEntry(item.text, key, level=item.level - 1)
-            y -= 24
+                canvas.bookmarkPage(key, fit="XYZ", top=y + item.size)
+                canvas.addOutlineEntry(item.outline_text or item.text, key, level=item.level - 1)
+            y -= item.size + 10
         elif isinstance(item, Code):
             canvas.setFont("Courier", 10)
             for line in item.lines:
