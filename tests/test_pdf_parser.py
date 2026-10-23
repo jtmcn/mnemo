@@ -163,6 +163,92 @@ class TestPdfSections:
         ]
         assert _block_containing(blocks, "Chapter on").section_path == ["Taxonomy"]
 
+    def test_title_page_bookmark_larger_than_its_chapters_does_not_nest_them(
+        self, parser: PdfParser, tmp_path: Path
+    ) -> None:
+        items = [
+            Heading("Graph Databases", size=36),
+            Para(["Title page."]),
+            PageBreak(),
+            Heading("Introduction", size=22),
+            Para(["Introduction text."]),
+            PageBreak(),
+            Heading("Data Models", size=22),
+            Para(["Models text."]),
+        ]
+
+        _, blocks = parser.parse(create_test_pdf(tmp_path / "book.pdf", items=items))
+
+        assert _block_containing(blocks, "Introduction text").section_path == ["Introduction"]
+        assert _block_containing(blocks, "Models text").section_path == ["Data Models"]
+
+    def test_index_bookmarked_after_larger_part_headings_stays_top_level(
+        self, parser: PdfParser, tmp_path: Path
+    ) -> None:
+        items = [
+            Heading("Part I", size=40),
+            Para(["Part one text."]),
+            PageBreak(),
+            Heading("Chapter 1", size=22),
+            Para(["Chapter one text."]),
+            PageBreak(),
+            Heading("Part II", size=40),
+            Para(["Part two text."]),
+            PageBreak(),
+            Heading("Index", size=22),
+            Para(["Index text."]),
+        ]
+
+        _, blocks = parser.parse(create_test_pdf(tmp_path / "book.pdf", items=items))
+
+        assert _block_containing(blocks, "Index text").section_path == ["Index"]
+
+    def test_unlisted_glossary_found_when_headings_drop_the_chapter_prefix(
+        self, parser: PdfParser, tmp_path: Path
+    ) -> None:
+        items = [
+            Heading("Basics", size=22, outline_text="Chapter 1: Basics"),
+            Para(["Basics text."]),
+            PageBreak(),
+            Heading("Replication", size=22, outline_text="Chapter 2: Replication"),
+            Para(["Replication text."]),
+            PageBreak(),
+            Heading("Glossary", size=22, bookmark=False),
+            Para(["Axiom: a statement taken as true."]),
+        ]
+
+        _, blocks = parser.parse(create_test_pdf(tmp_path / "book.pdf", items=items))
+
+        assert _block_containing(blocks, "Axiom").section_path == ["Glossary"]
+
+    def test_chapter_label_above_the_title_does_not_set_the_chapter_size(
+        self, parser: PdfParser, tmp_path: Path
+    ) -> None:
+        # The bookmark lands on a small "CHAPTER 2" label; the title below it is 22pt.
+        items = [
+            Heading("CHAPTER 1", size=12, outline_text="1. Foundations"),
+            Heading("Foundations", size=22, bookmark=False),
+            Para(["Foundations text."]),
+            PageBreak(),
+            Heading("CHAPTER 2", size=12, outline_text="2. Knowledge Graph"),
+            Heading("Knowledge Graph", size=22, bookmark=False),
+            Para(["Graph text."]),
+            Heading("Conclusion", level=2, size=14),
+            Para(["Closing text."]),
+            Heading("Further reading", size=12, bookmark=False),
+            Para(["Reading text."]),
+            PageBreak(),
+            Heading("Glossary", size=22, bookmark=False),
+            Para(["Axiom: a statement taken as true."]),
+        ]
+
+        _, blocks = parser.parse(create_test_pdf(tmp_path / "book.pdf", items=items))
+
+        chapter = ["2. Knowledge Graph"]
+        assert _block_containing(blocks, "Graph text").section_path == chapter
+        assert _block_containing(blocks, "Reading text").section_path == [*chapter, "Conclusion"]
+        assert _block_containing(blocks, "Axiom").section_path == ["Glossary"]
+
     def test_unlisted_heading_before_the_outline_starts_a_top_level_section(
         self, parser: PdfParser, tmp_path: Path
     ) -> None:
@@ -178,6 +264,21 @@ class TestPdfSections:
 
         assert _block_containing(blocks, "Foreword text").section_path == ["Foreword"]
         assert _block_containing(blocks, "Chapter text").section_path == ["Chapter 1"]
+
+    def test_unlisted_foreword_before_full_chapter_headings_starts_a_section(
+        self, parser: PdfParser, tmp_path: Path
+    ) -> None:
+        items = [
+            Heading("Foreword", size=22, bookmark=False),
+            Para(["Foreword text."]),
+            PageBreak(),
+            Heading("Chapter 1: Basics", size=22),
+            Para(["Chapter text."]),
+        ]
+
+        _, blocks = parser.parse(create_test_pdf(tmp_path / "book.pdf", items=items))
+
+        assert _block_containing(blocks, "Foreword text").section_path == ["Foreword"]
 
     def test_title_page_text_larger_than_chapter_headings_is_not_a_section(
         self, parser: PdfParser, tmp_path: Path

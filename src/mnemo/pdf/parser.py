@@ -27,7 +27,7 @@ from pdfminer.pdftypes import resolve1
 from pdfminer.psparser import PSLiteral
 from pdfminer.utils import decode_text
 
-from mnemo.models import Book, ContentType
+from mnemo.models import Book, ContentType, is_boilerplate_section
 from mnemo.parsing.models import ContentBlock
 from mnemo.parsing.text import is_monospace_font, split_authors
 
@@ -52,6 +52,9 @@ _FURNITURE_WINDOW = 3
 _LINE_MARGIN = 0.8
 # A top-level entry set this much smaller than the chapter headings is a section.
 _SECTION_SIZE_RATIO = 0.75
+# An entry's heading is the largest of its first few boxes (a "CHAPTER 2" label sits above it).
+_HEADING_BOXES = 3
+_CHAPTER_PREFIX = re.compile(r"^(?:chapter|part)\s+\w+\s*[.:\-\u2013\u2014]?\s*")
 
 # (page index, negated y) so that ascending order is reading order.
 _Position = tuple[int, float]
@@ -207,10 +210,11 @@ class PdfParser:
         margin_keys: list[set[str]] = []
         pending: deque[tuple[int, LTPage]] = deque()
         heads = self._entry_headings(interpreter, device, pages, outline)
-        chapter_size = max(
-            (size for i, (size, line) in heads.items() if _names(line, outline[i][1][0])),
-            default=0.0,
+        chapter_size = _chapter_size(
+            [size for i, (size, text) in heads.items() if _names(text, outline[i][1][0])]
         )
+        # Headings that don't spell out their entry still size back matter, as before.
+        back_size = chapter_size or max((size for size, _ in heads.values()), default=0.0)
         styled = _section_styled(outline, heads, chapter_size)
         entered = -1
         unlisted: list[str] = []
@@ -246,7 +250,7 @@ class PdfParser:
                     if len(path) == 1 and not styled[i]:
                         parent = path
                 elif (i < 0 or i == len(outline) - 1) and _is_unlisted_heading(
-                    box, size, chapter_size
+                    box, size, chapter_size if i < 0 else back_size
                 ):
                     # Front or back matter (a foreword, a glossary) the outline leaves out.
                     unlisted = parent = [_WHITESPACE.sub(" ", box.get_text()).strip()]
@@ -290,9 +294,10 @@ class PdfParser:
         pages: list[PDFPage],
         outline: list[tuple[_Position, list[str]]],
     ) -> dict[int, tuple[float, str]]:
-        """(font size, first line) of the first box under each top-level outline entry."""
+        """(font size, text) of the heading box under each top-level outline entry."""
         starts = [position for position, _ in outline]
         heads: dict[int, tuple[float, str]] = {}
+        seen: dict[int, int] = {}
         for page_number in sorted({pos[0] for pos, path in outline if len(path) == 1}):
             layout = self._upright_layout(interpreter, device, pages[page_number])
             for box in layout:
@@ -302,9 +307,11 @@ class PdfParser:
                 if _in_margin(box, layout) or 2 * sum(not c.upright for c in chars) > len(chars):
                     continue
                 i = bisect_right(starts, (page_number, -(box.y0 + box.y1) / 2)) - 1
-                if i >= 0 and len(outline[i][1]) == 1 and i not in heads:
+                if i >= 0 and len(outline[i][1]) == 1 and seen.get(i, 0) < _HEADING_BOXES:
+                    seen[i] = seen.get(i, 0) + 1
                     size = max((char.size for char in chars), default=0.0)
-                    heads[i] = (size, box.get_text().strip().split("\n")[0])
+                    if size > heads.get(i, (0.0, ""))[0]:
+                        heads[i] = (size, box.get_text().strip())
         return heads
 
     def _upright_layout(
@@ -373,16 +380,27 @@ def _section_styled(
         if len(path) == 1:
             size, text = heads.get(i, (chapter_size, ""))
             section_sized = size < _SECTION_SIZE_RATIO * chapter_size
-            current, top = section_sized and _names(text, path[0]), path[0]
+            named = _names(text, path[0]) and not is_boilerplate_section(path)
+            current, top = section_sized and named, path[0]
         styled.append(current and path[0] == top)
     return styled
 
 
-def _names(line: str, title: str) -> bool:
-    """Whether a heading's first line is the title, or most of it when the title wraps."""
-    line, title = _plain(line), _plain(title)
-    # A bare numeral ("IV") starts its title too, but says nothing about the heading.
-    return bool(line) and title.startswith(line) and 2 * len(line) >= len(title)
+def _chapter_size(sizes: list[float]) -> float:
+    """The largest heading size at least two entries share, so one title page can't set it."""
+    shared = [s for s in sizes if sum(abs(s - t) <= 0.5 for t in sizes) >= 2]
+    return max(shared or sizes, default=0.0)
+
+
+def _names(text: str, title: str) -> bool:
+    """Whether one of a heading's first two lines is the title, or most of it when it wraps."""
+    title = _CHAPTER_PREFIX.sub("", _plain(title))
+    for line in text.split("\n")[:2]:
+        line = _CHAPTER_PREFIX.sub("", _plain(line))
+        # A bare numeral ("IV") starts its title too, but says nothing about the heading.
+        if line and title.startswith(line) and 2 * len(line) >= len(title):
+            return True
+    return False
 
 
 def _plain(text: str) -> str:
