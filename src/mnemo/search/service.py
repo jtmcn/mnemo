@@ -25,7 +25,7 @@ from mnemo.search.models import ExpandedResult, SearchResult
 if TYPE_CHECKING:
     from mnemo.embeddings.client import Embedder
     from mnemo.storage.repository import BookRepository, ChunkRepository
-    from mnemo.vectors.store import VectorStore
+    from mnemo.vectors.backend import VectorBackend
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +124,7 @@ class SearchService:
         # Lazy-initialized components
         self._chunk_repo: ChunkRepository | None = None
         self._book_repo: BookRepository | None = None
-        self._vector_store: VectorStore | None = None
+        self._vector_store: VectorBackend | None = None
         self._embedder: Embedder | None = None  # imported lazily
 
         # Cache for book lookups to avoid repeated queries
@@ -794,11 +794,11 @@ class SearchService:
             self._book_repo = BookRepository(conn)
 
         if self._vector_store is None:
+            from mnemo.vectors.backend import open_store
             from mnemo.vectors.config import VectorConfig
-            from mnemo.vectors.store import VectorStore
 
             config = VectorConfig(persist_path=self._chroma_path)
-            self._vector_store = VectorStore(config)
+            self._vector_store = open_store(config)
 
     def _get_query_embedding(self, query: str) -> list[float]:
         """Generate embedding for search query.

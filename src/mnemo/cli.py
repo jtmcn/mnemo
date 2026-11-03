@@ -774,9 +774,9 @@ def serve() -> None:
 
     Runs the MCP server over STDIO. This command blocks until interrupted.
     """
-    from mnemo.mcp.server import mcp  # domain modules registered via server.py imports
+    from mnemo.mcp.server import run  # importing server registers the tool modules
 
-    mcp.run()
+    run()
 
 
 @app.callback()

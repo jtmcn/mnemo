@@ -2685,3 +2685,56 @@ class TestToolsOverProtocol:
         assert tools["search_books"].annotations.read_only_hint is True
         wire = tools["remove_book"].annotations.model_dump(by_alias=True, exclude_none=True)
         assert wire["destructiveHint"] is True
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected", "warns"),
+    [
+        (None, 300.0, False),
+        ("0", 0.0, False),
+        ("45", 45.0, False),
+        ("abc", 300.0, True),
+        ("-1", 300.0, True),
+        ("nan", 300.0, True),
+        ("inf", 300.0, True),
+        (" 45 ", 45.0, False),
+        ("   ", 300.0, False),
+        # Beyond threading.TIMEOUT_MAX every Timer would raise; cap instead.
+        ("1e10", 365 * 24 * 3600.0, False),
+    ],
+)
+def test_vector_idle_seconds_parsing(monkeypatch, caplog, raw, expected, warns):
+    from mnemo.mcp import server
+
+    if raw is None:
+        monkeypatch.delenv("MNEMO_VECTOR_IDLE_SECONDS", raising=False)
+    else:
+        monkeypatch.setenv("MNEMO_VECTOR_IDLE_SECONDS", raw)
+    with caplog.at_level("WARNING", logger=server.logger.name):
+        assert server.vector_idle_seconds() == expected
+    assert bool(caplog.records) is warns
+
+
+def _run_server(monkeypatch, idle: str | None):
+    from mnemo.mcp import server
+    from mnemo.vectors import backend
+
+    if idle is None:
+        monkeypatch.delenv("MNEMO_VECTOR_IDLE_SECONDS", raising=False)
+    else:
+        monkeypatch.setenv("MNEMO_VECTOR_IDLE_SECONDS", idle)
+    try:
+        with patch.object(server.mcp, "run"), patch("atexit.register") as register:
+            server.run()
+        register.assert_called_once_with(backend.shutdown)
+        return backend.current_mode()
+    finally:
+        backend.configure("per_call")
+
+
+def test_run_uses_worker_by_default(monkeypatch):
+    assert _run_server(monkeypatch, None) == "worker"
+
+
+def test_run_zero_keeps_shared(monkeypatch):
+    assert _run_server(monkeypatch, "0") == "shared"

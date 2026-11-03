@@ -3,7 +3,7 @@
 Usage: python -m mnemo.mcp
 """
 
-from mnemo.mcp.server import mcp
+from mnemo.mcp.server import run
 
 if __name__ == "__main__":
-    mcp.run()
+    run()

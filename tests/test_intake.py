@@ -350,7 +350,7 @@ class TestFailedReplaceKeepsTheBook:
         first = intake(original, db_path=temp_db, embed=False)
         assert first.book is not None
 
-        with patch("mnemo.vectors.VectorStore", side_effect=RuntimeError("chroma down")):
+        with patch("mnemo.vectors.store.VectorStore", side_effect=RuntimeError("chroma down")):
             outcome = intake(edited, db_path=temp_db, embed=False, on_duplicate="replace")
 
         assert outcome.status == "replaced"
