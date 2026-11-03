@@ -258,6 +258,9 @@ async def add_book(
     and by parsed content, so a copy with edited metadata is recognised;
     use force=true to re-index.
 
+    Returns book details (ID, title, authors, chunk count) on success, or an error
+    message starting with "Error:".
+
     Args:
         file_path: Absolute path to the book file (.epub, .docx, .pdf)
         force: If true, re-indexes even if the book already exists
@@ -274,10 +277,6 @@ async def add_book(
             with force.
         force_metadata: With force, take title/authors from the file instead
             of keeping the library's values
-
-    Returns:
-        Book details (ID, title, authors, chunk count) on success,
-        or an error message starting with "Error:"
     """
     await ctx.info(f"Adding book from {file_path}...")
 
@@ -334,11 +333,11 @@ def remove_book(book_id: str) -> str:
     Permanently deletes the book, all its chunks, and search vectors.
     This action cannot be undone. The original EPUB file on disk is not affected.
 
+    Returns confirmation with deleted book details, or an error message starting with
+    "Error:".
+
     Args:
         book_id: 6-character book identifier (from list_available_books)
-
-    Returns:
-        Confirmation with deleted book details, or an error message starting with "Error:"
     """
     return _remove_book_impl(
         book_id,
@@ -365,9 +364,8 @@ async def reindex_all_books(
     changes. Books whose source files are missing on disk are skipped.
     This is a long-running operation (may take several minutes).
 
-    Returns:
-        Summary of results per book (success/skipped/failed counts and details),
-        or an error message starting with "Error:"
+    Returns a summary of results per book (success/skipped/failed counts and details),
+    or an error message starting with "Error:".
     """
     await ctx.info("Reindexing all books...")
 

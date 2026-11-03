@@ -237,9 +237,12 @@ def search_books(
     Use this when the user asks about a topic, concept, API, or code pattern
     that might be covered in their books.
 
+    Returns markdown-formatted search results with source attribution, or an error
+    message starting with "Error:".
+
     Args:
         query: Search query - can be natural language questions, specific terms,
-               or code patterns
+            or code patterns
         book_id: Optional 6-char book ID to search within one book only
         content_type: Optional filter - "text", "code", "table", "diagram", or "math"
         top_k: Maximum results to return (default 10, max 50)
@@ -258,10 +261,6 @@ def search_books(
         collection: Optional collection name to search within (e.g.,
             'ERCOT Nodal Protocols'). Restricts results to books in that
             collection. Use list_available_books to see collection names.
-
-    Returns:
-        Markdown-formatted search results with source attribution,
-        or an error message starting with "Error:"
     """
     return _search_books_impl(
         query,
@@ -293,11 +292,11 @@ def get_book_structure(book_id: str) -> str:
     what chapters or sections exist, then pass a section name to
     search_books to filter results.
 
+    Returns an indented markdown section outline, or an error message starting
+    with "Error:".
+
     Args:
         book_id: 6-character book identifier (from list_available_books)
-
-    Returns:
-        Indented markdown section outline, or an error message starting with "Error:"
     """
     return _get_book_structure_impl(book_id, make_book_repo(), make_chunk_repo())
 
@@ -317,16 +316,14 @@ def get_book_chunks(
 ) -> str:
     """Fetch contiguous chunks from a book for deep reading.
 
-    Returns up to 20 consecutive chunks ordered by sequence number.
-    Use after search_books to read surrounding context.
+    Returns up to 20 consecutive chunks ordered by sequence number, as markdown
+    with content, section path, content type, and sequence number, or an error
+    message starting with "Error:". Use after search_books to read surrounding
+    context.
 
     Args:
         book_id: 6-character book identifier (from list_available_books)
         start_sequence: First chunk sequence number to fetch (0-indexed)
         end_sequence: Last chunk sequence number to fetch (inclusive)
-
-    Returns:
-        Markdown-formatted chunks with content, section path, content type,
-        and sequence number, or an error message starting with "Error:"
     """
     return _get_book_chunks_impl(book_id, start_sequence, end_sequence, make_chunk_repo())

@@ -56,7 +56,7 @@ class TestServerSetup:
 
 
 class TestToolAnnotations:
-    """Tests verifying ToolAnnotations on all eight MCP tools.
+    """Tests verifying ToolAnnotations on the MCP tools.
 
     Guards against regression of annotations added in Plan 07-01.
     """
@@ -2602,16 +2602,28 @@ class TestToolsOverProtocol:
 
     @pytest.mark.asyncio
     async def test_concurrent_sync_tool_calls_share_one_connection(self, tmp_path):
-        # The SQLite connection is process-wide and thread-bound, so a sync tool
-        # dispatched to a worker thread fails on any thread but the first.
+        # The SQLite connection is process-wide and thread-bound, so every use
+        # must happen on the event-loop thread, never a worker.
+        import threading
+
         from fastmcp import Client
 
         from mnemo.mcp import _deps
         from mnemo.mcp.server import mcp
 
+        used_on: set[int] = set()
+        real_connection = _deps._connection
+
+        def spy():
+            used_on.add(threading.get_ident())
+            return real_connection()
+
         _deps.reset()
         try:
-            with patch("mnemo.mcp._deps.get_db_path", return_value=tmp_path / "t.db"):
+            with (
+                patch("mnemo.mcp._deps.get_db_path", return_value=tmp_path / "t.db"),
+                patch("mnemo.mcp._deps._connection", side_effect=spy),
+            ):
                 async with Client(mcp) as client:
                     results = await asyncio.gather(
                         *(client.call_tool("list_available_books", {}) for _ in range(8)),
@@ -2620,9 +2632,26 @@ class TestToolsOverProtocol:
         finally:
             _deps.reset()
 
+        assert used_on == {threading.get_ident()}
         texts = [r.content[0].text for r in results]
         assert all(t.startswith("No books indexed") for t in texts[:-1]), texts
         assert texts[-1] == "Error: Book not found: zzz999"
+
+    @pytest.mark.asyncio
+    async def test_descriptions_state_the_error_convention(self):
+        # fastmcp drops a docstring's Returns: section, so the contract lives in the summary.
+        from fastmcp import Client
+
+        from mnemo.mcp.server import mcp
+
+        async with Client(mcp) as client:
+            tools = await client.list_tools()
+
+        for tool in tools:
+            desc = " ".join((tool.description or "").split())
+            assert "Returns:" not in desc and "Args:" not in desc, tool.name
+            if tool.name not in ("list_available_books", "enrich_book"):
+                assert 'error message starting with "Error:"' in desc, tool.name
 
     @pytest.mark.asyncio
     async def test_async_tool_receives_injected_context(self, tmp_path):

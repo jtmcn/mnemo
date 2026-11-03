@@ -306,8 +306,7 @@ def list_available_books() -> str:
     and a short description. Call this first to discover book IDs for
     filtering searches or looking up details with get_book_info.
 
-    Returns:
-        Markdown table of available books, or a message if the library is empty
+    Returns a markdown table of available books, or a message if the library is empty.
     """
     return _list_available_books_impl(make_book_repo())
 
@@ -327,11 +326,10 @@ def get_book_info(book_id: str) -> str:
     for one book. Use this to inspect a book's metadata before updating it
     or to check how many chunks a book was split into.
 
+    Returns markdown-formatted book details, or an error message starting with "Error:".
+
     Args:
         book_id: 6-character book identifier (from list_available_books)
-
-    Returns:
-        Markdown-formatted book details, or an error message starting with "Error:"
     """
     return _get_book_info_impl(book_id, make_book_repo(), make_chunk_repo())
 
@@ -360,15 +358,14 @@ def update_book_metadata(
     For new ingests, prefer passing `collection` directly to `add_book` instead
     of ingesting first and then updating here.
 
+    Returns updated book details, or an error message starting with "Error:".
+
     Args:
         book_id: 6-character book identifier (from list_available_books)
         title: New title for the book
         authors: New list of author names (replaces all existing authors)
         isbn: New ISBN for the book (empty string clears ISBN)
         collection: Collection name to group related books (empty string removes from collection)
-
-    Returns:
-        Updated book details, or an error message starting with "Error:"
     """
     return _update_book_metadata_impl(
         book_id,
@@ -398,12 +395,11 @@ async def enrich_book(
     services, and returns any metadata found (publisher, year, description, authors).
     Use apply=true to automatically update the book's metadata, or review first.
 
+    Returns enrichment results showing current vs. found ISBN, or an error message.
+
     Args:
         book_id: 6-character book identifier (from list_available_books)
         apply: If true, automatically update the book's metadata with found values
-
-    Returns:
-        Enrichment results showing current vs. found ISBN, or error message
     """
     await ctx.info(f"Enriching metadata for book {book_id}...")
     return await asyncio.to_thread(_enrich_book_impl, book_id, apply)
