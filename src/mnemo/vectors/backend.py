@@ -2,6 +2,7 @@
 
 per_call: a fresh VectorStore per open (CLI, tests).
 shared: one VectorStore per path for the process lifetime (MCP server).
+worker: Chroma runs in a child process that stops when idle.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ import threading
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from mnemo.vectors.config import VectorConfig
+from mnemo.vectors.worker import RemoteVectorStore, VectorWorker
 
 if TYPE_CHECKING:
     from mnemo.vectors.store import QueryResult, VectorStore
@@ -81,28 +83,44 @@ class _SharedHandle:
 _lock = threading.Lock()
 _mode: VectorMode = "per_call"
 _shared: dict[tuple[str, str], VectorStore] = {}
+_worker: VectorWorker | None = None
+_idle_seconds = 300.0
 
 
 def configure(mode: VectorMode, idle_seconds: float = 300.0) -> None:
     """Select how open_store() opens stores; leaving a mode releases its resources."""
-    global _mode
-    if mode == "worker":
-        raise NotImplementedError("worker mode arrives in a later task")
+    global _mode, _idle_seconds
     with _lock:
         if mode != _mode:
             _release_locked()
         _mode = mode
+        _idle_seconds = idle_seconds
+        if _worker is not None:
+            # Keep the worker: open handles hold it, and the new delay applies from the next call.
+            _worker.idle_seconds = idle_seconds
 
 
 def current_mode() -> VectorMode:
     return _mode
 
 
-def open_store(config: VectorConfig | None = None) -> VectorBackend:
-    from mnemo.vectors.store import VectorStore
+def current_worker() -> VectorWorker | None:
+    """The process-wide worker in worker mode, else None."""
+    return _worker if _mode == "worker" else None
 
+
+def open_store(config: VectorConfig | None = None) -> VectorBackend:
+    global _worker
     config = config or VectorConfig()
     with _lock:
+        if _mode == "worker":
+            if _worker is None:
+                _worker = VectorWorker(_idle_seconds)
+            return RemoteVectorStore(_worker, config)
+
+        # Only the in-process modes load chromadb.
+        from mnemo.vectors.store import VectorStore
+
         if _mode != "shared":
             return VectorStore(config)
         key = (str(config.get_persist_path()), config.collection_name)
@@ -119,5 +137,9 @@ def shutdown() -> None:
 
 
 def _release_locked() -> None:
+    global _worker
     # Dropping references lets Chroma's cached clients be collected.
     _shared.clear()
+    if _worker is not None:
+        _worker.shutdown()
+        _worker = None

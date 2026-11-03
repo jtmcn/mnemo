@@ -68,18 +68,15 @@ def test_leaving_shared_mode_drops_stores(tmp_path: Path) -> None:
     assert backend.open_store(cfg) is not first
 
 
-def test_worker_mode_not_implemented_yet() -> None:
-    with pytest.raises(NotImplementedError):
-        backend.configure("worker")
-    assert backend.current_mode() == "per_call"
-
-
 def test_shutdown_is_idempotent() -> None:
     backend.shutdown()
     backend.shutdown()
 
 
 def test_importing_vectors_does_not_import_chromadb() -> None:
-    code = "import mnemo.vectors, mnemo.vectors.backend, sys; print('chromadb' in sys.modules)"
+    code = (
+        "import mnemo.vectors, mnemo.vectors.backend, mnemo.vectors.worker, sys; "
+        "print('chromadb' in sys.modules)"
+    )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert result.stdout.strip() == "False"
