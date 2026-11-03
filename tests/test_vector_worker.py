@@ -470,3 +470,21 @@ def test_worker_exits_with_parent(tmp_path: Path, how: str) -> None:
             parent.wait()
         if worker_pid is not None and not _gone(worker_pid):
             os.kill(worker_pid, signal.SIGKILL)
+
+
+def test_worker_ignores_host_cwd_modules(
+    make_worker: Callable[[float], VectorWorker],
+    cfg: VectorConfig,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "numpy.py").write_text('raise ImportError("shadowed")\n')
+    monkeypatch.chdir(project)
+
+    store = RemoteVectorStore(make_worker(300.0), cfg)
+    _add_three(store)
+    assert store.count() == 3
+    assert store.query(_unit(1), n_results=1)[0]["id"] == "c1"
+    store.close()

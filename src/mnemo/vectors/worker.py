@@ -120,8 +120,9 @@ class VectorWorker:
         if self._proc is not None and self._proc.poll() is not None:
             self._stop_locked()
         if self._proc is None:
+            # -P keeps the host's cwd off sys.path so project files can't shadow imports.
             proc = subprocess.Popen(
-                [sys.executable, "-m", "mnemo.vectors.worker"],
+                [sys.executable, "-P", "-m", "mnemo.vectors.worker"],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=None,

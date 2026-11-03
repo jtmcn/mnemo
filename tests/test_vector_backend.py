@@ -4,6 +4,7 @@ import subprocess
 import sys
 from collections.abc import Iterator
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
 import pytest
@@ -59,13 +60,19 @@ def test_shared_close_does_not_clear_chroma_cache(tmp_path: Path) -> None:
         spy.assert_called_once()
 
 
+def _wrapped(handle: object) -> object:
+    return cast(backend._SharedHandle, handle)._store
+
+
 def test_leaving_shared_mode_drops_stores(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path / "chroma")
     backend.configure("shared")
     first = backend.open_store(cfg)
+    # Handles are new objects each call, so compare the wrapped store.
+    assert _wrapped(backend.open_store(cfg)) is _wrapped(first)
     backend.configure("per_call")
     backend.configure("shared")
-    assert backend.open_store(cfg) is not first
+    assert _wrapped(backend.open_store(cfg)) is not _wrapped(first)
 
 
 def test_shutdown_is_idempotent() -> None:
