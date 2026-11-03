@@ -2623,3 +2623,36 @@ class TestToolsOverProtocol:
         texts = [r.content[0].text for r in results]
         assert all(t.startswith("No books indexed") for t in texts[:-1]), texts
         assert texts[-1] == "Error: Book not found: zzz999"
+
+    @pytest.mark.asyncio
+    async def test_async_tool_receives_injected_context(self, tmp_path):
+        """add_book's ctx is injected at dispatch and ctx.info reaches the client."""
+        from fastmcp import Client
+
+        from mnemo.mcp.server import mcp
+
+        logged: list[str] = []
+
+        async def on_log(message):
+            logged.append(str(message.data))
+
+        missing = tmp_path / "nope.epub"
+        async with Client(mcp, log_handler=on_log) as client:
+            result = await client.call_tool("add_book", {"file_path": str(missing)})
+
+        assert result.content[0].text.startswith("Error:"), result.content[0].text
+        assert any("Adding book from" in m for m in logged), logged
+
+    @pytest.mark.asyncio
+    async def test_annotations_reach_the_client(self):
+        from fastmcp import Client
+
+        from mnemo.mcp.server import mcp
+
+        async with Client(mcp) as client:
+            tools = {t.name: t for t in await client.list_tools()}
+
+        assert tools["remove_book"].annotations.destructive_hint is True
+        assert tools["search_books"].annotations.read_only_hint is True
+        wire = tools["remove_book"].annotations.model_dump(by_alias=True, exclude_none=True)
+        assert wire["destructiveHint"] is True
