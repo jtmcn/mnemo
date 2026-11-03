@@ -62,6 +62,7 @@ pythonpath = ["src"]
 asyncio_mode = "auto"
 filterwarnings = [
     "ignore::bs4.XMLParsedAsHTMLWarning",
+    "error::mcp.shared.exceptions.MCPDeprecationWarning",
 ]
 markers = [
     "integration: marks tests requiring external credentials (deselect with '-m not integration')",

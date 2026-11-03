@@ -278,7 +278,7 @@ async def add_book(
         force_metadata: With force, take title/authors from the file instead
             of keeping the library's values
     """
-    await ctx.info(f"Adding book from {file_path}...")
+    await ctx.report_progress(0, message=f"Adding book from {file_path}...")
 
     # Hash the file before the thread starts: a timeout leaves no return value
     # to clean up from, so the hash has to be captured up front. Validation
@@ -367,7 +367,7 @@ async def reindex_all_books(
     Returns a summary of results per book (success/skipped/failed counts and details),
     or an error message starting with "Error:".
     """
-    await ctx.info("Reindexing all books...")
+    await ctx.report_progress(0, message="Reindexing all books...")
 
     try:
         result = await asyncio.wait_for(

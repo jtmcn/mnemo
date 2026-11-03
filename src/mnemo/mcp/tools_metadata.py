@@ -401,5 +401,5 @@ async def enrich_book(
         book_id: 6-character book identifier (from list_available_books)
         apply: If true, automatically update the book's metadata with found values
     """
-    await ctx.info(f"Enriching metadata for book {book_id}...")
+    await ctx.report_progress(0, message=f"Enriching metadata for book {book_id}...")
     return await asyncio.to_thread(_enrich_book_impl, book_id, apply)

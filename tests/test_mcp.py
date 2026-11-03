@@ -1410,8 +1410,8 @@ class TestAddBookAsync:
         assert "timed out" in result.lower()
 
     @pytest.mark.asyncio
-    async def test_add_book_calls_ctx_info(self, tmp_path):
-        """add_book awaits ctx.info() with progress message."""
+    async def test_add_book_reports_progress(self, tmp_path):
+        """add_book awaits ctx.report_progress() with a status message."""
         from mnemo.mcp.tools_books import add_book
 
         epub_file = tmp_path / "info.epub"
@@ -1430,9 +1430,9 @@ class TestAddBookAsync:
         ):
             await add_book_fn(str(epub_file), False, ctx=ctx)
 
-        ctx.info.assert_awaited_once()
-        call_args = ctx.info.call_args[0][0]
-        assert str(epub_file) in call_args
+        ctx.report_progress.assert_awaited_once()
+        assert str(epub_file) in ctx.report_progress.call_args.kwargs["message"]
+        ctx.info.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_add_book_timeout_cleanup_removes_partial(self, tmp_path):
@@ -2655,22 +2655,22 @@ class TestToolsOverProtocol:
 
     @pytest.mark.asyncio
     async def test_async_tool_receives_injected_context(self, tmp_path):
-        """add_book's ctx is injected at dispatch and ctx.info reaches the client."""
+        """add_book's ctx is injected at dispatch and its progress reaches the client."""
         from fastmcp import Client
 
         from mnemo.mcp.server import mcp
 
-        logged: list[str] = []
+        progress: list[str | None] = []
 
-        async def on_log(message):
-            logged.append(str(message.data))
+        async def on_progress(value, total, message):
+            progress.append(message)
 
         missing = tmp_path / "nope.epub"
-        async with Client(mcp, log_handler=on_log) as client:
+        async with Client(mcp, progress_handler=on_progress) as client:
             result = await client.call_tool("add_book", {"file_path": str(missing)})
 
         assert result.content[0].text.startswith("Error:"), result.content[0].text
-        assert any("Adding book from" in m for m in logged), logged
+        assert progress == [f"Adding book from {missing}..."]
 
     @pytest.mark.asyncio
     async def test_annotations_reach_the_client(self):
