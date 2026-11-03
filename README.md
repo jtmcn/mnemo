@@ -110,8 +110,9 @@ Mnemo does not read `.env` itself — use direnv, dotenv, or `source` it. See
 `MNEMO_LOG_LEVEL` (MCP server only) and `MNEMO_VECTOR_IDLE_SECONDS` (MCP server
 only, default 300: seconds of inactivity before the vector search process stops
 and frees its memory; `0` keeps it in the server process and never unloads it;
-the first search after an unload takes about 1 s longer). After `mnemo restore` or `mnemo migrate-cosine`, restart
-`mnemo serve` so the server doesn't keep serving the old vectors.
+the first search after an unload takes about 1 s longer). After `mnemo restore`
+or `mnemo migrate-cosine`, restart `mnemo serve` so the server doesn't keep
+serving the old vectors.
 
 Switching embedding models changes the vector dimension, which ChromaDB locks on
 first insert. Re-embed from scratch after a switch:

@@ -143,6 +143,9 @@ class VectorWorker:
                     stdin.close()
             except OSError:
                 pass  # unflushed bytes to a dead child; the fd is closed regardless
+            if stdout is not None:
+                # A child blocked writing an unread reply gets EPIPE instead of hanging the wait.
+                stdout.close()
             try:
                 proc.wait(timeout=_STOP_TIMEOUT)
             except subprocess.TimeoutExpired:
@@ -151,8 +154,6 @@ class VectorWorker:
         finally:
             # Cleared only once reaped, so pid stays set until the process is gone.
             self._proc = self._stdin = self._stdout = None
-            if stdout is not None:
-                stdout.close()
 
     def _arm_timer_locked(self, delay: float) -> None:
         if self._timer is not None:

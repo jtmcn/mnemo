@@ -215,6 +215,33 @@ def test_kill_mid_call_raises_then_recovers(
     assert store.count() == 0
 
 
+def test_interrupt_during_large_reply_stops_promptly(
+    make_worker: Callable[[float], VectorWorker],
+    cfg: VectorConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worker = make_worker(300.0)
+    store = RemoteVectorStore(worker, cfg)
+    n = 40
+    store.add(
+        [f"c{i}" for i in range(n)],
+        [_unit(i % DIM) for i in range(n)],
+        [{"book_id": "b1"}] * n,
+        ["x" * 4096] * n,
+    )
+
+    def interrupted(_stream: Any) -> Any:
+        raise KeyboardInterrupt
+
+    # The ~160 KB reply overflows the pipe, so the child blocks writing it until stdout closes.
+    monkeypatch.setattr("mnemo.vectors.worker.read_frame", interrupted)
+    start = time.monotonic()
+    with pytest.raises(KeyboardInterrupt):
+        store.query(_unit(0), n_results=n)
+    assert time.monotonic() - start < 5.0
+    assert worker.pid is None
+
+
 def test_child_exception_is_reraised(
     make_worker: Callable[[float], VectorWorker], cfg: VectorConfig
 ) -> None:

@@ -32,6 +32,8 @@ import mnemo.mcp.tools_metadata  # noqa: F401, E402
 import mnemo.mcp.tools_search  # noqa: F401, E402
 
 DEFAULT_VECTOR_IDLE_SECONDS = 300.0
+# threading.Timer overflows beyond TIMEOUT_MAX; a year already means "never unload".
+MAX_VECTOR_IDLE_SECONDS = 365 * 24 * 3600.0
 
 
 def vector_idle_seconds() -> float:
@@ -50,7 +52,7 @@ def vector_idle_seconds() -> float:
             DEFAULT_VECTOR_IDLE_SECONDS,
         )
         return DEFAULT_VECTOR_IDLE_SECONDS
-    return value
+    return min(value, MAX_VECTOR_IDLE_SECONDS)
 
 
 def run() -> None:
