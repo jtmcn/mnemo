@@ -237,7 +237,7 @@ def _discard_timed_out_book(file_hash: str) -> None:
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        openWorldHint=False,
+        open_world_hint=False,
     )
 )
 async def add_book(
@@ -322,10 +322,11 @@ async def add_book(
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        destructiveHint=True,
-        idempotentHint=False,
-        openWorldHint=False,
-    )
+        destructive_hint=True,
+        idempotent_hint=False,
+        open_world_hint=False,
+    ),
+    run_in_thread=False,
 )
 def remove_book(book_id: str) -> str:
     """Remove a book from your library.
@@ -349,9 +350,9 @@ def remove_book(book_id: str) -> str:
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        destructiveHint=True,
-        idempotentHint=True,
-        openWorldHint=False,
+        destructive_hint=True,
+        idempotent_hint=True,
+        open_world_hint=False,
     )
 )
 async def reindex_all_books(

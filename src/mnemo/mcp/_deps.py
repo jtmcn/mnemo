@@ -2,6 +2,8 @@
 
 One process, one SQLite connection, one SearchService. The domain tool
 modules (tools_search, tools_books, tools_metadata) all pull from here.
+The connection is bound to the event-loop thread, so sync tools that use it
+register with run_in_thread=False; threaded work opens its own connection.
 """
 
 from __future__ import annotations

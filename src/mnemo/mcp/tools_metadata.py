@@ -293,10 +293,11 @@ def _enrich_book_impl(book_id: str, apply: bool = False) -> str:
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        readOnlyHint=True,
-        destructiveHint=False,
-        openWorldHint=False,
-    )
+        read_only_hint=True,
+        destructive_hint=False,
+        open_world_hint=False,
+    ),
+    run_in_thread=False,
 )
 def list_available_books() -> str:
     """List all books in your library.
@@ -313,10 +314,11 @@ def list_available_books() -> str:
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        readOnlyHint=True,
-        destructiveHint=False,
-        openWorldHint=False,
-    )
+        read_only_hint=True,
+        destructive_hint=False,
+        open_world_hint=False,
+    ),
+    run_in_thread=False,
 )
 def get_book_info(book_id: str) -> str:
     """Get detailed information about a specific book.
@@ -336,9 +338,10 @@ def get_book_info(book_id: str) -> str:
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        idempotentHint=True,
-        openWorldHint=False,
-    )
+        idempotent_hint=True,
+        open_world_hint=False,
+    ),
+    run_in_thread=False,
 )
 def update_book_metadata(
     book_id: str,
@@ -381,7 +384,7 @@ def update_book_metadata(
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        openWorldHint=True,
+        open_world_hint=True,
     )
 )
 async def enrich_book(

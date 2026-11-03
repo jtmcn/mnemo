@@ -213,10 +213,11 @@ def _get_book_chunks_impl(
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        readOnlyHint=True,
-        destructiveHint=False,
-        openWorldHint=False,
-    )
+        read_only_hint=True,
+        destructive_hint=False,
+        open_world_hint=False,
+    ),
+    run_in_thread=False,
 )
 def search_books(
     query: str,
@@ -278,10 +279,11 @@ def search_books(
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        readOnlyHint=True,
-        destructiveHint=False,
-        openWorldHint=False,
-    )
+        read_only_hint=True,
+        destructive_hint=False,
+        open_world_hint=False,
+    ),
+    run_in_thread=False,
 )
 def get_book_structure(book_id: str) -> str:
     """Get the section hierarchy for a book.
@@ -302,10 +304,11 @@ def get_book_structure(book_id: str) -> str:
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        readOnlyHint=True,
-        destructiveHint=False,
-        openWorldHint=False,
-    )
+        read_only_hint=True,
+        destructive_hint=False,
+        open_world_hint=False,
+    ),
+    run_in_thread=False,
 )
 def get_book_chunks(
     book_id: str,

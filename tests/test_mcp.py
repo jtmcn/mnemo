@@ -8,6 +8,7 @@ Tests the FastMCP server setup and tool implementations:
 - Integration with storage (using temp paths)
 """
 
+import asyncio
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -26,12 +27,11 @@ class TestServerSetup:
 
         assert mcp.name.startswith("mnemo")
 
-    def test_tools_registered(self):
+    async def test_tools_registered(self):
         """Verify all ten tools are registered with the server."""
         from mnemo.mcp.server import mcp
 
-        # FastMCP stores tools in _tool_manager
-        tool_names = list(mcp._tool_manager._tools.keys())
+        tool_names = [t.name for t in await mcp.list_tools()]
         assert "search_books" in tool_names
         assert "list_available_books" in tool_names
         assert "get_book_info" in tool_names
@@ -43,6 +43,17 @@ class TestServerSetup:
         assert "get_book_chunks" in tool_names
         assert "reindex_all_books" in tool_names
 
+    async def test_sync_tools_run_on_the_event_loop_thread(self):
+        """Sync tools share a thread-bound SQLite connection, so none may be threaded."""
+        import inspect
+
+        from mnemo.mcp.server import mcp
+
+        sync_tools = [t for t in await mcp.list_tools() if not inspect.iscoroutinefunction(t.fn)]
+        assert len(sync_tools) == 7
+        threaded = [t.name for t in sync_tools if t.run_in_thread]
+        assert threaded == []
+
 
 class TestToolAnnotations:
     """Tests verifying ToolAnnotations on all eight MCP tools.
@@ -50,53 +61,53 @@ class TestToolAnnotations:
     Guards against regression of annotations added in Plan 07-01.
     """
 
-    def test_read_only_tools_have_annotations(self):
+    async def test_read_only_tools_have_annotations(self):
         """Read-only tools (search, list, get_info) have correct hints."""
         from mnemo.mcp.server import mcp
 
         for name in ["search_books", "list_available_books", "get_book_info"]:
-            tool = mcp._tool_manager._tools[name]
+            tool = await mcp.get_tool(name)
             assert tool.annotations is not None, f"{name} missing annotations"
-            assert tool.annotations.readOnlyHint is True, f"{name} readOnlyHint"
-            assert tool.annotations.destructiveHint is False, f"{name} destructiveHint"
-            assert tool.annotations.openWorldHint is False, f"{name} openWorldHint"
+            assert tool.annotations.read_only_hint is True, f"{name} readOnlyHint"
+            assert tool.annotations.destructive_hint is False, f"{name} destructiveHint"
+            assert tool.annotations.open_world_hint is False, f"{name} openWorldHint"
 
-    def test_remove_book_has_destructive_annotation(self):
+    async def test_remove_book_has_destructive_annotation(self):
         """remove_book is marked destructive and non-idempotent."""
         from mnemo.mcp.server import mcp
 
-        tool = mcp._tool_manager._tools["remove_book"]
+        tool = await mcp.get_tool("remove_book")
         assert tool.annotations is not None
-        assert tool.annotations.destructiveHint is True
-        assert tool.annotations.idempotentHint is False
-        assert tool.annotations.openWorldHint is False
+        assert tool.annotations.destructive_hint is True
+        assert tool.annotations.idempotent_hint is False
+        assert tool.annotations.open_world_hint is False
 
-    def test_update_book_has_idempotent_annotation(self):
+    async def test_update_book_has_idempotent_annotation(self):
         """update_book_metadata is marked idempotent."""
         from mnemo.mcp.server import mcp
 
-        tool = mcp._tool_manager._tools["update_book_metadata"]
+        tool = await mcp.get_tool("update_book_metadata")
         assert tool.annotations is not None
-        assert tool.annotations.idempotentHint is True
-        assert tool.annotations.openWorldHint is False
+        assert tool.annotations.idempotent_hint is True
+        assert tool.annotations.open_world_hint is False
 
-    def test_add_book_has_correct_annotations(self):
+    async def test_add_book_has_correct_annotations(self):
         """add_book has only openWorldHint=False (no special hints)."""
         from mnemo.mcp.server import mcp
 
-        tool = mcp._tool_manager._tools["add_book"]
+        tool = await mcp.get_tool("add_book")
         assert tool.annotations is not None
-        assert tool.annotations.openWorldHint is False
+        assert tool.annotations.open_world_hint is False
 
-    def test_get_book_structure_has_read_only_annotations(self):
+    async def test_get_book_structure_has_read_only_annotations(self):
         """get_book_structure has readOnlyHint=True."""
         from mnemo.mcp.server import mcp
 
-        tool = mcp._tool_manager._tools["get_book_structure"]
+        tool = await mcp.get_tool("get_book_structure")
         assert tool.annotations is not None
-        assert tool.annotations.readOnlyHint is True
-        assert tool.annotations.destructiveHint is False
-        assert tool.annotations.openWorldHint is False
+        assert tool.annotations.read_only_hint is True
+        assert tool.annotations.destructive_hint is False
+        assert tool.annotations.open_world_hint is False
 
 
 class TestSearchBooksValidation:
@@ -1363,7 +1374,7 @@ class TestAddBookAsync:
         from mnemo.mcp.tools_books import add_book
 
         ctx = AsyncMock()
-        add_book_fn = add_book.fn  # Unwrap FastMCP FunctionTool
+        add_book_fn = add_book
 
         result = await add_book_fn("/nonexistent/book.epub", False, ctx=ctx)
 
@@ -1377,7 +1388,7 @@ class TestAddBookAsync:
 
         epub_file = tmp_path / "slow.epub"
         epub_file.write_bytes(b"fake epub")
-        add_book_fn = add_book.fn
+        add_book_fn = add_book
 
         ctx = AsyncMock()
 
@@ -1405,7 +1416,7 @@ class TestAddBookAsync:
 
         epub_file = tmp_path / "info.epub"
         epub_file.write_bytes(b"fake epub")
-        add_book_fn = add_book.fn
+        add_book_fn = add_book
 
         ctx = AsyncMock()
 
@@ -1430,7 +1441,7 @@ class TestAddBookAsync:
 
         epub_file = tmp_path / "partial.epub"
         epub_file.write_bytes(b"fake epub")
-        add_book_fn = add_book.fn
+        add_book_fn = add_book
 
         ctx = AsyncMock()
 
@@ -1471,7 +1482,7 @@ class TestAddBookAsync:
 
         epub_file = tmp_path / "partial.epub"
         epub_file.write_bytes(b"fake epub")
-        add_book_fn = add_book.fn
+        add_book_fn = add_book
 
         ctx = AsyncMock()
 
@@ -2400,7 +2411,7 @@ class TestReindexAllBooks:
         from mnemo.mcp.tools_books import reindex_all_books
 
         ctx = AsyncMock()
-        reindex_fn = reindex_all_books.fn
+        reindex_fn = reindex_all_books
 
         async def fake_wait_for(*a, **kw):
             return "Reindex complete: 1 succeeded, 0 skipped, 0 failed"
@@ -2423,7 +2434,7 @@ class TestReindexAllBooks:
         from mnemo.mcp.tools_books import reindex_all_books
 
         ctx = AsyncMock()
-        reindex_fn = reindex_all_books.fn
+        reindex_fn = reindex_all_books
 
         async def fake_timeout(*a, **kw):
             raise TimeoutError()
@@ -2546,7 +2557,7 @@ class TestSearchCacheInvalidationThroughWrappers:
             patch("mnemo.mcp.tools_books.make_chunk_repo", return_value=chunk_repo),
             patch("mnemo.ingest.remove_book", return_value=True),
         ):
-            result = remove_book.fn("abc123")
+            result = remove_book("abc123")
 
         assert "Removed" in result
         mock_service.invalidate_cache.assert_called()
@@ -2564,7 +2575,7 @@ class TestSearchCacheInvalidationThroughWrappers:
             patch("mnemo.mcp.tools_books.make_search_service", return_value=mock_service),
             patch("mnemo.ingest.reindex_all_books", return_value=mock_results),
         ):
-            await reindex_all_books.fn(ctx=AsyncMock())
+            await reindex_all_books(ctx=AsyncMock())
 
         mock_service.invalidate_cache.assert_called()
 
@@ -2581,6 +2592,34 @@ class TestSearchCacheInvalidationThroughWrappers:
             patch("mnemo.mcp.tools_metadata.make_chunk_repo", return_value=MagicMock()),
             patch("mnemo.mcp.tools_metadata._get_book_info_impl", return_value="info"),
         ):
-            update_book_metadata.fn("abc123", title="New Title")
+            update_book_metadata("abc123", title="New Title")
 
         mock_service.invalidate_cache.assert_called()
+
+
+class TestToolsOverProtocol:
+    """Calls go through a real fastmcp Client, the path a host takes."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_sync_tool_calls_share_one_connection(self, tmp_path):
+        # The SQLite connection is process-wide and thread-bound, so a sync tool
+        # dispatched to a worker thread fails on any thread but the first.
+        from fastmcp import Client
+
+        from mnemo.mcp import _deps
+        from mnemo.mcp.server import mcp
+
+        _deps.reset()
+        try:
+            with patch("mnemo.mcp._deps.get_db_path", return_value=tmp_path / "t.db"):
+                async with Client(mcp) as client:
+                    results = await asyncio.gather(
+                        *(client.call_tool("list_available_books", {}) for _ in range(8)),
+                        client.call_tool("get_book_info", {"book_id": "zzz999"}),
+                    )
+        finally:
+            _deps.reset()
+
+        texts = [r.content[0].text for r in results]
+        assert all(t.startswith("No books indexed") for t in texts[:-1]), texts
+        assert texts[-1] == "Error: Book not found: zzz999"
