@@ -86,7 +86,7 @@ def test_stale_vector_failure_after_commit_is_partial_success(db: Path):
     store_book(book, blocks, db_path=db)
     renamed = book.model_copy(update={"title": "New"})
 
-    with patch("mnemo.vectors.VectorStore", side_effect=RuntimeError("chroma down")):
+    with patch("mnemo.vectors.store.VectorStore", side_effect=RuntimeError("chroma down")):
         stored = store_book(renamed, blocks, replaces=frozenset({book.id}), db_path=db)
 
     assert stored.embedding == "failed"

@@ -559,7 +559,7 @@ class TestReplaceIsAtomic:
             def __init__(self, _config):
                 raise RuntimeError("chroma will not open")
 
-        monkeypatch.setattr("mnemo.vectors.VectorStore", Unopenable)
+        monkeypatch.setattr("mnemo.vectors.store.VectorStore", Unopenable)
 
         outcome = intake(sample_epub, db_path=temp_db, embed=False, on_duplicate="replace")
 
@@ -1030,7 +1030,7 @@ class TestConnectionLifetime:
             def close(self):
                 closed.append(True)
 
-        monkeypatch.setattr("mnemo.vectors.VectorStore", ExplodingStore)
+        monkeypatch.setattr("mnemo.vectors.store.VectorStore", ExplodingStore)
 
         outcome = intake(sample_epub, db_path=temp_db, embed=False, on_duplicate="replace")
 

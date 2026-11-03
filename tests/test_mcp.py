@@ -2685,3 +2685,16 @@ class TestToolsOverProtocol:
         assert tools["search_books"].annotations.read_only_hint is True
         wire = tools["remove_book"].annotations.model_dump(by_alias=True, exclude_none=True)
         assert wire["destructiveHint"] is True
+
+
+def test_run_configures_shared_vectors():
+    """run() flips vectors to shared mode before serving."""
+    from mnemo.mcp import server
+    from mnemo.vectors import backend
+
+    try:
+        with patch.object(server.mcp, "run"):
+            server.run()
+        assert backend.current_mode() == "shared"
+    finally:
+        backend.configure("per_call")

@@ -70,7 +70,8 @@ def embed_book(
     """
     # Lazy imports to avoid hard dependency on embedding modules
     from mnemo.embeddings import Embedder
-    from mnemo.vectors import VectorConfig, VectorStore
+    from mnemo.vectors import VectorConfig
+    from mnemo.vectors.backend import open_store
 
     # Load chunks from SQLite
     init_db(db_path)
@@ -98,7 +99,7 @@ def embed_book(
 
     # Initialize vector store
     vector_config = VectorConfig(persist_path=chroma_path)
-    store = VectorStore(vector_config)
+    store = open_store(vector_config)
 
     # Delete any existing vectors for this book (re-embedding case)
     store.delete_by_book(book_id)
@@ -149,10 +150,11 @@ def carry_over(parsed: Book, previous: Book, force_metadata: bool) -> Book:
 
 def _delete_vectors(book_ids: set[str], chroma_path: Path | None) -> None:
     try:
-        from mnemo.vectors import VectorConfig, VectorStore
+        from mnemo.vectors import VectorConfig
+        from mnemo.vectors.backend import open_store
     except ImportError:
         return  # Vectors module not available
-    store = VectorStore(VectorConfig(persist_path=chroma_path))
+    store = open_store(VectorConfig(persist_path=chroma_path))
     # close() releases Chroma's file descriptors, so it runs even when a delete fails.
     try:
         for book_id in book_ids:
@@ -428,10 +430,11 @@ def remove_book(
 
     # Delete vectors (if any)
     try:
-        from mnemo.vectors import VectorConfig, VectorStore
+        from mnemo.vectors import VectorConfig
+        from mnemo.vectors.backend import open_store
 
         vector_config = VectorConfig(persist_path=chroma_path)
-        store = VectorStore(vector_config)
+        store = open_store(vector_config)
         store.delete_by_book(book_id)
         store.close()
     except ImportError:

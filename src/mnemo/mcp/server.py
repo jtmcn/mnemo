@@ -4,6 +4,7 @@ IMPORTANT: Never use print() - corrupts STDIO transport.
 Use logging to stderr only.
 """
 
+import atexit
 import logging
 import os
 import sys
@@ -29,5 +30,15 @@ import mnemo.mcp.tools_books  # noqa: F401, E402
 import mnemo.mcp.tools_metadata  # noqa: F401, E402
 import mnemo.mcp.tools_search  # noqa: F401, E402
 
-if __name__ == "__main__":
+
+def run() -> None:
+    """Serve over STDIO with one shared vector store per path."""
+    from mnemo.vectors import backend
+
+    backend.configure("shared")
+    atexit.register(backend.shutdown)
     mcp.run()  # STDIO transport
+
+
+if __name__ == "__main__":
+    run()
