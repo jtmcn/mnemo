@@ -2687,14 +2687,47 @@ class TestToolsOverProtocol:
         assert wire["destructiveHint"] is True
 
 
-def test_run_configures_shared_vectors():
-    """run() flips vectors to shared mode before serving."""
+@pytest.mark.parametrize(
+    ("raw", "expected", "warns"),
+    [
+        (None, 300.0, False),
+        ("0", 0.0, False),
+        ("45", 45.0, False),
+        ("abc", 300.0, True),
+        ("-1", 300.0, True),
+    ],
+)
+def test_vector_idle_seconds_parsing(monkeypatch, caplog, raw, expected, warns):
+    from mnemo.mcp import server
+
+    if raw is None:
+        monkeypatch.delenv("MNEMO_VECTOR_IDLE_SECONDS", raising=False)
+    else:
+        monkeypatch.setenv("MNEMO_VECTOR_IDLE_SECONDS", raw)
+    with caplog.at_level("WARNING", logger=server.logger.name):
+        assert server.vector_idle_seconds() == expected
+    assert bool(caplog.records) is warns
+
+
+def _run_server(monkeypatch, idle: str | None):
     from mnemo.mcp import server
     from mnemo.vectors import backend
 
+    if idle is None:
+        monkeypatch.delenv("MNEMO_VECTOR_IDLE_SECONDS", raising=False)
+    else:
+        monkeypatch.setenv("MNEMO_VECTOR_IDLE_SECONDS", idle)
     try:
-        with patch.object(server.mcp, "run"):
+        with patch.object(server.mcp, "run"), patch("atexit.register"):
             server.run()
-        assert backend.current_mode() == "shared"
+        return backend.current_mode()
     finally:
         backend.configure("per_call")
+
+
+def test_run_uses_worker_by_default(monkeypatch):
+    assert _run_server(monkeypatch, None) == "worker"
+
+
+def test_run_zero_keeps_shared(monkeypatch):
+    assert _run_server(monkeypatch, "0") == "shared"

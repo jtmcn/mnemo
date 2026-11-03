@@ -350,3 +350,123 @@ def test_worker_mode_keeps_chromadb_out_of_the_parent(tmp_path: Path) -> None:
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "False"
+
+
+_NEVER_IMPORTS_SCRIPT = """
+import os, sys, time
+from datetime import UTC, datetime
+from pathlib import Path
+
+from mnemo.models import Book, Chunk, ContentType
+from mnemo.storage import BookRepository, ChunkRepository
+from mnemo.storage.database import get_connection, init_db
+from mnemo.vectors import VectorConfig, backend
+
+root = Path(sys.argv[1])
+db_path, chroma_path = root / "t.db", root / "chroma"
+backend.configure("worker", 0.5)
+
+init_db(db_path)
+conn = get_connection(db_path)
+BookRepository(conn).add(
+    Book(id="aaa001", title="T", authors=["A"], isbn=None, file_hash="a" * 64,
+         default_language=None, structure_source="toc", added_at=datetime(2026, 1, 1, tzinfo=UTC))
+)
+ChunkRepository(conn).add_many([
+    Chunk(id="c0", book_id="aaa001", content="hello", content_type=ContentType.TEXT,
+          token_count=1, section_path=["S"], sections=["S"], language=None, sequence=0)
+])
+conn.commit()
+conn.close()
+
+store = backend.open_store(VectorConfig(persist_path=chroma_path))
+store.add(["c0"], [[1.0] + [0.0] * 7], [{"book_id": "aaa001", "content_type": "text"}], ["hello"])
+store.close()
+pid = backend.current_worker().pid
+assert pid is not None
+
+from mnemo.search.service import SearchService
+
+class FakeEmbedder:
+    def embed_one(self, text):
+        return [1.0] + [0.0] * 7
+
+svc = SearchService(db_path=db_path, chroma_path=chroma_path)
+svc._embedder = FakeEmbedder()
+hits = svc.search("hello", mode="semantic")
+print("hits", len(hits))
+
+import mnemo.ingest
+print("removed", mnemo.ingest.remove_book("aaa001", db_path=db_path, chroma_path=chroma_path))
+print("chromadb_imported", "chromadb" in sys.modules)
+
+deadline = time.monotonic() + 5
+gone = False
+while time.monotonic() < deadline:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        gone = True
+        break
+    time.sleep(0.05)
+print("worker_gone", gone)
+"""
+
+
+def test_server_process_never_imports_chromadb(tmp_path: Path) -> None:
+    proc = subprocess.run(
+        [sys.executable, "-c", _NEVER_IMPORTS_SCRIPT, str(tmp_path)],
+        env={**os.environ, "HOME": str(tmp_path)},
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "hits 1" in proc.stdout
+    assert "removed True" in proc.stdout
+    assert "chromadb_imported False" in proc.stdout
+    assert "worker_gone True" in proc.stdout
+
+
+_LIFETIME_PARENT_SCRIPT = """
+import sys, time
+from pathlib import Path
+from mnemo.vectors import VectorConfig, backend
+
+backend.configure("worker", 300.0)
+store = backend.open_store(VectorConfig(persist_path=Path(sys.argv[1]) / "chroma"))
+store.count()
+print(backend.current_worker().pid, flush=True)
+if sys.argv[2] == "block":
+    time.sleep(60)
+"""
+
+
+@pytest.mark.parametrize("how", ["sigkill", "normal_exit"])
+def test_worker_exits_with_parent(tmp_path: Path, how: str) -> None:
+    parent = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            _LIFETIME_PARENT_SCRIPT,
+            str(tmp_path),
+            "block" if how == "sigkill" else "exit",
+        ],
+        env={**os.environ, "HOME": str(tmp_path)},
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    worker_pid: int | None = None
+    try:
+        assert parent.stdout is not None
+        worker_pid = int(parent.stdout.readline())
+        if how == "sigkill":
+            parent.kill()
+        parent.wait(timeout=30)
+        assert _wait_until(lambda: _gone(worker_pid), timeout=5.0)
+    finally:
+        if parent.poll() is None:
+            parent.kill()
+            parent.wait()
+        if worker_pid is not None and not _gone(worker_pid):
+            os.kill(worker_pid, signal.SIGKILL)
