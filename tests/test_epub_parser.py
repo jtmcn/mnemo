@@ -157,6 +157,43 @@ class TestContentExtraction:
         assert "    " in python_code.content or "\t" in python_code.content
 
 
+def _code_blocks(tmp_path: Path, body: str) -> list[ContentBlock]:
+    epub = create_epub_from_toc(
+        tmp_path / "b.epub", {"ch1.xhtml": body}, [("Chapter 1", "ch1.xhtml", [])]
+    )
+    _, blocks = EPUBParser().parse(epub)
+    return [b for b in blocks if b.content_type == ContentType.CODE]
+
+
+class TestTokenizedCodeBlocks:
+    """O'Reilly EPUBs wrap each highlighted token in its own <code> inside the <pre>."""
+
+    TOKENIZED = (
+        "<h1>Chapter 1</h1><p>Intro.</p>"
+        '<pre data-code-language="python" data-type="programlisting">\n'
+        '<code class="k">def</code> <code class="nf">lag</code><code class="p">(</code>'
+        '<code class="bp">self</code><code class="p">):</code>\n'
+        ' <code class="k">return</code> <code class="n">offsets_lag</code>\n'
+        "</pre><p>Outro.</p>"
+    )
+
+    def test_tokenized_code_keeps_lines_and_indentation(self, tmp_path: Path) -> None:
+        code_blocks = _code_blocks(tmp_path, self.TOKENIZED)
+        assert [b.content for b in code_blocks] == ["def lag(self):\n return offsets_lag"]
+        assert code_blocks[0].language == "python"
+
+    def test_single_code_wrapper_unchanged(self, tmp_path: Path) -> None:
+        body = (
+            "<h1>Chapter 1</h1>"
+            '<pre>\n<code class="language-python">    x = 1\ny = 2\n</code>\n</pre>'
+        )
+        assert [b.content for b in _code_blocks(tmp_path, body)] == ["    x = 1\ny = 2"]
+
+    def test_standalone_code_block_unchanged(self, tmp_path: Path) -> None:
+        body = "<h1>Chapter 1</h1><code>a = 1\nb = 2</code>"
+        assert [b.content for b in _code_blocks(tmp_path, body)] == ["a = 1\nb = 2"]
+
+
 class TestWordBoundaryFix:
     """Tests for PARSE-01: word boundary preservation across inline elements."""
 
