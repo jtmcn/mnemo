@@ -44,8 +44,8 @@ It is stored as chunk 715 with the content `def`, and `get_last_offsets_per_part
 1. **Single-wrapper `<pre>\n<code>…</code>\n</pre>`** (the common case): the content must equal today's output apart from leading and trailing newlines. Pinned by `test_single_code_wrapper_unchanged`.
 2. **Indentation on the first code line** must survive the newline trim. Strip `"\n"` only, never all whitespace. Pinned by `test_tokenized_code_keeps_lines_and_indentation` (the first line is not indented, but the second line's leading space is) and `test_single_code_wrapper_unchanged` (its first line is indented).
 3. **Standalone block-level `<code>`** (no `<pre>` parent) also reaches `_extract_code_block`. It must still return its own text. Pinned by `test_standalone_code_block_unchanged`.
-4. **A `<pre>` without `<code>`**, such as a plain programlisting, already used `element.get_text()`. It must stay the same, apart from the newline trim. Covered by the existing `TestContentExtraction` tests.
-5. **Tokenized blocks are no longer merged away**: the full block must come back as a `ContentType.CODE` block, which is what makes it a standalone chunk. Pinned by asserting on `content_type` in the tokenized test.
+4. **A `<pre>` without `<code>`**, such as a plain programlisting, already used `element.get_text()`. It must stay the same, apart from the newline trim. Pinned by `test_pre_without_code_keeps_text` (added after review; the existing tests never asserted its content).
+5. **Tokenized blocks are no longer merged away**: a listing of 20+ tokens must come out of the chunker as its own CODE chunk (the chunker still merges CODE blocks under 20 tokens). Pinned by `test_tokenized_listing_becomes_its_own_code_chunk` (added after review).
 
 ---
 
