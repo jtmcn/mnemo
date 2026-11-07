@@ -399,9 +399,8 @@ def _extract_code_block(
     # Get language from various sources
     language = _detect_code_language(element) or default_language
 
-    # Get code content, preserving whitespace
-    code_element = element.find("code") or element
-    content = code_element.get_text()
+    # Read the whole element: O'Reilly wraps each highlighted token in its own <code>.
+    content = element.get_text().strip("\n")
 
     return ContentBlock(
         content=content,
