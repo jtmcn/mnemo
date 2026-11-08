@@ -60,7 +60,8 @@ def embed_book(
         book_id: 6-char hex book identifier
         db_path: SQLite database path (default: ~/.mnemo/mnemo.db)
         chroma_path: ChromaDB path (default: ~/.mnemo/chroma)
-        batch_size: Chunks per embedding API call (default: 50)
+        batch_size: Chunks per embed_batch call and vector-store write (default: 50);
+            the embedder splits each batch into requests by token budget
 
     Returns:
         Number of chunks embedded
