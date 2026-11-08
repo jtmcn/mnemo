@@ -40,6 +40,10 @@ class TestEmbeddingConfig:
         assert config.max_input_tokens == 4096
         assert config.max_request_tokens == 50000
 
+    def test_default_request_budget_fits_provider_token_quotas(self):
+        """OpenRouter's Nebius route 429s a ~36k-token request but serves ~8k ones."""
+        assert EmbeddingConfig.from_env().max_request_tokens == 8000
+
     @pytest.mark.parametrize("bad", ["8k", "0", "-5", ""])
     def test_from_env_rejects_bad_token_limits(self, monkeypatch, bad):
         """A typo must not raise from inside Embedder() nor truncate to nothing.
