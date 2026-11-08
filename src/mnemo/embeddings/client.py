@@ -78,10 +78,9 @@ class Embedder:
     def _token_budgeted(self, texts: list[str]) -> Iterator[list[str]]:
         """Split texts so no single request exceeds the per-request budget.
 
-        Truncation bounds each input, not their sum: 50 chunks of 8192 tokens
-        is ~410k in one request, past what providers accept, and it fails as a
-        non-retryable 400 on the whole batch. Books of ordinary prose never
-        reach the budget, so this only splits the pathological case.
+        Truncation bounds each input, not their sum. Providers reject an
+        oversized request outright (a 400) or by token quota (a 429 that
+        retrying never clears), so a batch is sent as several requests.
         """
         group: list[str] = []
         used = 0

@@ -40,6 +40,14 @@ class TestEmbeddingConfig:
         assert config.max_input_tokens == 4096
         assert config.max_request_tokens == 50000
 
+    def test_default_request_budget_fits_provider_token_quotas(self):
+        """Nebius (via OpenRouter) holds ~35k tokens of quota; a bigger request never clears.
+
+        Matching the per-input cap means every truncated input fits in one request.
+        """
+        config = EmbeddingConfig.from_env()
+        assert config.max_request_tokens == config.max_input_tokens == 8192
+
     @pytest.mark.parametrize("bad", ["8k", "0", "-5", ""])
     def test_from_env_rejects_bad_token_limits(self, monkeypatch, bad):
         """A typo must not raise from inside Embedder() nor truncate to nothing.

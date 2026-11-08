@@ -53,9 +53,9 @@ class EmbeddingConfig:
     # Chunker keeps text under 2000 tokens but code/math/table blocks are
     # atomic and unbounded, so oversized inputs reach the provider verbatim.
     max_input_tokens: int = 8192
-    # Per-request ceiling across all inputs. Deliberately well under any
-    # provider's documented cap; ordinary prose never reaches it.
-    max_request_tokens: int = 100_000
+    # Per-request ceiling across all inputs. Providers' rolling token quotas (~35k on
+    # OpenRouter's Nebius route) 429 a larger request on every retry.
+    max_request_tokens: int = 8192
     timeout: float = 30.0
 
     @classmethod
