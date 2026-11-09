@@ -12,10 +12,10 @@ from pathlib import Path
 import pytest
 
 from mnemo import ingest as mnemo_ingest
-from mnemo.ingest import reindex_all_books, remove_book
+from mnemo.ingest import remove_book
 from mnemo.models import Book, ContentType
 from mnemo.search import SearchService
-from mnemo.services.book_service import intake
+from mnemo.services.book_service import intake, reindex
 from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_db
 from tests.fixtures.epub_factory import create_epub_with_nested_toc, create_test_epub
 from tests.fixtures.pdf_factory import create_test_pdf
@@ -216,25 +216,25 @@ class TestIngestionCollection:
         assert retrieved.collection == "Replaced"
 
 
-class TestReindexAllBooks:
-    """Tests for reindex_all_books."""
+class TestReindex:
+    """Tests for intake's reindex."""
 
     def test_reindex_empty_library(self, temp_db: Path):
         """Reindex with no books returns empty list."""
         init_db(temp_db)
-        results = reindex_all_books(db_path=temp_db, embed=False)
-        assert results == []
+        results = reindex(db_path=temp_db, embed=False).rows
+        assert results == ()
 
     def test_reindex_single_book(self, sample_epub: Path, temp_db: Path):
         """Reindex re-ingests an existing book."""
         book, original_count = add(sample_epub, temp_db)
-        results = reindex_all_books(db_path=temp_db, embed=False)
+        results = reindex(db_path=temp_db, embed=False).rows
 
         assert len(results) == 1
-        assert results[0]["status"] == "success"
-        assert results[0]["book_id"] == book.id
-        assert results[0]["chunks"] == original_count
-        assert results[0]["error"] is None
+        assert results[0].status == "success"
+        assert results[0].book_id == book.id
+        assert results[0].chunks == original_count
+        assert results[0].message == ""
 
     @staticmethod
     def _epub(tmp_path: Path, name: str, title: str, body: str) -> Path:
@@ -256,16 +256,16 @@ class TestReindexAllBooks:
         conn.commit()
         conn.close()
         newer, _ = add(self._epub(tmp_path, "newer", "Newer", body), temp_db)
-        reindex_all_books(db_path=temp_db, embed=False)  # the upgrade: both now share a hash
+        reindex(db_path=temp_db, embed=False)  # the upgrade: both now share a hash
         self._epub(tmp_path, "newer", "Newer, Retitled", body)
 
-        results = reindex_all_books(db_path=temp_db, embed=False)
+        results = reindex(db_path=temp_db, embed=False).rows
 
         conn = get_connection(temp_db)
         books = {b.id: b.title for b in BookRepository(conn).list_all()}
         conn.close()
         assert books == {older.id: "Hand-Fixed Title", newer.id: "Newer"}
-        assert sorted((r["book_id"], r["status"]) for r in results) == sorted(
+        assert sorted((r.book_id, r.status) for r in results) == sorted(
             [(older.id, "success"), (newer.id, "success")]
         )
 
@@ -280,16 +280,16 @@ class TestReindexAllBooks:
         newer, _ = add(newer_file, temp_db)
         shutil.copy(newer_file, older_file)
 
-        results = reindex_all_books(db_path=temp_db, embed=False)
+        results = reindex(db_path=temp_db, embed=False).rows
 
         conn = get_connection(temp_db)
         remaining = [b.id for b in BookRepository(conn).list_all()]
         conn.close()
         assert remaining == [older.id]
-        by_id = {r["book_id"]: r for r in results}
-        assert by_id[older.id]["status"] == "success"
-        assert by_id[newer.id]["status"] == "merged"
-        assert by_id[newer.id]["error"] == f"same file as {older.id}"
+        by_id = {r.book_id: r for r in results}
+        assert by_id[older.id].status == "success"
+        assert by_id[newer.id].status == "merged"
+        assert by_id[newer.id].message == f"same file as {older.id}"
 
     def test_folded_entry_is_not_stored_again(self, tmp_path: Path, temp_db: Path, monkeypatch):
         """Each entry gets one row, and the fold does not re-embed the survivor."""
@@ -309,9 +309,9 @@ class TestReindexAllBooks:
             patch("mnemo.embeddings.Embedder"),
             patch("mnemo.ingest.embed_book", side_effect=[3, RuntimeError("token expired")]),
         ):
-            results = reindex_all_books(db_path=temp_db, embed=True)
+            results = reindex(db_path=temp_db, embed=True).rows
 
-        statuses = [(r["book_id"], r["status"]) for r in results]
+        statuses = [(r.book_id, r.status) for r in results]
         assert statuses == [
             (newer.id, "success"),
             (older.id, "merged"),
@@ -329,16 +329,16 @@ class TestReindexAllBooks:
         newer, _ = add(newer_file, temp_db)
         shutil.copy(older_file, newer_file)
 
-        results = reindex_all_books(db_path=temp_db, embed=False)
+        results = reindex(db_path=temp_db, embed=False).rows
 
         conn = get_connection(temp_db)
         remaining = [b.id for b in BookRepository(conn).list_all()]
         conn.close()
         assert remaining == [newer.id]
-        by_id = {r["book_id"]: r for r in results}
-        assert by_id[newer.id]["status"] == "success"
-        assert by_id[older.id]["status"] == "merged"
-        assert by_id[older.id]["error"] == f"same file as {newer.id}"
+        by_id = {r.book_id: r for r in results}
+        assert by_id[newer.id].status == "success"
+        assert by_id[older.id].status == "merged"
+        assert by_id[older.id].message == f"same file as {newer.id}"
 
     def test_reindex_skips_missing_epub(self, sample_epub: Path, temp_db: Path):
         """Reindex skips books whose EPUB no longer exists on disk."""
@@ -355,17 +355,17 @@ class TestReindexAllBooks:
         # Delete the EPUB
         copy_path.unlink()
 
-        results = reindex_all_books(db_path=temp_db, embed=False)
+        results = reindex(db_path=temp_db, embed=False).rows
         assert len(results) == 1
-        assert results[0]["status"] == "skipped"
-        assert "not found" in results[0]["error"].lower()
+        assert results[0].status == "skipped"
+        assert "not found" in results[0].message.lower()
 
     def test_reindex_preserves_chunk_integrity(self, sample_epub: Path, temp_db: Path):
         """Reindex produces valid chunks with proper linking."""
         add(sample_epub, temp_db)
-        results = reindex_all_books(db_path=temp_db, embed=False)
+        results = reindex(db_path=temp_db, embed=False).rows
 
-        book_id = results[0]["book_id"]
+        book_id = results[0].book_id
         conn = get_connection(temp_db)
         chunk_repo = ChunkRepository(conn)
         chunks = chunk_repo.get_by_book(book_id)
@@ -381,7 +381,7 @@ class TestReindexAllBooks:
         from mnemo.storage import BookRepository
 
         add(sample_epub, temp_db, collection="ERCOT Nodal Protocols")
-        reindex_all_books(db_path=temp_db, embed=False)
+        reindex(db_path=temp_db, embed=False)
 
         conn = get_connection(temp_db)
         books = BookRepository(conn).list_all()
@@ -403,14 +403,14 @@ class TestReindexAllBooks:
         with zipfile.ZipFile(copy_path, "a") as zf:
             zf.writestr("extra.txt", "edited after ingest")
 
-        results = reindex_all_books(db_path=temp_db, embed=False)
+        results = reindex(db_path=temp_db, embed=False).rows
 
         conn = get_connection(temp_db)
         books = BookRepository(conn).list_all()
         conn.close()
         assert len(books) == 1
         assert books[0].id == old_book.id
-        assert results[0]["book_id"] == books[0].id
+        assert results[0].book_id == books[0].id
 
     def test_reindex_keeps_edited_metadata(self, sample_epub: Path, temp_db: Path):
         book, _ = add(sample_epub, temp_db)
@@ -419,7 +419,7 @@ class TestReindexAllBooks:
         conn.commit()
         conn.close()
 
-        reindex_all_books(db_path=temp_db, embed=False)
+        reindex(db_path=temp_db, embed=False)
 
         conn = get_connection(temp_db)
         books = BookRepository(conn).list_all()
@@ -816,12 +816,12 @@ class TestEmbeddingFailureIsPartialSuccess:
             patch("mnemo.embeddings.Embedder"),
             patch("mnemo.ingest.embed_book", side_effect=RuntimeError("service down")),
         ):
-            results = reindex_all_books(db_path=temp_db, embed=True)
+            results = reindex(db_path=temp_db, embed=True).rows
 
         assert len(results) == 1
-        assert results[0]["status"] == "partial"
-        assert results[0]["chunks"] > 0
-        assert "service down" in results[0]["error"]
+        assert results[0].status == "partial"
+        assert results[0].chunks > 0
+        assert "service down" in results[0].message
 
     def test_reindex_aborts_before_touching_anything_without_credentials(
         self, sample_epub, temp_db, monkeypatch
@@ -839,10 +839,10 @@ class TestEmbeddingFailureIsPartialSuccess:
         monkeypatch.delenv("MNEMO_EMBED_API_KEY", raising=False)
 
         with (
-            patch("mnemo.ingest.store_book") as mock_store,
+            patch("mnemo.services.book_service.store_book") as mock_store,
             pytest.raises(ValueError, match="MNEMO_EMBED_BASE_URL"),
         ):
-            reindex_all_books(db_path=temp_db, embed=True)
+            reindex(db_path=temp_db, embed=True)
 
         mock_store.assert_not_called()
 
@@ -869,11 +869,11 @@ class TestEmbeddingFailureIsPartialSuccess:
         )
         with (
             patch("mnemo.embeddings.Embedder") as mock_embedder,
-            patch("mnemo.ingest.store_book") as mock_store,
+            patch("mnemo.services.book_service.store_book") as mock_store,
             pytest.raises(httpx.HTTPStatusError),
         ):
             mock_embedder.return_value.embed_one.side_effect = unauthorized
-            reindex_all_books(db_path=temp_db, embed=True)
+            reindex(db_path=temp_db, embed=True)
 
         mock_store.assert_not_called()
 
@@ -908,15 +908,15 @@ class TestEmbeddingFailureIsPartialSuccess:
             patch("mnemo.embeddings.Embedder"),
             patch("mnemo.ingest.embed_book", side_effect=RuntimeError("401")) as mock_embed,
         ):
-            results = reindex_all_books(db_path=temp_db, embed=True)
+            results = reindex(db_path=temp_db, embed=True).rows
 
         # Only the first book was attempted; the second was left alone.
         assert mock_embed.call_count == 1
-        statuses = [r["status"] for r in results]
+        statuses = [r.status for r in results]
         assert statuses.count("partial") == 1
         assert statuses.count("skipped") == 1
-        skipped = next(r for r in results if r["status"] == "skipped")
-        assert "Stopped after an embedding failure" in skipped["error"]
+        skipped = next(r for r in results if r.status == "skipped")
+        assert "Stopped after an embedding failure" in skipped.message
 
     def test_all_boilerplate_book_is_not_an_embedding_failure(self, sample_epub, temp_db):
         """A book with nothing embeddable is structural, not a retriable gap.

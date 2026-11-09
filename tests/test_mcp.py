@@ -16,6 +16,7 @@ import pytest
 
 from mnemo.models import Book, Chunk, ContentType
 from mnemo.search.models import SearchResult
+from mnemo.services.book_service import ReindexReport, ReindexRow
 
 
 class TestServerSetup:
@@ -2299,7 +2300,7 @@ class TestReindexAllBooks:
         """Reindex with empty library returns appropriate message."""
         from mnemo.mcp.tools_books import _reindex_all_books_impl
 
-        with patch("mnemo.ingest.reindex_all_books", return_value=[]):
+        with patch("mnemo.services.book_service.reindex", return_value=ReindexReport(())):
             result = _reindex_all_books_impl()
 
         assert "no books" in result.lower()
@@ -2307,17 +2308,13 @@ class TestReindexAllBooks:
     def test_reindex_merged_is_not_a_failure(self):
         from mnemo.mcp.tools_books import _reindex_all_books_impl
 
-        rows = [
-            {
-                "book_id": "aaa111",
-                "title": "A",
-                "status": "merged",
-                "chunks": 0,
-                "error": "same file as bbb222",
-            },
-            {"book_id": "bbb222", "title": "B", "status": "success", "chunks": 3, "error": None},
-        ]
-        with patch("mnemo.ingest.reindex_all_books", return_value=rows):
+        rows = ReindexReport(
+            (
+                ReindexRow("aaa111", "A", "merged", 0, "same file as bbb222"),
+                ReindexRow("bbb222", "B", "success", 3),
+            )
+        )
+        with patch("mnemo.services.book_service.reindex", return_value=rows):
             result = _reindex_all_books_impl()
 
         assert "1 merged" in result
@@ -2328,17 +2325,9 @@ class TestReindexAllBooks:
         """Reindex with successful books returns markdown summary."""
         from mnemo.mcp.tools_books import _reindex_all_books_impl
 
-        mock_results = [
-            {
-                "book_id": "abc123",
-                "title": "Test Book",
-                "status": "success",
-                "chunks": 42,
-                "error": None,
-            },
-        ]
+        mock_results = ReindexReport((ReindexRow("abc123", "Test Book", "success", 42),))
 
-        with patch("mnemo.ingest.reindex_all_books", return_value=mock_results):
+        with patch("mnemo.services.book_service.reindex", return_value=mock_results):
             result = _reindex_all_books_impl()
 
         assert "1 succeeded" in result
@@ -2351,31 +2340,15 @@ class TestReindexAllBooks:
         """Reindex with mixed statuses reports all correctly."""
         from mnemo.mcp.tools_books import _reindex_all_books_impl
 
-        mock_results = [
-            {
-                "book_id": "abc123",
-                "title": "Good Book",
-                "status": "success",
-                "chunks": 50,
-                "error": None,
-            },
-            {
-                "book_id": "def456",
-                "title": "Gone Book",
-                "status": "skipped",
-                "chunks": 0,
-                "error": "EPUB file not found",
-            },
-            {
-                "book_id": "ghi789",
-                "title": "Bad Book",
-                "status": "failed",
-                "chunks": 0,
-                "error": "parse error",
-            },
-        ]
+        mock_results = ReindexReport(
+            (
+                ReindexRow("abc123", "Good Book", "success", 50),
+                ReindexRow("def456", "Gone Book", "skipped", 0, "EPUB file not found"),
+                ReindexRow("ghi789", "Bad Book", "failed", 0, "parse error"),
+            )
+        )
 
-        with patch("mnemo.ingest.reindex_all_books", return_value=mock_results):
+        with patch("mnemo.services.book_service.reindex", return_value=mock_results):
             result = _reindex_all_books_impl()
 
         assert "1 succeeded" in result
@@ -2389,18 +2362,10 @@ class TestReindexAllBooks:
         """Reindex clears the search service cache."""
         from mnemo.mcp.tools_books import _reindex_all_books_impl
 
-        mock_results = [
-            {
-                "book_id": "abc123",
-                "title": "Test",
-                "status": "success",
-                "chunks": 10,
-                "error": None,
-            },
-        ]
+        mock_results = ReindexReport((ReindexRow("abc123", "Test", "success", 10),))
         mock_service = MagicMock()
 
-        with patch("mnemo.ingest.reindex_all_books", return_value=mock_results):
+        with patch("mnemo.services.book_service.reindex", return_value=mock_results):
             _reindex_all_books_impl(search_service=mock_service)
 
         mock_service.invalidate_cache.assert_called()
@@ -2567,13 +2532,11 @@ class TestSearchCacheInvalidationThroughWrappers:
         from mnemo.mcp.tools_books import reindex_all_books
 
         mock_service = MagicMock()
-        mock_results = [
-            {"book_id": "abc123", "title": "T", "status": "success", "chunks": 10, "error": None},
-        ]
+        mock_results = ReindexReport((ReindexRow("abc123", "T", "success", 10),))
 
         with (
             patch("mnemo.mcp.tools_books.make_search_service", return_value=mock_service),
-            patch("mnemo.ingest.reindex_all_books", return_value=mock_results),
+            patch("mnemo.services.book_service.reindex", return_value=mock_results),
         ):
             await reindex_all_books(ctx=AsyncMock())
 
