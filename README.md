@@ -1,7 +1,7 @@
 # Mnemo
 
 [![CI](https://github.com/jtmcn/mnemo/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jtmcn/mnemo/actions/workflows/ci.yml)
-[![Python versions](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](pyproject.toml)
+[![Python versions](https://img.shields.io/badge/python-3.13%20%7C%203.14-blue)](pyproject.toml)
 [![License: MIT](https://img.shields.io/github/license/jtmcn/mnemo)](LICENSE)
 
 Personal technical book library with semantic search via MCP.
@@ -65,8 +65,8 @@ def test_subtraction():
 
 ## Requirements
 
-- **Python 3.11, 3.12 or 3.13** — all three are covered by CI. Python 3.14 is
-  excluded in `requires-python`, because ChromaDB's Pydantic v1 shim fails there.
+- **Python 3.13 or 3.14** — both are covered by CI. `pyproject.toml` requires
+  ChromaDB 1.5.9+, since older releases can fail on 3.14 through Pydantic's v1 shim.
 - **For semantic search (optional):** any OpenAI-compatible embeddings endpoint —
   anything serving `POST {base_url}/embeddings` (OpenAI, Voyage, Together, a
   local Ollama).
@@ -229,7 +229,7 @@ make format     # ruff fix + format
 ```
 
 Every target runs `uv sync --locked --all-extras --dev` first, so a fresh clone
-needs no setup step. `.python-version` pins local work to 3.12.
+needs no setup step. `.python-version` pins local work to 3.13.
 
 Integration tests need embedding credentials; deselect them with
 `pytest -m 'not integration'`.

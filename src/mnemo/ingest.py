@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, TypeVar
+from typing import Literal
 
 from mnemo.chunking import Chunker, ChunkerConfig
 from mnemo.models import Book, is_boilerplate_section
@@ -17,8 +17,6 @@ from mnemo.parsing import ContentBlock
 from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_db
 
 logger = __import__("logging").getLogger(__name__)
-
-T = TypeVar("T")
 
 
 class NothingToEmbed(ValueError):
@@ -29,7 +27,7 @@ class NothingToEmbed(ValueError):
     """
 
 
-def _batch_items(items: list[T], batch_size: int = 50) -> Iterator[list[T]]:
+def _batch_items[T](items: list[T], batch_size: int = 50) -> Iterator[list[T]]:
     """Yield successive batches of items."""
     for i in range(0, len(items), batch_size):
         yield items[i : i + batch_size]
