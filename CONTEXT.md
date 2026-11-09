@@ -54,9 +54,9 @@ Intake is deliberately distinct from the **pipeline** (`store_book`) beneath
 it. Intake hashes the file, parses it once, and decides what to store and which
 Book it replaces; the pipeline chunks, stores and embeds exactly that, and
 reports what happened to the embedding instead of raising. Intake decides; the
-pipeline executes. Both front ends — `mnemo add` and the MCP `add_book` tool — go
-through intake and render what it returns, so a rule lives in one place
-instead of being decided twice.
+pipeline executes. Both front ends — `mnemo add` and `mnemo reindex`, and the
+MCP `add_book` and `reindex_all_books` tools — go through intake and render
+what it returns, so a rule lives in one place instead of being decided twice.
 
 ## Intake Outcome
 
@@ -70,6 +70,21 @@ needs to render it:
 
 **`embedded`** is separate from the status on purpose: a `replaced` Book can
 still lose its vectors, which one tag cannot express.
+
+## Reindex Report
+
+What reindex returns: one row per library entry, each with a status and a
+pre-composed `message`, plus the counts and headline wording front ends show.
+
+- **`success`** — re-read and stored in place.
+- **`partial`** — stored but not embedded (see *Partial success*). The first
+  one stops the run, since storing deletes a Book's old vectors first.
+- **`merged`** — its file is now byte-identical to another entry's, so it was
+  folded into that one.
+- **`skipped`** — left alone: no source file, or the run already stopped.
+- **`failed`** — could not be re-read; the existing Book is untouched.
+
+A run is *ok* unless a row is `partial` or `failed`.
 
 ## Note
 

@@ -1263,7 +1263,7 @@ wheels = [
 
 [[package]]
 name = "mnemo"
-version = "3.4.2"
+version = "4.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
