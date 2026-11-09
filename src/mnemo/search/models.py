@@ -10,7 +10,7 @@ Defines structured representations of search results and filters:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Generic, Literal, TypedDict, TypeVar
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 if TYPE_CHECKING:
     from mnemo.models import Chunk
@@ -111,11 +111,8 @@ class EmptyReason:
     message: str
 
 
-R = TypeVar("R", SearchResult, ExpandedResult)
-
-
 @dataclass(frozen=True)
-class SearchResponse(Generic[R]):
+class SearchResponse[R: (SearchResult, ExpandedResult)]:
     """Ranked results, plus `empty_reason` exactly when there are none.
 
     `context` holds neighbouring chunks, by chunk id, for plain results too terse
