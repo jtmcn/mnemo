@@ -28,7 +28,7 @@ from mnemo.parsing.models import ContentBlock
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 if TYPE_CHECKING:
-    import ebooklib  # type: ignore[import-untyped]
+    from ebooklib.epub import EpubBook
 
 
 def _infer_front_matter_label(href: str) -> list[str] | None:
@@ -77,7 +77,7 @@ def file_sections(
 
 
 def extract_content(
-    epub_book: ebooklib.epub.EpubBook,
+    epub_book: EpubBook,
     toc_mapping: dict[str, list[str]],
     default_language: str | None = None,
 ) -> list[ContentBlock]:

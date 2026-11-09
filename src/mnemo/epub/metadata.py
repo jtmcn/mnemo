@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ebooklib import epub  # type: ignore[import-untyped]
+from ebooklib import epub
 
 if TYPE_CHECKING:
     from mnemo.models import Book
