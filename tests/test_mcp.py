@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from mnemo.models import Book, Chunk, ContentType
-from mnemo.search.models import SearchResult
+from mnemo.search.models import EmptyReason, SearchResponse, SearchResult
 from mnemo.services.book_service import ReindexReport, ReindexRow
 
 
@@ -133,7 +133,9 @@ class TestSearchBooksValidation:
         from mnemo.mcp.tools_search import _search_books_impl
 
         mock_service = MagicMock()
-        mock_service.search.return_value = []
+        mock_service.search.return_value = SearchResponse(
+            [], EmptyReason("no_match", "No results found for: test")
+        )
 
         _search_books_impl("test query", top_k=100, search_service=mock_service)
         # Should have clamped to 50
@@ -146,7 +148,9 @@ class TestSearchBooksValidation:
         from mnemo.mcp.tools_search import _search_books_impl
 
         mock_service = MagicMock()
-        mock_service.search.return_value = []
+        mock_service.search.return_value = SearchResponse(
+            [], EmptyReason("no_match", "No results found for: test")
+        )
 
         _search_books_impl("test query", top_k=-5, search_service=mock_service)
         mock_service.search.assert_called_once()
@@ -290,7 +294,9 @@ class TestSearchBooksCollection:
         from mnemo.mcp.tools_search import _search_books_impl
 
         mock_service = MagicMock()
-        mock_service.search.return_value = []
+        mock_service.search.return_value = SearchResponse(
+            [], EmptyReason("no_match", "No results found for: test")
+        )
 
         _search_books_impl("test query", collection="ERCOT", search_service=mock_service)
 
@@ -302,7 +308,9 @@ class TestSearchBooksCollection:
         from mnemo.mcp.tools_search import _search_books_impl
 
         mock_service = MagicMock()
-        mock_service.search.return_value = []
+        mock_service.search.return_value = SearchResponse(
+            [], EmptyReason("no_match", "No results found for: test")
+        )
 
         _search_books_impl("test query", search_service=mock_service)
 
@@ -633,18 +641,20 @@ class TestSearchBooksIntegration:
         from mnemo.mcp.tools_search import _search_books_impl
 
         mock_service = MagicMock()
-        mock_service.search.return_value = [
-            SearchResult(
-                chunk_id="test-uuid",
-                book_id="abc123",
-                book_title="Python Cookbook",
-                content="Example async code",
-                content_type="code",
-                section_path=["Chapter 5", "Async"],
-                score=0.032,
-                source="both",
-            )
-        ]
+        mock_service.search.return_value = SearchResponse(
+            [
+                SearchResult(
+                    chunk_id="test-uuid",
+                    book_id="abc123",
+                    book_title="Python Cookbook",
+                    content="Example async code",
+                    content_type="code",
+                    section_path=["Chapter 5", "Async"],
+                    score=0.032,
+                    source="both",
+                )
+            ]
+        )
 
         result = _search_books_impl("async python", search_service=mock_service)
 
@@ -658,7 +668,13 @@ class TestSearchBooksIntegration:
         from mnemo.mcp.tools_search import _search_books_impl
 
         mock_service = MagicMock()
-        mock_service.search.return_value = []
+        mock_service.search.return_value = SearchResponse(
+            [], EmptyReason("no_match", "No results found for: test")
+        )
+
+        mock_service.search.return_value = SearchResponse(
+            [], EmptyReason("no_match", "No results found for: nonexistent query")
+        )
 
         result = _search_books_impl("nonexistent query", search_service=mock_service)
 
@@ -670,7 +686,9 @@ class TestSearchBooksIntegration:
         from mnemo.mcp.tools_search import _search_books_impl
 
         mock_service = MagicMock()
-        mock_service.search.return_value = []
+        mock_service.search.return_value = SearchResponse(
+            [], EmptyReason("no_match", "No results found for: test")
+        )
 
         _search_books_impl(
             query="test",
@@ -1770,21 +1788,6 @@ class TestSearchBooksSectionMessages:
 
         assert result == "No results found for: axiom"
 
-    def test_unknown_section_suggests_names_other_than_its_own(self):
-        from mnemo.mcp.tools_search import _search_books_impl
-
-        mock_service = MagicMock()
-        mock_service.search.return_value = []
-        mock_service.count_section_chunks.return_value = 0
-        mock_service.suggest_sections.return_value = ["glossary", "Vocabulary"]
-
-        result = _search_books_impl("axiom", section="Glossary", search_service=mock_service)
-
-        assert (
-            result
-            == 'No results found for: axiom in section "Glossary". Did you mean: "Vocabulary"?'
-        )
-
 
 class TestSearchBooksContextWindow:
     """Tests for context_window parameter on search_books MCP tool."""
@@ -1794,18 +1797,20 @@ class TestSearchBooksContextWindow:
         from mnemo.mcp.tools_search import _search_books_impl
 
         mock_service = MagicMock()
-        mock_service.search.return_value = [
-            SearchResult(
-                chunk_id="c1",
-                book_id="abc123",
-                book_title="Test Book",
-                content="Some content",
-                content_type="text",
-                section_path=["Chapter 1"],
-                score=0.5,
-                source="keyword",
-            )
-        ]
+        mock_service.search.return_value = SearchResponse(
+            [
+                SearchResult(
+                    chunk_id="c1",
+                    book_id="abc123",
+                    book_title="Test Book",
+                    content="Some content",
+                    content_type="text",
+                    section_path=["Chapter 1"],
+                    score=0.5,
+                    source="keyword",
+                )
+            ]
+        )
 
         result = _search_books_impl("test", context_window=0, search_service=mock_service)
 
@@ -1856,7 +1861,7 @@ class TestSearchBooksContextWindow:
         }
 
         mock_service = MagicMock()
-        mock_service.search.return_value = [expanded_result]
+        mock_service.search.return_value = SearchResponse([expanded_result])
 
         result = _search_books_impl("test", context_window=1, search_service=mock_service)
 
@@ -1907,7 +1912,7 @@ class TestSearchBooksContextWindow:
         from mnemo.mcp.tools_search import _search_books_impl
 
         mock_service = MagicMock()
-        mock_service.search.return_value = [self._expanded([368], matched=368)]
+        mock_service.search.return_value = SearchResponse([self._expanded([368], matched=368)])
 
         result = _search_books_impl("test", context_window=1, search_service=mock_service)
 
@@ -1918,7 +1923,9 @@ class TestSearchBooksContextWindow:
         from mnemo.mcp.tools_search import _search_books_impl
 
         mock_service = MagicMock()
-        mock_service.search.return_value = [self._expanded([367, 368, 369], matched=368)]
+        mock_service.search.return_value = SearchResponse(
+            [self._expanded([367, 368, 369], matched=368)]
+        )
 
         result = _search_books_impl("test", context_window=1, search_service=mock_service)
 
@@ -1930,7 +1937,9 @@ class TestSearchBooksContextWindow:
         from mnemo.mcp.tools_search import _search_books_impl
 
         mock_service = MagicMock()
-        mock_service.search.return_value = []
+        mock_service.search.return_value = SearchResponse(
+            [], EmptyReason("no_match", "No results found for: test")
+        )
 
         _search_books_impl("test", context_window=5, search_service=mock_service)
 
@@ -2188,6 +2197,56 @@ class TestSmallCodeChunkAutoExpansion:
         assert "attention visualization" in output
         assert "head_view" in output
 
+    def test_context_from_search_renders_around_its_hit(self):
+        from mnemo.mcp.tools_search import _search_books_impl
+
+        code_result = SearchResult(
+            chunk_id="code-1",
+            book_id="abc123",
+            book_title="Test Book",
+            content="head_view(attention, tokens)",
+            content_type="code",
+            section_path=["Chapter 1"],
+            score=0.9,
+            source="both",
+            sequence=5,
+        )
+        neighbour = MagicMock(
+            id="text-1",
+            content="The attention visualization shows how tokens relate.",
+            content_type=ContentType.TEXT,
+            section_path=["Chapter 1"],
+            sequence=4,
+        )
+        matched = MagicMock(
+            id="code-1",
+            content="head_view(attention, tokens)",
+            content_type=ContentType.CODE,
+            section_path=["Chapter 1"],
+            sequence=5,
+            lead_in=0,
+        )
+        mock_service = MagicMock()
+        mock_service.search.return_value = SearchResponse(
+            [code_result],
+            context={
+                "code-1": {
+                    "matched_chunk_id": "code-1",
+                    "book_id": "abc123",
+                    "start_seq": 4,
+                    "end_seq": 5,
+                    "chunks": [neighbour, matched],
+                    "matched_chunk_ids": {"code-1"},
+                    "result": code_result,
+                }
+            },
+        )
+
+        result = _search_books_impl("head_view", search_service=mock_service)
+
+        assert "MATCH" in result
+        assert "attention visualization" in result
+
     def test_large_code_chunk_not_expanded(self):
         """Code chunks > 200 chars should not be auto-expanded."""
         from mnemo.mcp.tools_search import _search_books_impl
@@ -2206,13 +2265,11 @@ class TestSmallCodeChunkAutoExpansion:
         )
 
         mock_service = MagicMock()
-        mock_service.search.return_value = [code_result]
+        mock_service.search.return_value = SearchResponse([code_result])
 
         result = _search_books_impl("test query", search_service=mock_service)
 
-        # Should NOT call _expand_result_context
-        mock_service._expand_result_context.assert_not_called()
-        # Should use standard formatting (no Context markers)
+        # No context from search means standard formatting (no Context markers).
         assert "Context" not in result
 
     def test_text_chunks_not_expanded(self):
@@ -2232,11 +2289,11 @@ class TestSmallCodeChunkAutoExpansion:
         )
 
         mock_service = MagicMock()
-        mock_service.search.return_value = [text_result]
+        mock_service.search.return_value = SearchResponse([text_result])
 
-        _search_books_impl("test query", search_service=mock_service)
+        result = _search_books_impl("test query", search_service=mock_service)
 
-        mock_service._expand_result_context.assert_not_called()
+        assert "Context" not in result
 
     def test_mixed_results_some_expanded(self):
         """When results mix large and small code, only small ones are expanded."""

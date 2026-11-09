@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Literal, overload
 from mnemo.embeddings.config import EmbeddingsNotConfigured
 from mnemo.models import Chunk, ContentType, is_boilerplate_section
 from mnemo.search.hybrid import reciprocal_rank_fusion
-from mnemo.search.models import ExpandedResult, SearchResult
+from mnemo.search.models import EmptyReason, ExpandedResult, SearchResponse, SearchResult
 
 if TYPE_CHECKING:
     from mnemo.embeddings.client import Embedder
@@ -36,6 +36,9 @@ SHORT_CONTENT_PENALTY = 0.5
 MIN_SEMANTIC_SCORE = 0.25
 # Another book's best result moves up only if it scores at least this share of the one it passes.
 DIVERSITY_RATIO = 0.9
+# Code, diagram and math hits this short (~50 tokens) come back with their neighbours.
+SMALL_CHUNK_CHARS = 200
+ATOMIC_TYPES = frozenset({"code", "diagram", "math"})
 
 
 def _min_semantic_score() -> float:
@@ -130,7 +133,7 @@ class SearchService:
         # Cache for book lookups to avoid repeated queries
         self._book_cache: dict[str, str] = {}  # book_id -> title
 
-    # search() returns expanded context dicts only when context_window >= 1.
+    # search() returns expanded context results only when context_window >= 1.
     # The overloads let callers that leave it at 0 — the CLI, most tests — see
     # plain SearchResults instead of having to narrow a union.
     @overload
@@ -144,7 +147,7 @@ class SearchService:
         section: str | None = ...,
         context_window: Literal[0] = ...,
         collection: str | None = ...,
-    ) -> list[SearchResult]: ...
+    ) -> SearchResponse[SearchResult]: ...
 
     @overload
     def search(
@@ -157,7 +160,7 @@ class SearchService:
         section: str | None = ...,
         context_window: int = ...,
         collection: str | None = ...,
-    ) -> list[SearchResult] | list[ExpandedResult]: ...
+    ) -> SearchResponse[SearchResult] | SearchResponse[ExpandedResult]: ...
 
     def search(
         self,
@@ -169,7 +172,7 @@ class SearchService:
         section: str | None = None,
         context_window: int = 0,
         collection: str | None = None,
-    ) -> list[SearchResult] | list[ExpandedResult]:
+    ) -> SearchResponse[SearchResult] | SearchResponse[ExpandedResult]:
         """Search books with optional filters and mode selection.
 
         Args:
@@ -189,16 +192,16 @@ class SearchService:
                 collection names.
 
         Returns:
-            If context_window == 0: list of SearchResult (unchanged behavior).
-            If context_window >= 1: list of dicts with expanded context chunks.
-            Empty list if query is empty or no matches found.
+            A SearchResponse. Its results are SearchResults when context_window
+            is 0 (with `context` for terse code, diagram and math hits), and
+            expanded results otherwise. When empty, `empty_reason` says why.
 
         Raises:
             ValueError: If mode is not one of the valid options
         """
         # Validate inputs
         if not query or not query.strip():
-            return []
+            return SearchResponse([], EmptyReason("no_match", "Query cannot be empty"))
 
         if mode not in ("hybrid", "semantic", "keyword"):
             raise ValueError(f"Invalid mode: {mode}. Must be 'hybrid', 'semantic', or 'keyword'")
@@ -224,7 +227,7 @@ class SearchService:
             collection_books = self._book_repo.list_by_collection(collection)
             collection_book_ids = {b.id for b in collection_books}
             if not collection_book_ids:
-                return []
+                return SearchResponse([], EmptyReason("no_match", f"No results found for: {query}"))
             # Over-fetch to compensate for post-filter reduction
             fetch_k = max(fetch_k, top_k * 5)
 
@@ -265,13 +268,56 @@ class SearchService:
 
         # Trim to original top_k
         results = results[:top_k]
+        if not results:
+            reason = self._empty_reason(
+                query, section, book_id, content_type_enum, collection_book_ids
+            )
+            return SearchResponse([], reason)
 
         # Context window expansion
         if context_window >= 1:
             expanded = [self._expand_result_context(r, context_window) for r in results]
-            return self._deduplicate_expanded_results(expanded)
+            return SearchResponse(self._deduplicate_expanded_results(expanded))
 
-        return results
+        terse = {
+            r.chunk_id: self._expand_result_context(r, 1)
+            for r in results
+            if r.content_type in ATOMIC_TYPES and len(r.content) <= SMALL_CHUNK_CHARS
+        }
+        return SearchResponse(results, context=terse)
+
+    def _empty_reason(
+        self,
+        query: str,
+        section: str | None,
+        book_id: str | None,
+        content_type: ContentType | None,
+        book_ids: set[str] | None,
+    ) -> EmptyReason:
+        """Say whether the section exists, under the same filters the search applied."""
+        if section:
+            in_section = sum(
+                n for _, n in self._section_counts(section, book_id, content_type, book_ids)
+            )
+            if in_section:
+                # search() already fell back to any-word keyword matching inside it.
+                noun = "chunk" if in_section == 1 else "chunks"
+                return EmptyReason(
+                    "section_without_query_words",
+                    f'Section "{section}" has {in_section} {noun}, but none contains '
+                    f"a word of: {query}.",
+                )
+            suggestions = [
+                s for s in self._suggest_sections(section, book_id) if s.lower() != section.lower()
+            ]
+            if suggestions:
+                quoted = ", ".join(f'"{s}"' for s in suggestions)
+                return EmptyReason(
+                    "section_not_found",
+                    f'No results found for: {query} in section "{section}". '
+                    f"Did you mean: {quoted}?",
+                )
+        return EmptyReason("no_match", f"No results found for: {query}")
 
     def _expand_result_context(self, result: SearchResult, window: int) -> ExpandedResult:
         """Expand a search result with neighboring chunks within same section.
@@ -711,25 +757,6 @@ class SearchService:
         results.sort(key=lambda r: r.score, reverse=True)
         return results
 
-    def count_section_chunks(
-        self,
-        section: str,
-        book_id: str | None = None,
-        content_type: str | None = None,
-        collection: str | None = None,
-    ) -> int:
-        """How many chunks the section and other filters admit, before any query matching."""
-        self._ensure_initialized()
-        assert self._book_repo is not None
-        try:
-            type_enum = ContentType(content_type) if content_type else None
-        except ValueError:
-            type_enum = None  # search() ignores an invalid type too
-        book_ids = (
-            {b.id for b in self._book_repo.list_by_collection(collection)} if collection else None
-        )
-        return sum(n for _, n in self._section_counts(section, book_id, type_enum, book_ids))
-
     def _section_counts(
         self,
         section: str,
@@ -746,24 +773,10 @@ class SearchService:
             if path and _section_matches(section_norm, normalize_unicode(" > ".join(path)))
         ]
 
-    def suggest_sections(
+    def _suggest_sections(
         self, section_query: str, book_id: str | None = None, max_suggestions: int = 5
     ) -> list[str]:
-        """Suggest section names similar to the given query.
-
-        Uses difflib fuzzy matching against all distinct section names in the
-        library (or a specific book). Useful when a section filter yields zero
-        results.
-
-        Args:
-            section_query: The section name the user tried
-            book_id: Optional book ID to scope suggestions
-            max_suggestions: Maximum suggestions to return
-
-        Returns:
-            List of similar section names, best match first
-        """
-        self._ensure_initialized()
+        """Section names like `section_query`: substring matches first, else fuzzy ones."""
         assert self._chunk_repo is not None
 
         all_sections = self._chunk_repo.get_distinct_sections(book_id)

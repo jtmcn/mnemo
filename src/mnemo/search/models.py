@@ -4,12 +4,13 @@ Defines structured representations of search results and filters:
 - SearchResult: Unified result with attribution
 - SearchFilter: Optional filters for search queries
 - ExpandedResult: A result plus its neighbouring context chunks
+- SearchResponse: What a search returns, including why nothing matched
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, TypedDict
+from typing import TYPE_CHECKING, Generic, Literal, TypedDict, TypeVar
 
 if TYPE_CHECKING:
     from mnemo.models import Chunk
@@ -87,3 +88,34 @@ class ExpandedResult(TypedDict):
     chunks: list[Chunk]
     matched_chunk_ids: set[str]
     result: SearchResult
+
+
+EmptyKind = Literal["no_match", "section_without_query_words", "section_not_found"]
+
+
+@dataclass(frozen=True)
+class EmptyReason:
+    """Why a search found nothing.
+
+    `kind` is what front ends switch on; `message` is the composed text, so
+    the CLI and MCP cannot word the same miss differently.
+    """
+
+    kind: EmptyKind
+    message: str
+
+
+R = TypeVar("R", SearchResult, ExpandedResult)
+
+
+@dataclass(frozen=True)
+class SearchResponse(Generic[R]):
+    """Ranked results, plus `empty_reason` exactly when there are none.
+
+    `context` holds neighbouring chunks, by chunk id, for plain results too terse
+    to read alone (small code, diagram and math chunks).
+    """
+
+    results: list[R]
+    empty_reason: EmptyReason | None = None
+    context: dict[str, ExpandedResult] = field(default_factory=dict)

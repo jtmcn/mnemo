@@ -50,7 +50,7 @@ def _search_books_impl(
     assert search_service is not None, "search_service is required"
 
     try:
-        results = search_service.search(
+        response = search_service.search(
             query=query,
             top_k=top_k,
             book_id=book_id,
@@ -61,53 +61,22 @@ def _search_books_impl(
             collection=collection,
         )
 
-        if not results:
-            if section:
-                in_section = search_service.count_section_chunks(
-                    section, book_id, content_type, collection
-                )
-                if in_section:
-                    # search() already fell back to any-word keyword matching inside it.
-                    noun = "chunk" if in_section == 1 else "chunks"
-                    return (
-                        f'Section "{section}" has {in_section} {noun}, but none contains '
-                        f"a word of: {query}."
-                    )
-                suggestions = [
-                    s
-                    for s in search_service.suggest_sections(section, book_id)
-                    if s.lower() != section.lower()
-                ]
-                if suggestions:
-                    quoted = ", ".join(f'"{s}"' for s in suggestions)
-                    return (
-                        f'No results found for: {query} in section "{section}". '
-                        f"Did you mean: {quoted}?"
-                    )
-            return f"No results found for: {query}"
+        if response.empty_reason is not None:
+            return response.empty_reason.message
 
         if context_window >= 1:
             # context_window >= 1 is exactly when search() returns expanded results.
             return _format_enriched_results(
-                cast("list[ExpandedResult]", results), max_chars, context_window
+                cast("list[ExpandedResult]", response.results), max_chars, context_window
             )
 
-        plain = cast("list[SearchResult]", results)
-
-        # Auto-expand small atomic chunks (code/diagram/math) that are too
-        # terse to be useful on their own.  Threshold: ~50 tokens ≈ 200 chars.
-        _SMALL_CHUNK_CHARS = 200
-        _ATOMIC_TYPES = {"code", "diagram", "math"}
-        small_indices = [
-            i
-            for i, r in enumerate(plain)
-            if r.content_type in _ATOMIC_TYPES and len(r.content) <= _SMALL_CHUNK_CHARS
-        ]
-
-        if small_indices:
-            expanded_map: dict[int, ExpandedResult] = {}
-            for i in small_indices:
-                expanded_map[i] = search_service._expand_result_context(plain[i], window=1)
+        plain = cast("list[SearchResult]", response.results)
+        if response.context:
+            expanded_map = {
+                i: response.context[r.chunk_id]
+                for i, r in enumerate(plain)
+                if r.chunk_id in response.context
+            }
             return _format_mixed_results(plain, expanded_map, max_chars)
 
         return _format_search_results(plain, max_chars)

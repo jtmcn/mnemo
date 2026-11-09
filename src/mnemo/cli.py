@@ -406,7 +406,7 @@ def search(
 
     service = SearchService()
     try:
-        results = service.search(query, top_k=limit, book_id=book)
+        response = service.search(query, top_k=limit, book_id=book)
     except (ValueError, httpx.HTTPError) as e:
         # A configured endpoint that fails is a misconfiguration, not a reason
         # to quietly return worse results. Say so instead of a traceback.
@@ -421,6 +421,7 @@ def search(
             )
         raise typer.Exit(1) from e
 
+    results = response.results
     if json_output:
         output = [
             {
@@ -435,8 +436,8 @@ def search(
         print(json.dumps(output))
         return
 
-    if not results:
-        console.print("No results found")
+    if response.empty_reason is not None:
+        console.print(escape(response.empty_reason.message))
         return
 
     for r in results:

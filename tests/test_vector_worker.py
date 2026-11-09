@@ -420,7 +420,7 @@ class FakeEmbedder:
 
 svc = SearchService(db_path=db_path, chroma_path=chroma_path)
 svc._embedder = FakeEmbedder()
-hits = svc.search("hello", mode="semantic")
+hits = svc.search("hello", mode="semantic").results
 print("hits", len(hits))
 
 import mnemo.ingest

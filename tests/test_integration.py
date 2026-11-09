@@ -593,7 +593,7 @@ class TestSectionFilterMatchesStructure:
 
         assert "8. Instance Matching" in headings
         for heading in headings:
-            assert service.search("text", mode="keyword", section=heading), heading
+            assert service.search("text", mode="keyword", section=heading).results, heading
 
 
 class TestFTS:
