@@ -65,8 +65,8 @@ def test_subtraction():
 
 ## Requirements
 
-- **Python 3.13 or 3.14** — both are covered by CI. On 3.14, ChromaDB needs
-  1.5.9 or later, the floor in `pyproject.toml`.
+- **Python 3.13 or 3.14** — both are covered by CI. `pyproject.toml` requires
+  ChromaDB 1.5.9+, since older releases can fail on 3.14 through Pydantic's v1 shim.
 - **For semantic search (optional):** any OpenAI-compatible embeddings endpoint —
   anything serving `POST {base_url}/embeddings` (OpenAI, Voyage, Together, a
   local Ollama).
