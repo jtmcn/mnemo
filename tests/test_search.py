@@ -3,7 +3,7 @@
 Tests cover:
 - Reciprocal Rank Fusion (RRF) algorithm
 - SearchResult and SearchFilter dataclasses
-- SearchService with mocked backends
+- SearchService with mocked backends and a seeded Library
 - SearchService integration tests
 """
 
@@ -34,13 +34,6 @@ _SOURDOUGH = "how do I bake sourdough bread"
 def _prose(terms: str) -> str:
     """Over 100 chars, so no short-content penalty, holding `terms` and only filler besides."""
     return f"{terms} appears in this passage among plenty of other filler words. " * 3
-
-
-@pytest.fixture
-def library(tmp_path):
-    lib = Library(tmp_path)
-    yield lib
-    lib.close()
 
 
 # ============================================================================
@@ -1756,7 +1749,7 @@ class TestKeywordNoiseFiltering:
     """Tests for filtering low-quality keyword-only results in hybrid search."""
 
     def test_keyword_only_low_rank_filtered(self, library):
-        """A long-tail keyword-only hit does not surface when a post-filter removes better hits."""
+        """A long-tail keyword-only hit stays out after the collection filter thins the results."""
         library.add_book("def456", "Other", collection="Other")
         library.add_book("aaa111", "Mine", collection="Mine")
         for _ in range(5):
@@ -1931,9 +1924,9 @@ class TestSemanticFloor:
 class TestEmptyReason:
     """What search says when a section filter finds nothing."""
 
-    def test_substring_match(self, tmp_path):
+    def test_substring_match(self, library):
         """Suggests sections containing the query as a substring."""
-        lib = Library(tmp_path)
+        lib = library
         service = lib.service()
 
         # Insert a book and chunks with known section paths
@@ -1973,9 +1966,9 @@ class TestEmptyReason:
             'Did you mean: "Chapter 60. Enriching Knowledge Graphs"?',
         )
 
-    def test_fuzzy_match(self, tmp_path):
+    def test_fuzzy_match(self, library):
         """Falls back to fuzzy matching when no substring match."""
-        lib = Library(tmp_path)
+        lib = library
         service = lib.service()
 
         book = Book(
@@ -2005,8 +1998,8 @@ class TestEmptyReason:
         assert response.empty_reason.kind == "section_not_found"
         assert '"Experimenting with Graph Data Science"' in response.empty_reason.message
 
-    def test_section_chunk_count_uses_the_filter_rules(self, tmp_path):
-        lib = Library(tmp_path)
+    def test_section_chunk_count_uses_the_filter_rules(self, library):
+        lib = library
         service = lib.service()
         for book_id, paths in {
             "a1b2c3": [
@@ -2053,8 +2046,8 @@ class TestEmptyReason:
         assert "has 3 chunks" in reason("Chapter 6").message
         assert reason("Glossary").kind != "section_without_query_words"
 
-    def test_section_match_crowded_out_by_other_sections_is_still_found(self, tmp_path):
-        lib = Library(tmp_path)
+    def test_section_match_crowded_out_by_other_sections_is_still_found(self, library):
+        lib = library
         service = lib.service()
         lib.books.add(
             Book(id="a1b2c3", title="T", authors=[], file_hash="a" * 64, structure_source="toc")
@@ -2084,8 +2077,8 @@ class TestEmptyReason:
 
         assert [r.chunk_id for r in results] == [glossary.id]
 
-    def test_keyword_results_carry_every_section_the_chunk_spans(self, tmp_path):
-        lib = Library(tmp_path)
+    def test_keyword_results_carry_every_section_the_chunk_spans(self, library):
+        lib = library
         service = lib.service()
         lib.books.add(
             Book(id="a1b2c3", title="T", authors=[], file_hash="a" * 64, structure_source="toc")
@@ -2325,8 +2318,7 @@ class TestSearchServiceCollection:
         assert {r.book_id for r in results} == {"aaa111", "abc123"}
 
 
-def _seeded_service(tmp_path: Path, chunks: list[Chunk]) -> SearchService:
-    lib = Library(tmp_path)
+def _seeded_service(lib: Library, chunks: list[Chunk]) -> SearchService:
     lib.books.add(
         Book(id="a1b2c3", title="T", authors=[], file_hash="a" * 64, structure_source="toc")
     )
@@ -2349,9 +2341,9 @@ class TestSectionMissUnderFilters:
     """A section miss under a type or collection filter names the filter, not a typo."""
 
     @pytest.fixture
-    def glossaries(self, tmp_path):
+    def glossaries(self, library):
         return _seeded_service(
-            tmp_path,
+            library,
             [
                 _chunk("An axiom is a statement. " * 8, ContentType.TEXT, ["Glossary"], 0),
                 _chunk("A lemma is a step. " * 8, ContentType.TEXT, ["Glossary of terms"], 1),
@@ -2385,10 +2377,10 @@ class TestSectionMissUnderFilters:
 class TestTerseHitContext:
     """Small code, diagram and math hits come back with their neighbours."""
 
-    def test_small_code_hit_carries_its_neighbours(self, tmp_path):
+    def test_small_code_hit_carries_its_neighbours(self, library):
         intro = _chunk("Call head_view to draw attention maps. " * 4, ContentType.TEXT, ["Ch1"], 0)
         code = _chunk("head_view(attention, tokens)", ContentType.CODE, ["Ch1"], 1)
-        service = _seeded_service(tmp_path, [intro, code])
+        service = _seeded_service(library, [intro, code])
 
         response = service.search("head_view", mode="keyword", content_type="code")
 
@@ -2396,9 +2388,9 @@ class TestTerseHitContext:
         context = response.context[code.id]
         assert [c.id for c in context["chunks"]] == [intro.id, code.id]
 
-    def test_large_code_and_text_hits_carry_none(self, tmp_path):
+    def test_large_code_and_text_hits_carry_none(self, library):
         service = _seeded_service(
-            tmp_path,
+            library,
             [
                 _chunk("def pipeline():\n    return 1\n" * 12, ContentType.CODE, ["Ch1"], 0),
                 _chunk("A pipeline note.", ContentType.TEXT, ["Ch1"], 1),
@@ -2410,9 +2402,9 @@ class TestTerseHitContext:
         assert len(response.results) == 2
         assert response.context == {}
 
-    def test_expanded_results_carry_none(self, tmp_path):
+    def test_expanded_results_carry_none(self, library):
         code = _chunk("head_view(attention, tokens)", ContentType.CODE, ["Ch1"], 0)
-        service = _seeded_service(tmp_path, [code])
+        service = _seeded_service(library, [code])
 
         response = service.search("head_view", mode="keyword", context_window=1)
 

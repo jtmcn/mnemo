@@ -1723,10 +1723,7 @@ class TestSearchBooksSectionMessages:
     """What search_books says when a section filter finds nothing."""
 
     @staticmethod
-    def _glossary_service(tmp_path):
-        from tests.fixtures.library import Library
-
-        lib = Library(tmp_path)
+    def _glossary_service(lib):
         lib.books.add(
             Book(id="a1b2c3", title="T", authors=[], file_hash="a" * 64, structure_source="toc")
         )
@@ -1744,19 +1741,19 @@ class TestSearchBooksSectionMessages:
         )
         return lib.service()
 
-    def test_existing_section_says_no_chunk_holds_a_query_word(self, tmp_path):
+    def test_existing_section_says_no_chunk_holds_a_query_word(self, library):
         from mnemo.mcp.tools_search import _search_books_impl
 
         result = _search_books_impl(
             "zebra",
             section="Glossary terms",
             mode="keyword",
-            search_service=self._glossary_service(tmp_path),
+            search_service=self._glossary_service(library),
         )
 
         assert result == 'Section "Glossary terms" has 1 chunk, but none contains a word of: zebra.'
 
-    def test_section_count_applies_the_content_type_filter(self, tmp_path):
+    def test_section_count_applies_the_content_type_filter(self, library):
         from mnemo.mcp.tools_search import _search_books_impl
 
         result = _search_books_impl(
@@ -1764,12 +1761,12 @@ class TestSearchBooksSectionMessages:
             section="Glossary terms",
             content_type="code",
             mode="keyword",
-            search_service=self._glossary_service(tmp_path),
+            search_service=self._glossary_service(library),
         )
 
         assert result == 'Section "Glossary terms" has no chunks matching content type "code".'
 
-    def test_section_count_applies_the_collection_filter(self, tmp_path):
+    def test_section_count_applies_the_collection_filter(self, library):
         from mnemo.mcp.tools_search import _search_books_impl
 
         result = _search_books_impl(
@@ -1777,7 +1774,7 @@ class TestSearchBooksSectionMessages:
             section="Glossary terms",
             collection="Other books",
             mode="keyword",
-            search_service=self._glossary_service(tmp_path),
+            search_service=self._glossary_service(library),
         )
 
         assert result == "No results found for: axiom"

@@ -26,3 +26,13 @@ def _isolate_embedding_env(monkeypatch):
     """
     for name in _EMBED_ENV:
         monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture
+def library(tmp_path):
+    """A seeded search library: real SQLite, in-memory vectors."""
+    from tests.fixtures.library import Library
+
+    lib = Library(tmp_path)
+    yield lib
+    lib.close()

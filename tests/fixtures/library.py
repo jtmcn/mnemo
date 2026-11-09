@@ -37,6 +37,8 @@ class MemoryVectors:
         documents: list[str] | None = None,
     ) -> None:
         for i, chunk_id in enumerate(ids):
+            if chunk_id in self._rows:
+                continue  # Chroma keeps the first copy of a duplicate id
             norm = math.sqrt(sum(x * x for x in embeddings[i])) or 1.0
             vector = [x / norm for x in embeddings[i]]
             self._rows[chunk_id] = (vector, metadatas[i], documents[i] if documents else None)
@@ -53,13 +55,13 @@ class MemoryVectors:
         hits: list[QueryResult] = [
             {
                 "id": chunk_id,
-                "distance": 1.0 - sum(a * b for a, b in zip(q, vector, strict=False)),
+                "distance": 1.0 - sum(a * b for a, b in zip(q, vector, strict=True)),
                 "metadata": meta,
                 "document": doc,
             }
             for chunk_id, (vector, meta, doc) in self._rows.items()
-            if (book_id is None or meta.get("book_id") == book_id)
-            and (content_type is None or meta.get("content_type") == content_type)
+            if (not book_id or meta.get("book_id") == book_id)
+            and (not content_type or meta.get("content_type") == content_type)
         ]
         return sorted(hits, key=lambda h: h["distance"])[:n_results]
 
