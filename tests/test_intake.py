@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 import pytest
 
-from mnemo.services.book_service import IntakeOutcome, intake
+from mnemo.services.book_service import IntakeOutcome, ReindexReport, ReindexRow, intake
 from mnemo.storage import BookRepository, get_connection, init_db
 from tests.fixtures.epub_factory import create_test_epub
 from tests.fixtures.pdf_factory import Para, create_blank_pdf, create_test_pdf
@@ -531,3 +531,53 @@ class TestEmptyContent:
         assert [o.status for o in outcomes] == ["added", "added"]
         assert outcomes[0].book is not None and outcomes[1].book is not None
         assert outcomes[0].book.id != outcomes[1].book.id
+
+
+class TestReindexReport:
+    """The report both front ends render; counting and wording live here."""
+
+    def test_summary_lists_partial_and_merged_only_when_present(self):
+        report = ReindexReport((ReindexRow("aaa111", "A", "success", 3),))
+        assert [text for _, text in report.summary()] == [
+            "1 succeeded",
+            "0 skipped",
+            "0 failed",
+        ]
+
+    def test_summary_orders_every_status(self):
+        report = ReindexReport(
+            (
+                ReindexRow("aaa111", "A", "failed", 0, "parse error"),
+                ReindexRow("bbb222", "B", "merged", 0, "same file as ccc333"),
+                ReindexRow("ccc333", "C", "partial", 4, "401"),
+                ReindexRow("ddd444", "D", "skipped", 0, "Source file not found"),
+                ReindexRow("eee555", "E", "success", 2),
+            )
+        )
+        assert report.summary() == (
+            ("success", "1 succeeded"),
+            ("partial", "1 without embeddings"),
+            ("merged", "1 merged"),
+            ("skipped", "1 skipped"),
+            ("failed", "1 failed"),
+        )
+        assert report.counts == {
+            "success": 1,
+            "partial": 1,
+            "merged": 1,
+            "skipped": 1,
+            "failed": 1,
+        }
+
+    @pytest.mark.parametrize(
+        ("status", "ok"),
+        [
+            ("success", True),
+            ("merged", True),
+            ("skipped", True),
+            ("partial", False),
+            ("failed", False),
+        ],
+    )
+    def test_ok_is_false_only_when_a_book_failed_or_lost_its_vectors(self, status, ok):
+        assert ReindexReport((ReindexRow("aaa111", "A", status, 0),)).ok is ok

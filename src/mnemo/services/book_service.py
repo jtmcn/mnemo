@@ -1,8 +1,9 @@
 """Book intake: the one place that decides what happens to a book file.
 
-Both front ends — `mnemo add` and the MCP `add_book` tool — call `intake()` and
-render its `IntakeOutcome`. Everything that is a *decision* lives here (is this
-a duplicate, is the ISBN suspect, does a failed run leave a partial record);
+Both front ends call `intake()` (for `add`) and `reindex()`, and render the
+`IntakeOutcome` or `ReindexReport` they return. Everything that is a *decision*
+lives here (is this a duplicate, is the ISBN suspect, does a failed run leave a
+partial record);
 everything that is *presentation* stays in the caller (Rich colour, markdown,
 exit codes, the TTY prompt).
 
@@ -287,3 +288,189 @@ def _notes(stored: Stored, similar: tuple[Book, ...], path: Path) -> tuple[Note,
             )
         )
     return tuple(notes)
+
+
+ReindexStatus = Literal["success", "partial", "skipped", "failed", "merged"]
+
+# Summary order and wording, shared so the CLI and MCP headlines cannot drift.
+_SUMMARY_WORDS: tuple[tuple[ReindexStatus, str], ...] = (
+    ("success", "succeeded"),
+    ("partial", "without embeddings"),
+    ("merged", "merged"),
+    ("skipped", "skipped"),
+    ("failed", "failed"),
+)
+_SHOWN_WHEN_ZERO = frozenset({"success", "skipped", "failed"})
+
+
+@dataclass(frozen=True)
+class ReindexRow:
+    """What reindex did with one library entry.
+
+    `partial` stored but did not embed; `merged` was folded into a byte-identical
+    entry. `message` says why a row is not a plain success; empty when it is.
+    """
+
+    book_id: str
+    title: str
+    status: ReindexStatus
+    chunks: int
+    message: str = ""
+
+
+@dataclass(frozen=True)
+class ReindexReport:
+    """Every entry reindex touched, in library order."""
+
+    rows: tuple[ReindexRow, ...]
+
+    def count(self, status: ReindexStatus) -> int:
+        return sum(1 for r in self.rows if r.status == status)
+
+    @property
+    def counts(self) -> dict[ReindexStatus, int]:
+        return {status: self.count(status) for status, _ in _SUMMARY_WORDS}
+
+    @property
+    def ok(self) -> bool:
+        """False when a book failed or lost its vectors; merged and skipped are fine."""
+        return not (self.count("failed") or self.count("partial"))
+
+    def summary(self) -> tuple[tuple[ReindexStatus, str], ...]:
+        """Headline segments like ("partial", "2 without embeddings"), for front ends to style."""
+        return tuple(
+            (status, f"{n} {words}")
+            for status, words in _SUMMARY_WORDS
+            if (n := self.count(status)) or status in _SHOWN_WHEN_ZERO
+        )
+
+
+def reindex(
+    *,
+    chunker_config: ChunkerConfig | None = None,
+    embed: bool = True,
+    db_path: Path | None = None,
+    chroma_path: Path | None = None,
+) -> ReindexReport:
+    """Re-read every Book from its source file and store it again in place.
+
+    Each Book keeps its id and edited metadata. Entries whose files are now
+    byte-identical fold into one (`merged`); entries that only share content
+    are kept apart. The first embedding failure stops the run, since storing
+    deletes a Book's old vectors first; the rest are reported `skipped`.
+
+    Raises:
+        ValueError: embed=True with no embedding endpoint configured.
+        httpx.HTTPError: embed=True with an endpoint that rejects a probe.
+            Both are raised before any Book is touched.
+    """
+    # A real round-trip is the only check that catches a bad key or model.
+    if embed:
+        from mnemo.embeddings import Embedder
+
+        Embedder().embed_one("preflight")
+
+    init_db(db_path)
+    with closing(get_connection(db_path)) as conn:
+        books = BookRepository(conn).list_all()
+
+    rows: list[ReindexRow] = []
+    file_hashes: dict[str, str] = {}
+    for index, book in enumerate(books):
+        if not book.file_path or not Path(book.file_path).exists():
+            reason = "Source file not found" if book.file_path else "No file path stored"
+            rows.append(ReindexRow(book.id, book.title, "skipped", 0, reason))
+            continue
+        try:
+            plan = _reindex_plan(book, Path(book.file_path), file_hashes, db_path)
+            if isinstance(plan, ReindexRow):
+                rows.append(plan)
+                continue
+            stored = store_book(
+                plan.book,
+                plan.blocks,
+                replaces=plan.replaces,
+                chunker_config=chunker_config,
+                embed=embed,
+                db_path=db_path,
+                chroma_path=chroma_path,
+            )
+        except Exception as e:
+            rows.append(ReindexRow(book.id, book.title, "failed", 0, str(e)))
+            continue
+
+        file_hashes[stored.book.id] = stored.book.file_hash
+        if stored.embedding == "failed":
+            rows.append(
+                ReindexRow(
+                    stored.book.id,
+                    stored.book.title,
+                    "partial",
+                    stored.chunks,
+                    stored.embed_error or "embedding failed",
+                )
+            )
+            # Every Book embeds the same way, so the rest would fail too, losing their vectors.
+            rows.extend(
+                ReindexRow(
+                    other.id,
+                    other.title,
+                    "skipped",
+                    0,
+                    "Stopped after an embedding failure; not re-indexed",
+                )
+                for other in books[index + 1 :]
+            )
+            break
+        if stored.book.id != book.id:
+            rows.append(_merged(book, stored.book.id))
+        else:
+            rows.append(ReindexRow(stored.book.id, stored.book.title, "success", stored.chunks))
+
+    return ReindexReport(_relabel_folded(rows, file_hashes, db_path))
+
+
+def _reindex_plan(
+    book: Book, source: Path, file_hashes: dict[str, str], db_path: Path | None
+) -> _Plan | ReindexRow:
+    """Plan storing `book` in place, absorbing any byte-identical entry, or say it folded."""
+    parsed, blocks = parse_book(source)
+    parsed = parsed.model_copy(
+        update={"file_path": str(source.resolve()), "collection": book.collection}
+    )
+    with closing(get_connection(db_path)) as conn:
+        repo = BookRepository(conn)
+        twin = repo.get_by_hash(parsed.file_hash)
+        current = repo.get(book.id)
+    if current is None and twin is not None and twin.id in file_hashes:
+        # Already folded into a byte-twin this run stored; storing again would re-embed it.
+        return _merged(book, twin.id)
+    previous = current or twin
+    return _Plan(
+        carry_over(parsed, previous, False) if previous else parsed,
+        blocks,
+        frozenset({book.id} | ({twin.id} if twin else set())),
+        similar=(),
+    )
+
+
+def _merged(book: Book, survivor_id: str) -> ReindexRow:
+    return ReindexRow(book.id, book.title, "merged", 0, f"same file as {survivor_id}")
+
+
+def _relabel_folded(
+    rows: list[ReindexRow], file_hashes: dict[str, str], db_path: Path | None
+) -> tuple[ReindexRow, ...]:
+    """Relabel stored rows whose Book a later byte-identical entry absorbed."""
+    with closing(get_connection(db_path)) as conn:
+        library = BookRepository(conn).list_all()
+    live = {b.id for b in library}
+    out: list[ReindexRow] = []
+    for row in rows:
+        if row.status in ("success", "partial") and row.book_id not in live:
+            digest = file_hashes.get(row.book_id)
+            survivor = next((b.id for b in library if b.file_hash == digest), None)
+            message = f"same file as {survivor}" if survivor else "same file as another entry"
+            row = ReindexRow(row.book_id, row.title, "merged", 0, message)
+        out.append(row)
+    return tuple(out)

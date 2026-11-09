@@ -406,7 +406,7 @@ def search(
 
     service = SearchService()
     try:
-        results = service.search(query, top_k=limit, book_id=book)
+        response = service.search(query, top_k=limit, book_id=book)
     except (ValueError, httpx.HTTPError) as e:
         # A configured endpoint that fails is a misconfiguration, not a reason
         # to quietly return worse results. Say so instead of a traceback.
@@ -421,6 +421,7 @@ def search(
             )
         raise typer.Exit(1) from e
 
+    results = response.results
     if json_output:
         output = [
             {
@@ -435,8 +436,8 @@ def search(
         print(json.dumps(output))
         return
 
-    if not results:
-        console.print("No results found")
+    if response.empty_reason is not None:
+        console.print(escape(response.empty_reason.message))
         return
 
     for r in results:
@@ -463,7 +464,7 @@ def reindex(
     book. Useful after upgrading mnemo's chunking or embedding pipeline.
     Books whose source files are missing are skipped.
     """
-    from mnemo.ingest import reindex_all_books
+    from mnemo.services.book_service import reindex as reindex_library
     from mnemo.storage import BookRepository, get_connection, init_db
 
     # Check if there are any books first
@@ -493,7 +494,7 @@ def reindex(
     ) as progress:
         progress.add_task(description="Reindexing all books...", total=None)
         try:
-            results = reindex_all_books(embed=True)
+            report = reindex_library(embed=True)
         except (ValueError, httpx.HTTPError) as e:
             # Only the embedding preflight escapes here (per-book embedding
             # failures are results), so nothing has been touched. Report after
@@ -508,67 +509,48 @@ def reindex(
             console.print("[yellow]No books were changed.[/yellow]")
         raise typer.Exit(1)
 
-    success = sum(1 for r in results if r["status"] == "success")
-    partial = sum(1 for r in results if r["status"] == "partial")
-    skipped = sum(1 for r in results if r["status"] == "skipped")
-    failed = sum(1 for r in results if r["status"] == "failed")
-    merged = sum(1 for r in results if r["status"] == "merged")
-
     if json_output:
-        print(
-            json.dumps(
-                {
-                    "results": results,
-                    "success": success,
-                    "partial": partial,
-                    "merged": merged,
-                    "skipped": skipped,
-                    "failed": failed,
-                }
-            )
-        )
+        rows = [
+            {
+                "book_id": r.book_id,
+                "title": r.title,
+                "status": r.status,
+                "chunks": r.chunks,
+                "error": r.message or None,
+            }
+            for r in report.rows
+        ]
+        print(json.dumps({"results": rows, **report.counts}))
         return
 
+    labels = {
+        "success": "[green]OK[/green]",
+        "partial": "[yellow]PARTIAL[/yellow]",
+        "merged": "[yellow]MERGED[/yellow]",
+        "skipped": "[yellow]SKIP[/yellow]",
+        "failed": "[red]FAIL[/red]",
+    }
     if verbose:
-        for r in results:
-            if r["status"] == "success":
-                console.print(
-                    f"  [green]OK[/green] {escape(str(r['title']))} ({r['book_id']}) - "
-                    f"{r['chunks']} chunks"
-                )
-            elif r["status"] == "partial":
-                console.print(
-                    f"  [yellow]PARTIAL[/yellow] {escape(str(r['title']))} ({r['book_id']}) - "
-                    f"{r['chunks']} chunks, no embeddings: {escape(str(r['error']))}"
-                )
-            elif r["status"] == "merged":
-                console.print(
-                    f"  [yellow]MERGED[/yellow] {escape(str(r['title']))} ({r['book_id']}) - "
-                    f"{escape(str(r['error']))}"
-                )
-            elif r["status"] == "skipped":
-                console.print(
-                    f"  [yellow]SKIP[/yellow] {escape(str(r['title']))} ({r['book_id']}) - "
-                    f"{escape(str(r['error']))}"
-                )
-            else:
-                console.print(
-                    f"  [red]FAIL[/red] {escape(str(r['title']))} ({r['book_id']}) - "
-                    f"{escape(str(r['error']))}"
-                )
+        for r in report.rows:
+            detail = f"{r.chunks} chunks" if r.status in ("success", "partial") else ""
+            if r.status == "partial":
+                detail += ", no embeddings"
+            if r.message:
+                detail = f"{detail}: {r.message}" if detail else r.message
+            console.print(
+                f"  {labels[r.status]} {escape(r.title)} ({r.book_id}) - {escape(detail)}"
+            )
 
-    summary = f"[green]{success} succeeded[/green], "
-    if partial:
-        summary += f"[yellow]{partial} without embeddings[/yellow], "
-    if merged:
-        summary += f"[yellow]{merged} merged[/yellow], "
-    summary += f"[yellow]{skipped} skipped[/yellow], [red]{failed} failed[/red]"
-    console.print(summary)
+    colours = {"success": "green", "failed": "red"}
+    console.print(
+        ", ".join(
+            f"[{colours.get(status, 'yellow')}]{text}[/{colours.get(status, 'yellow')}]"
+            for status, text in report.summary()
+        )
+    )
 
-    # partial means the book was re-indexed but its vectors were not rewritten
-    # — before this existed the same outcome was reported as failed, and a
-    # wrapper script must not read it as success.
-    if failed > 0 or partial > 0:
+    # partial was re-indexed without vectors; a wrapper script must not read it as success.
+    if not report.ok:
         raise typer.Exit(1)
 
 

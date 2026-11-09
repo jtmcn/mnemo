@@ -168,45 +168,29 @@ def _reindex_all_books_impl(search_service: SearchService | None = None) -> str:
     logger.info("reindex_all_books called")
 
     try:
-        from mnemo.ingest import reindex_all_books
+        from mnemo.services.book_service import reindex
 
-        results = reindex_all_books(embed=True)
+        report = reindex(embed=True)
 
-        if not results:
+        if not report.rows:
             return "No books in library to reindex."
 
         # Invalidate search cache
         if search_service is not None:
             search_service.invalidate_cache()
 
-        success = sum(1 for r in results if r["status"] == "success")
-        partial = sum(1 for r in results if r["status"] == "partial")
-        skipped = sum(1 for r in results if r["status"] == "skipped")
-        failed = sum(1 for r in results if r["status"] == "failed")
-        merged = sum(1 for r in results if r["status"] == "merged")
-
-        headline = f"Reindex complete: {success} succeeded"
-        if partial:
-            headline += f", {partial} without embeddings"
-        if merged:
-            headline += f", {merged} merged"
-        headline += f", {skipped} skipped, {failed} failed\n"
-        lines = [headline]
-
-        for r in results:
-            if r["status"] == "success":
-                lines.append(f"- **{r['title']}** (`{r['book_id']}`): {r['chunks']} chunks")
-            elif r["status"] == "partial":
-                lines.append(
-                    f"- **{r['title']}** (`{r['book_id']}`): {r['chunks']} chunks, "
-                    f"no embeddings — {r['error']}"
-                )
-            elif r["status"] == "merged":
-                lines.append(f"- **{r['title']}** (`{r['book_id']}`): merged — {r['error']}")
-            elif r["status"] == "skipped":
-                lines.append(f"- **{r['title']}** (`{r['book_id']}`): skipped — {r['error']}")
+        headline = ", ".join(text for _, text in report.summary())
+        lines = [f"Reindex complete: {headline}\n"]
+        labels = {"merged": "merged", "skipped": "skipped", "failed": "FAILED"}
+        for r in report.rows:
+            entry = f"- **{r.title}** (`{r.book_id}`): "
+            if r.status == "success":
+                entry += f"{r.chunks} chunks"
+            elif r.status == "partial":
+                entry += f"{r.chunks} chunks, no embeddings — {r.message}"
             else:
-                lines.append(f"- **{r['title']}** (`{r['book_id']}`): FAILED — {r['error']}")
+                entry += f"{labels[r.status]} — {r.message}"
+            lines.append(entry)
 
         return "\n".join(lines)
 

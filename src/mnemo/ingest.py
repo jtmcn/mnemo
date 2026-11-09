@@ -9,26 +9,16 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, TypedDict, TypeVar
+from typing import Literal, TypeVar
 
 from mnemo.chunking import Chunker, ChunkerConfig
 from mnemo.models import Book, is_boilerplate_section
-from mnemo.parsing import ContentBlock, parse_book
+from mnemo.parsing import ContentBlock
 from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_db
 
 logger = __import__("logging").getLogger(__name__)
 
 T = TypeVar("T")
-
-
-class ReindexResult(TypedDict):
-    """Per-book outcome from reindex_all_books."""
-
-    book_id: str
-    title: str
-    status: Literal["success", "partial", "skipped", "failed", "merged"]
-    chunks: int
-    error: str | None
 
 
 class NothingToEmbed(ValueError):
@@ -225,182 +215,6 @@ def store_book(
         logger.info("Embedding failed for %s (%s): %s", book.id, book.title, e)
         return Stored(book, len(chunks), "failed", str(e))
     return Stored(book, len(chunks), "embedded")
-
-
-def reindex_all_books(
-    db_path: Path | None = None,
-    chroma_path: Path | None = None,
-    chunker_config: ChunkerConfig | None = None,
-    embed: bool = True,
-) -> list[ReindexResult]:
-    """Re-ingest all books in the library.
-
-    Iterates over all indexed books, validates their file paths still exist,
-    and re-stores each in place under its own id. Useful when the chunking or
-    embedding pipeline has been updated.
-
-    Args:
-        db_path: Database path (default: ~/.mnemo/mnemo.db)
-        chroma_path: ChromaDB path (default: ~/.mnemo/chroma)
-        chunker_config: Chunking configuration override
-        embed: If True, regenerate embeddings (default: True)
-
-    Returns:
-        List of result dicts with keys: book_id, title, status, chunks, error.
-        status is "partial" for a book that was re-indexed but not re-embedded,
-        and "merged" for an entry whose file is now byte-identical to another
-        entry's and was folded into it (error names the surviving id). Entries
-        that merely share content are each kept in place.
-        The first embedding failure stops the run: reindexing deletes a book's
-        vectors before rewriting them, so the remaining books are left alone
-        and reported as "skipped".
-
-    Raises:
-        ValueError: embed=True with no embedding endpoint configured.
-        httpx.HTTPError: embed=True with an endpoint that rejects a probe
-            request (bad key, unknown model, unreachable host). Both are
-            raised before any book is touched, since reindexing is destructive.
-    """
-    # store_book deletes a book's existing vectors before re-embedding it,
-    # so a provider that fails mid-run strips the library one book at
-    # a time. A real round-trip is the only preflight that catches a bad key or
-    # model, not just a missing base URL. Costs one embedding of one word.
-    if embed:
-        from mnemo.embeddings import Embedder
-
-        Embedder().embed_one("preflight")
-
-    init_db(db_path)
-    conn = get_connection(db_path)
-    book_repo = BookRepository(conn)
-    books = book_repo.list_all()
-    conn.close()
-
-    results: list[ReindexResult] = []
-    file_hashes: dict[str, str] = {}
-
-    for index, book in enumerate(books):
-        book_file = book.file_path
-        if not book_file or not Path(book_file).exists():
-            results.append(
-                {
-                    "book_id": book.id,
-                    "title": book.title,
-                    "status": "skipped",
-                    "chunks": 0,
-                    "error": "Source file not found" if book_file else "No file path stored",
-                }
-            )
-            continue
-
-        try:
-            parsed, blocks = parse_book(Path(book_file))
-            parsed = parsed.model_copy(
-                update={"file_path": str(Path(book_file).resolve()), "collection": book.collection}
-            )
-            conn = get_connection(db_path)
-            try:
-                repo = BookRepository(conn)
-                twin = repo.get_by_hash(parsed.file_hash)
-                current = repo.get(book.id)
-            finally:
-                conn.close()
-            if current is None and twin is not None and twin.id in file_hashes:
-                # Already folded into a byte-twin this run re-indexed; storing again re-embeds it.
-                results.append(_merged_row(book, twin.id))
-                continue
-            previous = current or twin
-            stored = store_book(
-                carry_over(parsed, previous, False) if previous else parsed,
-                blocks,
-                replaces=frozenset({book.id} | ({twin.id} if twin else set())),
-                chunker_config=chunker_config,
-                embed=embed,
-                db_path=db_path,
-                chroma_path=chroma_path,
-            )
-            file_hashes[stored.book.id] = stored.book.file_hash
-            if stored.embedding == "failed":
-                # Re-parsed, re-chunked and committed; only the vectors are missing.
-                results.append(
-                    {
-                        "book_id": stored.book.id,
-                        "title": stored.book.title,
-                        "status": "partial",
-                        "chunks": stored.chunks,
-                        "error": stored.embed_error,
-                    }
-                )
-                # Every book is re-embedded the same way, so a failure here is a
-                # failure for the rest too — and each one loses its vectors first.
-                # Stop rather than strip the library on an expired token or outage.
-                remaining = books[index + 1 :]
-                results.extend(
-                    {
-                        "book_id": other.id,
-                        "title": other.title,
-                        "status": "skipped",
-                        "chunks": 0,
-                        "error": "Stopped after an embedding failure; not re-indexed",
-                    }
-                    for other in remaining
-                )
-                break
-            if stored.book.id != book.id:
-                results.append(_merged_row(book, stored.book.id))
-                continue
-            results.append(
-                {
-                    "book_id": stored.book.id,
-                    "title": stored.book.title,
-                    "status": "success",
-                    "chunks": stored.chunks,
-                    "error": None,
-                }
-            )
-        except Exception as e:
-            results.append(
-                {
-                    "book_id": book.id,
-                    "title": book.title,
-                    "status": "failed",
-                    "chunks": 0,
-                    "error": str(e),
-                }
-            )
-
-    _mark_merged(results, file_hashes, db_path)
-    return results
-
-
-def _merged_row(book: Book, survivor_id: str) -> ReindexResult:
-    return {
-        "book_id": book.id,
-        "title": book.title,
-        "status": "merged",
-        "chunks": 0,
-        "error": f"same file as {survivor_id}",
-    }
-
-
-def _mark_merged(
-    results: list[ReindexResult], file_hashes: dict[str, str], db_path: Path | None
-) -> None:
-    """Relabel rows whose book a later entry with the same file deleted."""
-    conn = get_connection(db_path)
-    try:
-        library = BookRepository(conn).list_all()
-    finally:
-        conn.close()
-    live = {b.id for b in library}
-    for row in results:
-        if row["status"] not in ("success", "partial") or row["book_id"] in live:
-            continue
-        digest = file_hashes.get(row["book_id"])
-        survivor = next((b.id for b in library if b.file_hash == digest), None)
-        row["status"] = "merged"
-        row["chunks"] = 0
-        row["error"] = f"same file as {survivor}" if survivor else "same file as another entry"
 
 
 def remove_book(

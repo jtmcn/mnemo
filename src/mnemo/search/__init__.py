@@ -8,13 +8,21 @@ Public API:
     SearchResult: Unified search result with attribution
     SearchFilter: Optional filters for search queries
     ExpandedResult: A result plus its neighbouring context chunks
+    SearchResponse: Results, plus why nothing matched when nothing did
+    EmptyReason: The kind and wording of an empty search
     reciprocal_rank_fusion: RRF algorithm (exported for testing)
 """
 
 from typing import TYPE_CHECKING, Any
 
 from mnemo.search.hybrid import reciprocal_rank_fusion
-from mnemo.search.models import ExpandedResult, SearchFilter, SearchResult
+from mnemo.search.models import (
+    EmptyReason,
+    ExpandedResult,
+    SearchFilter,
+    SearchResponse,
+    SearchResult,
+)
 
 if TYPE_CHECKING:
     # Runtime import stays lazy (see __getattr__); type checkers need the real class.
@@ -26,6 +34,8 @@ __all__ = [
     "SearchResult",
     "SearchFilter",
     "ExpandedResult",
+    "SearchResponse",
+    "EmptyReason",
     "reciprocal_rank_fusion",
 ]
 

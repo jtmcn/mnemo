@@ -3,20 +3,21 @@
 Tests cover:
 - Reciprocal Rank Fusion (RRF) algorithm
 - SearchResult and SearchFilter dataclasses
-- SearchService with mocked backends
+- SearchService with mocked backends and a seeded Library
 - SearchService integration tests
 """
 
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
 from mnemo.embeddings.config import EmbeddingsNotConfigured
 from mnemo.models import Book, Chunk, ContentType, is_boilerplate_section
-from mnemo.search import SearchFilter, SearchResult, reciprocal_rank_fusion
+from mnemo.search import EmptyReason, SearchFilter, SearchResult, reciprocal_rank_fusion
 from mnemo.search.service import (
     BOILERPLATE_PENALTY,
     SHORT_CONTENT_PENALTY,
@@ -25,6 +26,15 @@ from mnemo.search.service import (
 )
 from mnemo.storage.database import get_connection, init_db
 from mnemo.storage.repository import BookRepository, ChunkRepository
+from tests.fixtures.library import FixedEmbedder, Library
+
+_SOURDOUGH = "how do I bake sourdough bread"
+
+
+def _prose(terms: str) -> str:
+    """Over 100 chars, so no short-content penalty, holding `terms` and only filler besides."""
+    return f"{terms} appears in this passage among plenty of other filler words. " * 3
+
 
 # ============================================================================
 # RRF Fusion Tests
@@ -221,6 +231,26 @@ class TestSearchServiceInit:
         assert service._db_path == db_path
         assert service._chroma_path == chroma_path
 
+    def test_chunks_without_books_is_rejected(self, library):
+        with pytest.raises(ValueError, match="together"):
+            SearchService(chunks=library.chunks)
+
+    def test_injected_dependencies_are_searched_and_nothing_is_opened(self, library, tmp_path):
+        hit = library.add(_prose("pipeline"), similarity=0.9)
+        db_path = tmp_path / "never.db"
+        service = SearchService(
+            db_path=db_path,
+            chunks=library.chunks,
+            books=library.books,
+            vectors=library.vectors,
+            embedder=FixedEmbedder(),
+        )
+
+        results = service.search("pipeline stages", mode="hybrid").results
+
+        assert [r.chunk_id for r in results] == [hit.id]
+        assert not db_path.exists()
+
     def test_lazy_initialization(self):
         """Service doesn't create connections on init."""
         service = SearchService()
@@ -244,8 +274,10 @@ class TestSearchServiceValidation:
 
     def test_empty_query_returns_empty(self, service):
         """Empty query returns empty list without error."""
-        assert service.search("") == []
-        assert service.search("   ") == []
+        for query in ("", "   "):
+            response = service.search(query)
+            assert response.results == []
+            assert response.empty_reason == EmptyReason("empty_query", "Query cannot be empty")
 
     def test_invalid_mode_raises(self, service):
         """Invalid mode raises ValueError."""
@@ -267,7 +299,7 @@ class TestSearchServiceValidation:
         # explicit request for something unavailable, so it raises rather than
         # returning [] (which would read as "no matching content").
         for mode in ["hybrid", "keyword"]:
-            result = service.search("test", mode=mode)
+            result = service.search("test", mode=mode).results
             assert isinstance(result, list)
 
         with pytest.raises(EmbeddingsNotConfigured):
@@ -314,11 +346,12 @@ class TestSearchServiceMocked:
     @pytest.fixture
     def service_with_mocks(self, mock_chunk_repo, mock_book_repo, mock_vector_store, mock_embedder):
         """Create service with injected mocks."""
-        service = SearchService()
-        service._chunk_repo = mock_chunk_repo
-        service._book_repo = mock_book_repo
-        service._vector_store = mock_vector_store
-        service._embedder = mock_embedder
+        service = SearchService(
+            chunks=mock_chunk_repo,
+            books=mock_book_repo,
+            vectors=mock_vector_store,
+            embedder=mock_embedder,
+        )
         return service
 
     def test_keyword_mode_calls_fts(self, service_with_mocks, mock_chunk_repo):
@@ -458,7 +491,7 @@ class TestSearchServiceMocked:
         mock_book = MagicMock(title="Python Cookbook")
         mock_book_repo.get.return_value = mock_book
 
-        results = service_with_mocks.search("test", mode="keyword")
+        results = service_with_mocks.search("test", mode="keyword").results
 
         assert len(results) == 1
         assert results[0].book_title == "Python Cookbook"
@@ -499,7 +532,7 @@ class TestSearchServiceMocked:
         mock_chunk_repo.search_fts.return_value = [mock_chunk]
         mock_book_repo.get.return_value = None
 
-        results = service_with_mocks.search("test", mode="keyword")
+        results = service_with_mocks.search("test", mode="keyword").results
 
         assert results[0].book_title == "Unknown book"
 
@@ -526,7 +559,7 @@ class TestSearchServiceMocked:
         service_with_mocks._book_cache["abc123"] = "Test Book"
 
         # Should not raise, should return keyword results
-        results = service_with_mocks.search("test", mode="hybrid")
+        results = service_with_mocks.search("test", mode="hybrid").results
 
         assert len(results) == 1
         assert results[0].source == "keyword"
@@ -591,11 +624,12 @@ class TestSemanticSearchCosineScores:
 
     @pytest.fixture
     def service(self, mock_chunk_repo, mock_book_repo, mock_vector_store, mock_embedder):
-        svc = SearchService()
-        svc._chunk_repo = mock_chunk_repo
-        svc._book_repo = mock_book_repo
-        svc._vector_store = mock_vector_store
-        svc._embedder = mock_embedder
+        svc = SearchService(
+            chunks=mock_chunk_repo,
+            books=mock_book_repo,
+            vectors=mock_vector_store,
+            embedder=mock_embedder,
+        )
         return svc
 
     def test_semantic_score_is_cosine_similarity(self, service, mock_vector_store, mock_chunk_repo):
@@ -614,7 +648,7 @@ class TestSemanticSearchCosineScores:
         mock_chunk_repo.get.return_value = mock_chunk
         service._book_cache["abc123"] = "Test Book"
 
-        results = service.search("test", mode="semantic")
+        results = service.search("test", mode="semantic").results
 
         assert len(results) == 1
         assert abs(results[0].score - 0.7) < 1e-6
@@ -640,7 +674,7 @@ class TestSemanticSearchCosineScores:
         mock_chunk_repo.get.return_value = mock_chunk
         service._book_cache["abc123"] = "Test Book"
 
-        results = service.search("test", mode="semantic")
+        results = service.search("test", mode="semantic").results
 
         # Score 0.0 is below MIN_SEMANTIC_SCORE (0.25), so filtered out
         assert len(results) == 0
@@ -661,7 +695,7 @@ class TestSemanticSearchCosineScores:
         mock_chunk_repo.get.return_value = mock_chunk
         service._book_cache["abc123"] = "Test Book"
 
-        results = service.search("test", mode="semantic")
+        results = service.search("test", mode="semantic").results
 
         assert results[0].score == 1.0
 
@@ -680,7 +714,7 @@ class TestSemanticSearchCosineScores:
         mock_chunk_repo.search_fts.return_value = mock_chunks
         service._book_cache["abc123"] = "Test Book"
 
-        results = service.search("test", mode="keyword")
+        results = service.search("test", mode="keyword").results
 
         # Top result should always score 1.0 after normalization
         assert results[0].score == 1.0
@@ -800,7 +834,7 @@ class TestSearchServiceIntegration:
         results = populated_integration_service.search(
             "generators",
             mode="keyword",
-        )
+        ).results
 
         assert len(results) >= 1
         assert any("generator" in r.content.lower() for r in results)
@@ -811,7 +845,7 @@ class TestSearchServiceIntegration:
             "generators",
             mode="keyword",
             book_id="a1b2c3",
-        )
+        ).results
 
         assert all(r.book_id == "a1b2c3" for r in results)
 
@@ -821,7 +855,7 @@ class TestSearchServiceIntegration:
             "fibonacci",
             mode="keyword",
             content_type="code",
-        )
+        ).results
 
         assert len(results) >= 1
         assert all(r.content_type == "code" for r in results)
@@ -832,7 +866,7 @@ class TestSearchServiceIntegration:
             "generators",
             mode="keyword",
             top_k=1,
-        )
+        ).results
 
         assert len(results) >= 1
         result = results[0]
@@ -852,7 +886,7 @@ class TestSearchServiceIntegration:
         results = populated_integration_service.search(
             "xyznonexistent123",
             mode="keyword",
-        )
+        ).results
 
         assert results == []
 
@@ -862,7 +896,7 @@ class TestSearchServiceIntegration:
             "generators",
             mode="keyword",
             book_id="nonexistent",
-        )
+        ).results
 
         assert results == []
 
@@ -875,7 +909,7 @@ class TestSearchServiceIntegration:
 
     def test_no_indexed_books(self, integration_service):
         """Search on empty database returns empty list."""
-        results = integration_service.search("anything", mode="keyword")
+        results = integration_service.search("anything", mode="keyword").results
         assert results == []
 
 
@@ -918,11 +952,12 @@ class TestSectionFilter:
 
     @pytest.fixture
     def service(self, mock_chunk_repo, mock_book_repo, mock_vector_store, mock_embedder):
-        svc = SearchService()
-        svc._chunk_repo = mock_chunk_repo
-        svc._book_repo = mock_book_repo
-        svc._vector_store = mock_vector_store
-        svc._embedder = mock_embedder
+        svc = SearchService(
+            chunks=mock_chunk_repo,
+            books=mock_book_repo,
+            vectors=mock_vector_store,
+            embedder=mock_embedder,
+        )
         svc._book_cache["abc123"] = "Test Book"
         return svc
 
@@ -945,7 +980,7 @@ class TestSectionFilter:
         ]
         mock_chunk_repo.search_fts.return_value = chunks
 
-        results = service.search("test", mode="keyword", section="Generators")
+        results = service.search("test", mode="keyword", section="Generators").results
 
         assert len(results) == 2
         chunk_ids = {r.chunk_id for r in results}
@@ -959,7 +994,7 @@ class TestSectionFilter:
         ]
         mock_chunk_repo.search_fts.return_value = chunks
 
-        results = service.search("test", mode="keyword", section="generators")
+        results = service.search("test", mode="keyword", section="generators").results
 
         assert len(results) == 1
         assert results[0].chunk_id == "c1"
@@ -972,7 +1007,7 @@ class TestSectionFilter:
         ]
         mock_chunk_repo.search_fts.return_value = chunks
 
-        results = service.search("test", mode="keyword", section="Generators")
+        results = service.search("test", mode="keyword", section="Generators").results
 
         assert len(results) == 1
         assert results[0].chunk_id == "c2"
@@ -986,7 +1021,7 @@ class TestSectionFilter:
         ]
         mock_chunk_repo.search_fts.return_value = chunks
 
-        results = service.search("test", mode="keyword", section=None)
+        results = service.search("test", mode="keyword", section=None).results
 
         assert len(results) == 3
 
@@ -1018,7 +1053,7 @@ class TestSectionFilter:
                 (c for c in chunks if c.id == cid), None
             )
 
-        results = service.search("test", mode=mode, section="Generators")
+        results = service.search("test", mode=mode, section="Generators").results
 
         assert len(results) == 1
         assert results[0].chunk_id == "c1"
@@ -1037,7 +1072,7 @@ class TestSectionFilter:
         chunks = [self._make_chunk(f"c{i}", ["Generators"]) for i in range(10)]
         mock_chunk_repo.search_fts.return_value = chunks
 
-        results = service.search("test", mode="keyword", top_k=3, section="Generators")
+        results = service.search("test", mode="keyword", top_k=3, section="Generators").results
 
         assert len(results) == 3
 
@@ -1056,13 +1091,15 @@ class TestSectionFilter:
         mock_chunk_repo.search_fts.return_value = [deep_chunk, unrelated_chunk]
 
         # Filtering by parent section name matches subsection chunks
-        results_parent = service.search("test", mode="keyword", section="Chapter 5")
+        results_parent = service.search("test", mode="keyword", section="Chapter 5").results
         assert len(results_parent) == 1
         assert results_parent[0].chunk_id == "deep"
 
         # Cross-level match: the joined path "Part II > Chapter 5 > Section 5.1"
         # contains the substring "Chapter 5 > Section"
-        results_cross = service.search("test", mode="keyword", section="Chapter 5 > Section")
+        results_cross = service.search(
+            "test", mode="keyword", section="Chapter 5 > Section"
+        ).results
         assert len(results_cross) == 1
         assert results_cross[0].chunk_id == "deep"
 
@@ -1148,11 +1185,12 @@ class TestContextWindow:
 
     @pytest.fixture
     def service(self, mock_chunk_repo, mock_book_repo, mock_vector_store, mock_embedder):
-        svc = SearchService()
-        svc._chunk_repo = mock_chunk_repo
-        svc._book_repo = mock_book_repo
-        svc._vector_store = mock_vector_store
-        svc._embedder = mock_embedder
+        svc = SearchService(
+            chunks=mock_chunk_repo,
+            books=mock_book_repo,
+            vectors=mock_vector_store,
+            embedder=mock_embedder,
+        )
         svc._book_cache["abc123"] = "Test Book"
         return svc
 
@@ -1193,7 +1231,7 @@ class TestContextWindow:
         )
         mock_chunk_repo.search_fts.return_value = [mock_chunk]
 
-        results = service.search("test", mode="keyword", context_window=0)
+        results = service.search("test", mode="keyword", context_window=0).results
 
         assert len(results) == 1
         assert isinstance(results[0], SearchResult)
@@ -1221,7 +1259,7 @@ class TestContextWindow:
         # get_chunk_range returns seq 1, 2, 3
         mock_chunk_repo.get_chunk_range.return_value = [chunks[1], chunks[2], chunks[3]]
 
-        results = service.search("test", mode="keyword", context_window=1)
+        results = service.search("test", mode="keyword", context_window=1).results
 
         assert len(results) == 1
         result = results[0]
@@ -1256,7 +1294,7 @@ class TestContextWindow:
         # get_chunk_range(abc123, 0, 4) returns all 5
         mock_chunk_repo.get_chunk_range.return_value = chunks
 
-        results = service.search("test", mode="keyword", context_window=2)
+        results = service.search("test", mode="keyword", context_window=2).results
 
         assert len(results) == 1
         result = results[0]
@@ -1299,7 +1337,7 @@ class TestContextWindow:
 
         mock_chunk_repo.get_chunk_range.side_effect = range_side_effect
 
-        results = service.search("test", mode="keyword", context_window=2)
+        results = service.search("test", mode="keyword", context_window=2).results
 
         # Should merge into one block: seq 1-7
         # (window=2 around 3 gives 1-5, around 5 gives 3-7, merged = 1-7)
@@ -1344,7 +1382,7 @@ class TestContextWindow:
 
         mock_chunk_repo.get_chunk_range.side_effect = range_side_effect
 
-        results = service.search("test", mode="keyword", context_window=1)
+        results = service.search("test", mode="keyword", context_window=1).results
 
         # With window=1: c2->1,2,3 and c4->3,4,5, overlapping at 3, merge to 1-5
         assert len(results) == 1
@@ -1483,42 +1521,16 @@ class TestDiversifyResults:
 class TestHybridSemanticQualityGate:
     """Tests for filtering low-quality semantic results in hybrid search."""
 
-    @pytest.fixture
-    def service(self):
-        svc = SearchService()
-        svc._chunk_repo = MagicMock()
-        svc._book_repo = MagicMock()
-        svc._vector_store = MagicMock()
-        svc._embedder = MagicMock()
-        svc._embedder.embed_one.return_value = [0.1] * 1024
-        svc._book_cache["abc123"] = "Test Book"
-        return svc
-
-    def test_hybrid_filters_low_quality_semantic(self, service):
+    def test_hybrid_filters_low_quality_semantic(self, library):
         """Semantic results with cosine distance > 1.0 are filtered before RRF."""
-        # Setup keyword results
-        mock_chunk = MagicMock(
-            id="c1",
-            book_id="abc123",
-            content="keyword match",
-            content_type=ContentType.TEXT,
-            section_path=["Ch1"],
-        )
-        service._chunk_repo.search_fts.return_value = [mock_chunk]
+        good = library.add(_prose("query"), similarity=0.5)
+        unrelated = library.add(_prose("elsewhere"), similarity=-0.5)
 
-        # Setup vector results: one good, one bad
-        service._vector_store.query.return_value = [
-            {"id": "c1", "distance": 0.5},  # good: similarity 0.5
-            {"id": "c2", "distance": 1.5},  # bad: similarity -0.5
-        ]
+        results = library.service().search("test query", mode="hybrid", top_k=5).results
 
-        service._chunk_repo.get.return_value = mock_chunk
-
-        results = service.search("test query", mode="hybrid", top_k=5)
-
-        # c2 should not appear in results (filtered by quality gate)
-        result_ids = [r.chunk_id for r in results]
-        assert "c2" not in result_ids
+        ids = [r.chunk_id for r in results]
+        assert good.id in ids
+        assert unrelated.id not in ids
 
 
 # ============================================================================
@@ -1546,52 +1558,20 @@ class TestUnicodeNormalization:
 
         assert normalize_unicode("simple text") == "simple text"
 
-    def test_section_filter_with_accented_section_name(self):
+    def test_section_filter_with_accented_section_name(self, library):
         """Section filter matches when section_path contains accented characters."""
-        svc = SearchService()
-        svc._chunk_repo = MagicMock()
-        svc._book_repo = MagicMock()
-        svc._vector_store = MagicMock()
-        svc._embedder = MagicMock()
-        svc._book_cache["abc123"] = "Test Book"
+        library.add(_prose("pipeline"), section=["Chapter 3", "Exploring naïve RAG"])
+        service = library.service()
 
-        mock_chunk = MagicMock(
-            id="c1",
-            book_id="abc123",
-            content="x" * 200,
-            content_type=ContentType.TEXT,
-            section_path=["Chapter 3", "Exploring naïve RAG"],
-        )
-        svc._chunk_repo.search_fts.return_value = [mock_chunk]
+        for section in ("Exploring naïve RAG", "Exploring naive RAG"):
+            assert len(service.search("pipeline", mode="keyword", section=section).results) == 1
 
-        # Search with the exact accented name
-        results = svc.search("test", mode="keyword", section="Exploring naïve RAG")
-        assert len(results) == 1
-
-        # Search with ASCII approximation (no accent)
-        results = svc.search("test", mode="keyword", section="Exploring naive RAG")
-        assert len(results) == 1
-
-    def test_section_filter_accent_in_query_matches_plain_section(self):
+    def test_section_filter_accent_in_query_matches_plain_section(self, library):
         """Accented filter matches plain-text section paths too."""
-        svc = SearchService()
-        svc._chunk_repo = MagicMock()
-        svc._book_repo = MagicMock()
-        svc._vector_store = MagicMock()
-        svc._embedder = MagicMock()
-        svc._book_cache["abc123"] = "Test Book"
+        library.add(_prose("pipeline"), section=["Chapter 3", "Exploring naive RAG"])
 
-        mock_chunk = MagicMock(
-            id="c1",
-            book_id="abc123",
-            content="x" * 200,
-            content_type=ContentType.TEXT,
-            section_path=["Chapter 3", "Exploring naive RAG"],
-        )
-        svc._chunk_repo.search_fts.return_value = [mock_chunk]
+        results = library.service().search("pipeline", mode="keyword", section="naïve").results
 
-        # Accented filter should still match plain section
-        results = svc.search("test", mode="keyword", section="naïve")
         assert len(results) == 1
 
 
@@ -1649,273 +1629,113 @@ class TestStopwordFiltering:
 class TestHybridScoreNormalization:
     """Tests for blended RRF + semantic similarity scoring."""
 
-    @pytest.fixture
-    def service(self):
-        svc = SearchService()
-        svc._chunk_repo = MagicMock()
-        svc._book_repo = MagicMock()
-        svc._vector_store = MagicMock()
-        svc._embedder = MagicMock()
-        svc._embedder.embed_one.return_value = [0.1] * 1024
-        svc._book_cache["abc123"] = "Test Book"
-        return svc
+    def test_hybrid_scores_in_0_1_range(self, library):
+        for sim in (0.9, 0.7, 0.5):
+            library.add(_prose("query"), similarity=sim)
 
-    def test_hybrid_scores_in_0_1_range(self, service):
-        """Hybrid search blended scores are in [0, 1]."""
-        chunks = [
-            MagicMock(
-                id=f"c{i}",
-                book_id="abc123",
-                content="x" * 200,
-                content_type=ContentType.TEXT,
-                section_path=["Ch1"],
-            )
-            for i in range(3)
-        ]
-        service._chunk_repo.search_fts.return_value = chunks
+        results = library.service().search("query", mode="hybrid", top_k=3).results
 
-        service._vector_store.query.return_value = [
-            {"id": "c0", "distance": 0.1},
-            {"id": "c1", "distance": 0.3},
-            {"id": "c2", "distance": 0.5},
-        ]
-        service._chunk_repo.get.side_effect = lambda cid: next(
-            (c for c in chunks if c.id == cid), None
-        )
+        assert len(results) == 3
+        assert all(0.0 <= r.score <= 1.0 for r in results)
 
-        results = service.search("test query", mode="hybrid", top_k=3)
+    def test_hybrid_scores_follow_semantic_order(self, library):
+        """With no chunk holding every term, semantic similarity decides the order."""
+        chunks = [library.add(_prose("query"), similarity=sim) for sim in (0.5, 0.9, 0.7)]
 
-        assert len(results) >= 1
-        for r in results:
-            assert 0.0 <= r.score <= 1.0
+        results = library.service().search("query stages", mode="hybrid", top_k=3).results
 
-    def test_hybrid_scores_preserve_ranking(self, service):
-        """Blended scoring preserves the original ranking order."""
-        chunks = [
-            MagicMock(
-                id=f"c{i}",
-                book_id="abc123",
-                content="x" * 200,
-                content_type=ContentType.TEXT,
-                section_path=["Ch1"],
-            )
-            for i in range(3)
-        ]
-        service._chunk_repo.search_fts.return_value = chunks
-
-        service._vector_store.query.return_value = [
-            {"id": "c0", "distance": 0.1},
-            {"id": "c1", "distance": 0.3},
-            {"id": "c2", "distance": 0.5},
-        ]
-        service._chunk_repo.get.side_effect = lambda cid: next(
-            (c for c in chunks if c.id == cid), None
-        )
-
-        results = service.search("test query", mode="hybrid", top_k=3)
-
-        # Scores should be in descending order
+        assert [r.chunk_id for r in results] == [chunks[1].id, chunks[2].id, chunks[0].id]
         scores = [r.score for r in results]
         assert scores == sorted(scores, reverse=True)
 
-    def test_hybrid_blending_math(self, service):
-        """Verify blended score = 0.5 * norm_rrf + 0.5 * raw_sim for semantic hits."""
-        # Single chunk in both keyword and semantic results
-        chunk = MagicMock(
-            id="c0",
-            book_id="abc123",
-            content="x" * 200,
-            content_type=ContentType.TEXT,
-            section_path=["Ch1"],
-        )
-        service._chunk_repo.search_fts.return_value = [chunk]
-        # distance 0.3 => similarity 0.7
-        service._vector_store.query.return_value = [
-            {"id": "c0", "distance": 0.3},
-        ]
-        service._chunk_repo.get.side_effect = lambda cid: chunk if cid == "c0" else None
+    def test_hybrid_blending_math(self, library):
+        """Blended score = 0.5 * norm_rrf + 0.5 * raw_sim for a hit in both lists."""
+        library.add(_prose("query"), similarity=0.7)
 
-        results = service.search("test", mode="hybrid", top_k=1)
+        results = library.service().search("query", mode="hybrid", top_k=1).results
 
-        assert len(results) == 1
-        # norm_rrf = 1.0 (only result, so max), raw_sim = 0.7
-        # blended = 0.5 * 1.0 + 0.5 * 0.7 = 0.85
-        assert abs(results[0].score - 0.85) < 1e-6
+        # norm_rrf = 1.0 (the only result), raw_sim = 0.7
+        assert results[0].score == pytest.approx(0.85)
 
-    def test_hybrid_keyword_only_hit_discounted(self, service):
-        """Keyword-only hits (no semantic match) get discounted to 0.3 * norm_rrf."""
-        kw_chunk = MagicMock(
-            id="kw1",
-            book_id="abc123",
-            content="x" * 200,
-            content_type=ContentType.TEXT,
-            section_path=["Ch1"],
-        )
-        sem_chunk = MagicMock(
-            id="sem1",
-            book_id="abc123",
-            content="x" * 200,
-            content_type=ContentType.TEXT,
-            section_path=["Ch1"],
-        )
-        service._chunk_repo.search_fts.return_value = [kw_chunk, sem_chunk]
-        # Only sem1 in semantic results, distance 0.2 => sim 0.8
-        service._vector_store.query.return_value = [
-            {"id": "sem1", "distance": 0.2},
-        ]
-        service._chunk_repo.get.side_effect = lambda cid: (
-            kw_chunk if cid == "kw1" else sem_chunk if cid == "sem1" else None
-        )
+    def test_hybrid_keyword_only_hit_discounted(self, library):
+        """A keyword-only hit holding some query terms scores below a semantic hit."""
+        kw = library.add(_prose("pipeline"))
+        sem = library.add(_prose("pipeline"), similarity=0.8)
 
-        results = service.search("test", mode="hybrid", top_k=5)
+        results = library.service().search("pipeline stages", mode="hybrid", top_k=5).results
 
-        kw_result = next((r for r in results if r.chunk_id == "kw1"), None)
-        sem_result = next((r for r in results if r.chunk_id == "sem1"), None)
-        assert kw_result is not None
-        assert sem_result is not None
-        # Keyword-only hit should score lower than semantic hit
-        assert kw_result.score < sem_result.score
+        scores = {r.chunk_id: r.score for r in results}
+        assert scores[kw.id] < scores[sem.id]
 
-    @staticmethod
-    def _off_topic_search(service, similarity: float, every_term_matches: bool):
-        """Hybrid search where keyword OR-matches exist but semantic similarity is `similarity`."""
-        chunk = MagicMock(
-            id="c0",
-            book_id="abc123",
-            content="x" * 200,
-            content_type=ContentType.TEXT,
-            section_path=["Ch1"],
-        )
-        service._chunk_repo.search_fts.side_effect = lambda query, **kw: (
-            ([chunk] if every_term_matches else []) if kw.get("match_all") else [chunk]
-        )
-        service._vector_store.query.return_value = [{"id": "c0", "distance": 1.0 - similarity}]
-        service._chunk_repo.get.side_effect = lambda cid: chunk if cid == "c0" else None
-        return service.search("how do I bake sourdough bread", mode="hybrid", top_k=5)
-
-    def test_off_topic_query_returns_nothing(self, service):
+    def test_off_topic_query_returns_nothing(self, library):
         """A weak best semantic match with only partial keyword overlap is off-topic."""
-        assert self._off_topic_search(service, 0.2, every_term_matches=False) == []
+        library.add(_prose("bread"), similarity=0.2)
 
-    def test_weak_semantic_kept_when_every_term_matches(self, service):
+        service = library.service()
+
+        assert service.search(_SOURDOUGH, mode="hybrid", top_k=5).results == []
+
+    def test_weak_semantic_kept_when_every_term_matches(self, library):
         """A chunk containing every query term is a real keyword match, e.g. an identifier."""
-        assert len(self._off_topic_search(service, 0.2, every_term_matches=True)) == 1
+        hit = library.add(_prose("bake sourdough bread"), similarity=0.2)
 
-    def test_chunks_holding_every_term_outrank_unrelated_semantic_hits(self, service):
+        results = library.service().search(_SOURDOUGH, mode="hybrid", top_k=5).results
+
+        assert [r.chunk_id for r in results] == [hit.id]
+
+    def test_chunks_holding_every_term_outrank_unrelated_semantic_hits(self, library):
         """A rare identifier ("Swoosh") draws arbitrary semantic hits that score fairly high."""
+        exact1 = library.add(_prose("Swoosh Swoosh Swoosh"))
+        exact2 = library.add(_prose("Swoosh"))
+        noise = [library.add(_prose("unrelated"), similarity=0.64) for _ in range(3)]
 
-        def chunk(cid):
-            return MagicMock(
-                id=cid,
-                book_id="abc123",
-                content="x" * 200,
-                content_type=ContentType.TEXT,
-                section_path=["Ch1"],
-                sequence=0,
-            )
-
-        chunks = {cid: chunk(cid) for cid in ("exact1", "exact2", "noise1", "noise2", "noise3")}
-        exact = [chunks["exact1"], chunks["exact2"]]
-        service._chunk_repo.search_fts.side_effect = lambda query, **kw: exact
-        service._vector_store.query.return_value = [
-            {"id": cid, "distance": 0.36} for cid in ("noise1", "noise2", "noise3")
-        ]
-        service._chunk_repo.get.side_effect = chunks.get
-
-        results = service.search("Swoosh", mode="hybrid", top_k=5)
+        results = library.service().search("Swoosh", mode="hybrid", top_k=5).results
 
         # Each exact hit scores like the best semantic hit at its list rank; fusion lists it first.
-        assert [r.chunk_id for r in results] == ["exact1", "noise1", "exact2", "noise2", "noise3"]
+        assert [r.chunk_id for r in results] == [
+            exact1.id,
+            noise[0].id,
+            exact2.id,
+            noise[1].id,
+            noise[2].id,
+        ]
 
-    def test_bibliography_holding_every_term_gets_no_boost(self, service):
+    def test_bibliography_holding_every_term_gets_no_boost(self, library):
         """Indexes and bibliographies hold every term of most queries."""
-        biblio, topical = (
-            MagicMock(
-                id=cid,
-                book_id="abc123",
-                content="x" * 200,
-                content_type=ContentType.TEXT,
-                section_path=path,
-                sequence=0,
-            )
-            for cid, path in (("biblio", ["Bibliography"]), ("topical", ["8. Instance Matching"]))
-        )
-        service._chunk_repo.search_fts.side_effect = lambda query, **kw: [biblio]
-        service._vector_store.query.return_value = [{"id": "topical", "distance": 0.3}]
-        service._chunk_repo.get.side_effect = {"biblio": biblio, "topical": topical}.get
+        library.add(_prose("entity resolution"), section=["Bibliography"])
+        topical = library.add(_prose("matching"), similarity=0.7, section=["8. Instance Matching"])
 
-        results = service.search("entity resolution", mode="hybrid", top_k=1)
+        results = library.service().search("entity resolution", mode="hybrid", top_k=1).results
 
-        assert [r.chunk_id for r in results] == ["topical"]
+        assert [r.chunk_id for r in results] == [topical.id]
 
-    def test_bibliography_holding_every_term_does_not_pass_the_off_topic_gate(self, service):
-        biblio = MagicMock(
-            id="biblio",
-            book_id="abc123",
-            content="x" * 200,
-            content_type=ContentType.TEXT,
-            section_path=["Bibliography"],
-            sequence=0,
-        )
-        service._chunk_repo.search_fts.side_effect = lambda query, **kw: [biblio]
-        service._vector_store.query.return_value = [{"id": "biblio", "distance": 0.8}]
-        service._chunk_repo.get.side_effect = {"biblio": biblio}.get
+    def test_bibliography_holding_every_term_does_not_pass_the_off_topic_gate(self, library):
+        library.add(_prose("bake sourdough bread"), similarity=0.2, section=["Bibliography"])
 
-        assert service.search("how do I bake sourdough bread", mode="hybrid") == []
+        assert library.service().search(_SOURDOUGH, mode="hybrid").results == []
 
-    def test_off_topic_gate_uses_env_floor(self, service, monkeypatch):
+    def test_off_topic_gate_uses_env_floor(self, library, monkeypatch):
         """The gate follows MNEMO_SEMANTIC_MIN_SCORE, so it works on other models' scales."""
         monkeypatch.setenv("MNEMO_SEMANTIC_MIN_SCORE", "0.5")
-        svc = SearchService()
-        svc._chunk_repo, svc._vector_store = service._chunk_repo, service._vector_store
-        svc._embedder, svc._book_cache = service._embedder, service._book_cache
-        assert self._off_topic_search(svc, 0.45, every_term_matches=False) == []
+        library.add(_prose("bread"), similarity=0.45)
 
-    def test_good_semantic_match_passes_gate(self, service):
+        assert library.service().search(_SOURDOUGH, mode="hybrid", top_k=5).results == []
+
+    def test_good_semantic_match_passes_gate(self, library):
         """Semantic-only hits with decent similarity still return results."""
-        chunks = [
-            MagicMock(
-                id=f"c{i}",
-                book_id="abc123",
-                content="x" * 200,
-                content_type=ContentType.TEXT,
-                section_path=["Ch1"],
-            )
-            for i in range(3)
-        ]
-        service._chunk_repo.search_fts.return_value = []  # No keyword hits
+        library.add(_prose("unrelated"), similarity=0.7)
+        library.add(_prose("unrelated"), similarity=0.6)
 
-        # Semantic-only hits with decent similarity still return results
-        service._vector_store.query.return_value = [
-            {"id": "c0", "distance": 0.3},
-            {"id": "c1", "distance": 0.4},
-        ]
-        service._chunk_repo.get.side_effect = lambda cid: next(
-            (c for c in chunks if c.id == cid), None
-        )
+        results = library.service().search("real query", mode="hybrid", top_k=5).results
 
-        results = service.search("real query", mode="hybrid", top_k=5)
-        assert len(results) >= 1  # Good similarity should return results
+        assert len(results) == 2
 
-    def test_good_query_returns_high_scores(self, service):
+    def test_good_query_returns_high_scores(self, library):
         """A well-matched query produces scores reflecting actual semantic relevance."""
-        chunk = MagicMock(
-            id="c0",
-            book_id="abc123",
-            content="x" * 200,
-            content_type=ContentType.TEXT,
-            section_path=["Ch1"],
-        )
-        service._chunk_repo.search_fts.return_value = [chunk]
-        # Good match: distance 0.1 => similarity 0.9
-        service._vector_store.query.return_value = [
-            {"id": "c0", "distance": 0.1},
-        ]
-        service._chunk_repo.get.side_effect = lambda cid: chunk if cid == "c0" else None
+        library.add(_prose("query"), similarity=0.9)
 
-        results = service.search("well matched query", mode="hybrid", top_k=1)
+        results = library.service().search("well matched query", mode="hybrid", top_k=1).results
 
-        assert len(results) == 1
         # blended = 0.5 * 1.0 + 0.5 * 0.9 = 0.95
         assert results[0].score > 0.9
 
@@ -1928,51 +1748,18 @@ class TestHybridScoreNormalization:
 class TestKeywordNoiseFiltering:
     """Tests for filtering low-quality keyword-only results in hybrid search."""
 
-    @pytest.fixture
-    def service(self):
-        svc = SearchService()
-        svc._chunk_repo = MagicMock()
-        svc._book_repo = MagicMock()
-        svc._vector_store = MagicMock()
-        svc._embedder = MagicMock()
-        svc._embedder.embed_one.return_value = [0.1] * 1024
-        svc._book_cache["abc123"] = "Test Book"
-        svc._book_cache["def456"] = "Other Book"
-        return svc
+    def test_keyword_only_low_rank_filtered(self, library):
+        """A long-tail keyword-only hit stays out after the collection filter thins the results."""
+        library.add_book("def456", "Other", collection="Other")
+        library.add_book("aaa111", "Mine", collection="Mine")
+        for _ in range(5):
+            library.add(_prose("query query query"), book_id="def456")
+        library.add(_prose("unrelated"), similarity=0.8, book_id="def456")
+        library.add(_prose("query"), book_id="aaa111")  # keyword rank 6 of 6
 
-    def test_keyword_only_low_rank_filtered(self, service):
-        """Keyword-only results beyond top_k rank are filtered from hybrid results."""
-        # Create many keyword results - the ones beyond top_k that are keyword-only
-        # should be filtered
-        keyword_chunks = [
-            MagicMock(
-                id=f"kw{i}",
-                book_id="abc123",
-                content=f"Keyword content {i}",
-                content_type=ContentType.TEXT,
-                section_path=["Ch1"],
-            )
-            for i in range(20)
-        ]
-        service._chunk_repo.search_fts.return_value = keyword_chunks
+        response = library.service().search("test query", mode="hybrid", top_k=1, collection="Mine")
 
-        # Semantic results only include first 3
-        service._vector_store.query.return_value = [
-            {"id": "kw0", "distance": 0.1},
-            {"id": "kw1", "distance": 0.3},
-            {"id": "kw2", "distance": 0.5},
-        ]
-        service._chunk_repo.get.side_effect = lambda cid: next(
-            (c for c in keyword_chunks if c.id == cid), None
-        )
-
-        results = service.search("test query", mode="hybrid", top_k=5)
-
-        # Results beyond keyword rank 5 that are keyword-only should be filtered
-        result_ids = {r.chunk_id for r in results}
-        # kw10, kw15 etc. should not appear (they're keyword-only and low-ranked)
-        assert "kw10" not in result_ids
-        assert "kw15" not in result_ids
+        assert response.results == []
 
 
 # ============================================================================
@@ -2118,54 +1905,15 @@ class TestQualityPenalties:
 class TestSemanticFloor:
     """Tests for SEMANTIC_FLOOR discounting in hybrid search."""
 
-    @pytest.fixture
-    def service(self):
-        svc = SearchService()
-        svc._chunk_repo = MagicMock()
-        svc._book_repo = MagicMock()
-        svc._vector_store = MagicMock()
-        svc._embedder = MagicMock()
-        svc._embedder.embed_one.return_value = [0.1] * 1024
-        svc._book_cache["abc123"] = "Test Book"
-        return svc
+    def test_weak_semantic_discounted(self, library):
+        """Results with semantic similarity below SEMANTIC_FLOOR get a discounted blend."""
+        weak = library.add(_prose("pipeline"), similarity=0.3)
+        strong = library.add(_prose("pipeline"), similarity=0.9)
 
-    def test_weak_semantic_discounted(self, service):
-        """Results with semantic similarity below SEMANTIC_FLOOR get discounted blend."""
-        kw_chunk = MagicMock(
-            id="c1",
-            book_id="abc123",
-            content="x" * 200,
-            content_type=ContentType.TEXT,
-            section_path=["Ch1"],
-        )
-        strong_chunk = MagicMock(
-            id="c2",
-            book_id="abc123",
-            content="x" * 200,
-            content_type=ContentType.TEXT,
-            section_path=["Ch1"],
-        )
-        service._chunk_repo.search_fts.side_effect = lambda query, **kw: (
-            [] if kw.get("match_all") else [kw_chunk, strong_chunk]
-        )
-        # c1: weak semantic (distance 0.7 => sim 0.3, below SEMANTIC_FLOOR)
-        # c2: strong semantic (distance 0.1 => sim 0.9, above SEMANTIC_FLOOR)
-        service._vector_store.query.return_value = [
-            {"id": "c1", "distance": 0.7},
-            {"id": "c2", "distance": 0.1},
-        ]
-        service._chunk_repo.get.side_effect = lambda cid: (
-            kw_chunk if cid == "c1" else strong_chunk if cid == "c2" else None
-        )
+        results = library.service().search("pipeline stages", mode="hybrid", top_k=5).results
 
-        results = service.search("test", mode="hybrid", top_k=5)
-
-        weak = next((r for r in results if r.chunk_id == "c1"), None)
-        strong = next((r for r in results if r.chunk_id == "c2"), None)
-        assert weak is not None
-        assert strong is not None
-        # Weak semantic result should score much lower than strong
-        assert weak.score < strong.score * 0.6
+        scores = {r.chunk_id: r.score for r in results}
+        assert scores[weak.id] < scores[strong.id] * 0.6
 
 
 # ============================================================================
@@ -2173,17 +1921,13 @@ class TestSemanticFloor:
 # ============================================================================
 
 
-class TestSuggestSections:
-    """Tests for SearchService.suggest_sections."""
+class TestEmptyReason:
+    """What search says when a section filter finds nothing."""
 
-    def test_substring_match(self, tmp_path):
+    def test_substring_match(self, library):
         """Suggests sections containing the query as a substring."""
-        service = SearchService(
-            db_path=tmp_path / "test.db",
-            chroma_path=tmp_path / "chroma",
-        )
-        service._ensure_initialized()
-        assert service._chunk_repo is not None
+        lib = library
+        service = lib.service()
 
         # Insert a book and chunks with known section paths
         book = Book(
@@ -2193,11 +1937,11 @@ class TestSuggestSections:
             file_hash="a" * 64,
             structure_source="toc",
         )
-        service._book_repo.add(book)
+        lib.books.add(book)
         for i, section in enumerate(
             [
-                ["Chapter 6. Enriching Knowledge Graphs"],
-                ["Chapter 6. Enriching Knowledge Graphs", "Graph Algorithms"],
+                ["Chapter 60. Enriching Knowledge Graphs"],
+                ["Chapter 60. Enriching Knowledge Graphs", "Graph Algorithms"],
                 ["Chapter 7. Machine Learning"],
             ]
         ):
@@ -2211,20 +1955,21 @@ class TestSuggestSections:
                 language="en",
                 sequence=i,
             )
-            service._chunk_repo.add_many([chunk])
+            lib.chunks.add_many([chunk])
 
-        suggestions = service.suggest_sections("Chapter 6", book_id="a1b2c3")
-        assert len(suggestions) >= 1
-        assert any("Chapter 6" in s for s in suggestions)
-
-    def test_fuzzy_match(self, tmp_path):
-        """Falls back to fuzzy matching when no substring match."""
-        service = SearchService(
-            db_path=tmp_path / "test.db",
-            chroma_path=tmp_path / "chroma",
+        # "Chapter 6" does not match "Chapter 60", but it is suggested.
+        response = service.search("x", mode="keyword", section="Chapter 6", book_id="a1b2c3")
+        assert response.results == []
+        assert response.empty_reason == EmptyReason(
+            "section_not_found",
+            'No results found for: x in section "Chapter 6". '
+            'Did you mean: "Chapter 60. Enriching Knowledge Graphs"?',
         )
-        service._ensure_initialized()
-        assert service._chunk_repo is not None
+
+    def test_fuzzy_match(self, library):
+        """Falls back to fuzzy matching when no substring match."""
+        lib = library
+        service = lib.service()
 
         book = Book(
             id="d4e5f6",
@@ -2233,7 +1978,7 @@ class TestSuggestSections:
             file_hash="b" * 64,
             structure_source="toc",
         )
-        service._book_repo.add(book)
+        lib.books.add(book)
         chunk = Chunk(
             book_id="d4e5f6",
             content="x" * 200,
@@ -2244,16 +1989,18 @@ class TestSuggestSections:
             language="en",
             sequence=0,
         )
-        service._chunk_repo.add_many([chunk])
+        lib.chunks.add_many([chunk])
 
-        suggestions = service.suggest_sections("Experimenting Graph Science", book_id="d4e5f6")
-        assert len(suggestions) >= 1
-        assert "Experimenting with Graph Data Science" in suggestions
+        response = service.search(
+            "x", mode="keyword", section="Experimenting Graph Science", book_id="d4e5f6"
+        )
+        assert response.empty_reason is not None
+        assert response.empty_reason.kind == "section_not_found"
+        assert '"Experimenting with Graph Data Science"' in response.empty_reason.message
 
-    def test_section_chunk_count_uses_the_filter_rules(self, tmp_path):
-        service = SearchService(db_path=tmp_path / "test.db", chroma_path=tmp_path / "chroma")
-        service._ensure_initialized()
-        assert service._chunk_repo is not None and service._book_repo is not None
+    def test_section_chunk_count_uses_the_filter_rules(self, library):
+        lib = library
+        service = lib.service()
         for book_id, paths in {
             "a1b2c3": [
                 ["Chapter 6", "Prot\u00e9g\u00e9"],
@@ -2262,7 +2009,7 @@ class TestSuggestSections:
             ],
             "d4e5f6": [["Chapter 6"]],
         }.items():
-            service._book_repo.add(
+            lib.books.add(
                 Book(
                     id=book_id,
                     title="T",
@@ -2271,7 +2018,7 @@ class TestSuggestSections:
                     structure_source="toc",
                 )
             )
-            service._chunk_repo.add_many(
+            lib.chunks.add_many(
                 [
                     Chunk(
                         book_id=book_id,
@@ -2286,16 +2033,23 @@ class TestSuggestSections:
                 ]
             )
 
-        assert service.count_section_chunks("chapter 6", book_id="a1b2c3") == 2
-        assert service.count_section_chunks("Protege") == 2
-        assert service.count_section_chunks("Chapter 6") == 3
-        assert service.count_section_chunks("Glossary") == 0
+        def reason(section: str, book_id: str | None = None) -> EmptyReason:
+            response = service.search("zebra", mode="keyword", section=section, book_id=book_id)
+            assert response.empty_reason is not None
+            return response.empty_reason
 
-    def test_section_match_crowded_out_by_other_sections_is_still_found(self, tmp_path):
-        service = SearchService(db_path=tmp_path / "test.db", chroma_path=tmp_path / "chroma")
-        service._ensure_initialized()
-        assert service._chunk_repo is not None and service._book_repo is not None
-        service._book_repo.add(
+        assert reason("chapter 6", "a1b2c3") == EmptyReason(
+            "section_without_query_words",
+            'Section "chapter 6" has 2 chunks, but none contains a word of: zebra.',
+        )
+        assert "has 2 chunks" in reason("Protege").message
+        assert "has 3 chunks" in reason("Chapter 6").message
+        assert reason("Glossary").kind != "section_without_query_words"
+
+    def test_section_match_crowded_out_by_other_sections_is_still_found(self, library):
+        lib = library
+        service = lib.service()
+        lib.books.add(
             Book(id="a1b2c3", title="T", authors=[], file_hash="a" * 64, structure_source="toc")
         )
         crowd = [
@@ -2317,20 +2071,19 @@ class TestSuggestSections:
             section_path=["Ch2", "Glossary terms"],
             sequence=80,
         )
-        service._chunk_repo.add_many([*crowd, glossary])
+        lib.chunks.add_many([*crowd, glossary])
 
-        results = service.search("pipeline", mode="keyword", section="Glossary terms")
+        results = service.search("pipeline", mode="keyword", section="Glossary terms").results
 
         assert [r.chunk_id for r in results] == [glossary.id]
 
-    def test_keyword_results_carry_every_section_the_chunk_spans(self, tmp_path):
-        service = SearchService(db_path=tmp_path / "test.db", chroma_path=tmp_path / "chroma")
-        service._ensure_initialized()
-        assert service._chunk_repo is not None and service._book_repo is not None
-        service._book_repo.add(
+    def test_keyword_results_carry_every_section_the_chunk_spans(self, library):
+        lib = library
+        service = lib.service()
+        lib.books.add(
             Book(id="a1b2c3", title="T", authors=[], file_hash="a" * 64, structure_source="toc")
         )
-        service._chunk_repo.add_many(
+        lib.chunks.add_many(
             [
                 Chunk(
                     book_id="a1b2c3",
@@ -2344,19 +2097,18 @@ class TestSuggestSections:
             ]
         )
 
-        results = service.search("SPARQL", mode="keyword")
+        results = service.search("SPARQL", mode="keyword").results
 
         assert results[0].sections == ["The query layer", "Example SPARQL query"]
 
     def test_empty_library_returns_empty(self, tmp_path):
-        """Returns empty list when no sections exist."""
+        """With no sections to suggest, the miss is a plain no-match."""
         service = SearchService(
             db_path=tmp_path / "test.db",
             chroma_path=tmp_path / "chroma",
         )
-        service._ensure_initialized()
-        suggestions = service.suggest_sections("anything")
-        assert suggestions == []
+        response = service.search("anything", mode="keyword", section="anything")
+        assert response.empty_reason == EmptyReason("no_match", "No results found for: anything")
 
 
 # ============================================================================
@@ -2434,11 +2186,12 @@ class TestSemanticScoreFloor:
 
     @pytest.fixture
     def service(self, mock_chunk_repo, mock_book_repo, mock_vector_store, mock_embedder):
-        svc = SearchService()
-        svc._chunk_repo = mock_chunk_repo
-        svc._book_repo = mock_book_repo
-        svc._vector_store = mock_vector_store
-        svc._embedder = mock_embedder
+        svc = SearchService(
+            chunks=mock_chunk_repo,
+            books=mock_book_repo,
+            vectors=mock_vector_store,
+            embedder=mock_embedder,
+        )
         return svc
 
     def test_low_score_results_filtered(self, service, mock_vector_store, mock_chunk_repo):
@@ -2457,7 +2210,7 @@ class TestSemanticScoreFloor:
         mock_chunk_repo.get.return_value = mock_chunk
         service._book_cache["abc123"] = "Test Book"
 
-        results = service.search("test", mode="semantic")
+        results = service.search("test", mode="semantic").results
         assert len(results) == 0
 
     def test_above_floor_results_kept(self, service, mock_vector_store, mock_chunk_repo):
@@ -2476,7 +2229,7 @@ class TestSemanticScoreFloor:
         mock_chunk_repo.get.return_value = mock_chunk
         service._book_cache["abc123"] = "Test Book"
 
-        results = service.search("test", mode="semantic")
+        results = service.search("test", mode="semantic").results
         assert len(results) == 1
         assert results[0].score == pytest.approx(0.3)
 
@@ -2504,7 +2257,7 @@ class TestSemanticScoreFloor:
         mock_chunk_repo.get.side_effect = lambda cid: chunks[cid]
         service._book_cache["abc123"] = "Test Book"
 
-        results = service.search("test", mode="semantic")
+        results = service.search("test", mode="semantic").results
         assert len(results) == 1
         assert results[0].score == pytest.approx(0.8)
 
@@ -2513,162 +2266,147 @@ class TestSemanticMinScoreEnv:
     """MNEMO_SEMANTIC_MIN_SCORE overrides MIN_SEMANTIC_SCORE for other models' scales."""
 
     @staticmethod
-    def _search_at_similarity(similarity: float) -> list[SearchResult]:
-        svc = SearchService()
-        svc._chunk_repo = MagicMock()
-        svc._book_repo = MagicMock()
-        svc._vector_store = MagicMock()
-        svc._embedder = MagicMock()
-        svc._embedder.embed_one.return_value = [0.1] * 1024
-        svc._vector_store.query.return_value = [
-            {"id": "chunk-1", "distance": 1.0 - similarity, "metadata": {}, "document": None},
-        ]
-        svc._chunk_repo.get.return_value = MagicMock(
-            id="chunk-1",
-            book_id="abc123",
-            content="x" * 200,
-            content_type=ContentType.TEXT,
-            section_path=["Ch1"],
-        )
-        svc._book_cache["abc123"] = "Test Book"
-        return svc.search("test", mode="semantic")
+    def _search_at_similarity(tmp_path: Path, similarity: float) -> list[SearchResult]:
+        lib = Library(tmp_path / str(similarity))
+        lib.add(_prose("unrelated"), similarity=similarity)
+        try:
+            return lib.service().search("test", mode="semantic").results
+        finally:
+            lib.close()
 
-    def test_env_raises_floor(self, monkeypatch):
+    def test_env_raises_floor(self, monkeypatch, tmp_path):
         monkeypatch.setenv("MNEMO_SEMANTIC_MIN_SCORE", "0.5")
-        assert self._search_at_similarity(0.45) == []
+        assert self._search_at_similarity(tmp_path, 0.45) == []
 
-    def test_env_lowers_floor(self, monkeypatch):
+    def test_env_lowers_floor(self, monkeypatch, tmp_path):
         monkeypatch.setenv("MNEMO_SEMANTIC_MIN_SCORE", "0.1")
-        assert len(self._search_at_similarity(0.2)) == 1
+        assert len(self._search_at_similarity(tmp_path, 0.2)) == 1
 
     @pytest.mark.parametrize("raw", ["abc", "1.5", "-0.1", "nan"])
-    def test_invalid_env_falls_back_to_default(self, monkeypatch, caplog, raw):
+    def test_invalid_env_falls_back_to_default(self, monkeypatch, caplog, tmp_path, raw):
         monkeypatch.setenv("MNEMO_SEMANTIC_MIN_SCORE", raw)
-        assert len(self._search_at_similarity(0.3)) == 1
-        assert self._search_at_similarity(0.2) == []
+        assert len(self._search_at_similarity(tmp_path, 0.3)) == 1
+        assert self._search_at_similarity(tmp_path, 0.2) == []
         assert "MNEMO_SEMANTIC_MIN_SCORE" in caplog.text
 
 
 class TestSearchServiceCollection:
     """Tests for collection-based search filtering."""
 
-    def test_search_with_collection_filters_results(self):
+    def test_search_with_collection_filters_results(self, library):
         """search() with collection returns only results from that collection's books."""
-        from unittest.mock import MagicMock, patch
+        library.add_book("aaa111", "A", collection="My Collection")
+        library.add_book("bbb222", "B", collection="My Collection")
+        library.add_book("ccc333", "C", collection="Other")
+        for book_id in ("aaa111", "ccc333", "bbb222"):
+            library.add(_prose("pipeline"), book_id=book_id)
 
-        from mnemo.search.models import SearchResult
-        from mnemo.search.service import SearchService
+        results = (
+            library.service().search("pipeline", mode="keyword", collection="My Collection").results
+        )
 
-        service = SearchService.__new__(SearchService)
-        service._db_path = None
-        service._chroma_path = None
-        service._book_cache = {}
-
-        # Mock BookRepository to return 2 books in collection
-        mock_book_repo = MagicMock()
-        mock_book_repo.list_by_collection.return_value = [
-            MagicMock(id="aaa111"),
-            MagicMock(id="bbb222"),
-        ]
-        service._book_repo = mock_book_repo
-
-        # Mock chunk repo and vector store
-        mock_chunk_repo = MagicMock()
-        mock_chunk_repo.search_fts.return_value = []
-        service._chunk_repo = mock_chunk_repo
-
-        mock_vector_store = MagicMock()
-        mock_vector_store.query.return_value = []
-        service._vector_store = mock_vector_store
-
-        service._embedder = MagicMock()
-
-        # Provide results from 3 books: aaa111, bbb222, ccc333
-        fake_results = [
-            SearchResult(
-                chunk_id="c1",
-                book_id="aaa111",
-                book_title="A",
-                content="text",
-                content_type="text",
-                section_path=[],
-                score=0.9,
-                source="keyword",
-                sequence=0,
-            ),
-            SearchResult(
-                chunk_id="c2",
-                book_id="ccc333",
-                book_title="C",
-                content="text",
-                content_type="text",
-                section_path=[],
-                score=0.8,
-                source="keyword",
-                sequence=0,
-            ),
-            SearchResult(
-                chunk_id="c3",
-                book_id="bbb222",
-                book_title="B",
-                content="text",
-                content_type="text",
-                section_path=[],
-                score=0.7,
-                source="keyword",
-                sequence=0,
-            ),
-        ]
-
-        with (
-            patch.object(service, "_keyword_search", return_value=fake_results),
-            patch.object(service, "_ensure_initialized"),
-            patch.object(service, "_apply_quality_penalties", side_effect=lambda x: x),
-            patch.object(service, "_diversify_results", side_effect=lambda x, k: x),
-        ):
-            results = service.search("test", mode="keyword", collection="My Collection")
-
-        # ccc333 should be filtered out
-        assert len(results) == 2
         assert {r.book_id for r in results} == {"aaa111", "bbb222"}
 
-    def test_search_without_collection_returns_all(self):
-        """search() without collection does not filter by book_id set."""
-        from unittest.mock import MagicMock, patch
+    def test_search_without_collection_returns_all(self, library):
+        """search() without collection searches every book."""
+        library.add_book("aaa111", "A", collection="My Collection")
+        library.add(_prose("pipeline"), book_id="aaa111")
+        library.add(_prose("pipeline"))
 
-        from mnemo.search.models import SearchResult
-        from mnemo.search.service import SearchService
+        results = library.service().search("pipeline", mode="keyword").results
 
-        service = SearchService.__new__(SearchService)
-        service._db_path = None
-        service._chroma_path = None
-        service._book_cache = {}
-        service._book_repo = MagicMock()
-        service._chunk_repo = MagicMock()
-        service._vector_store = MagicMock()
-        service._embedder = MagicMock()
+        assert {r.book_id for r in results} == {"aaa111", "abc123"}
 
-        fake_results = [
-            SearchResult(
-                chunk_id="c1",
-                book_id="aaa111",
-                book_title="A",
-                content="text",
-                content_type="text",
-                section_path=[],
-                score=0.9,
-                source="keyword",
-                sequence=0,
-            ),
-        ]
 
-        with (
-            patch.object(service, "_keyword_search", return_value=fake_results),
-            patch.object(service, "_ensure_initialized"),
-            patch.object(service, "_apply_quality_penalties", side_effect=lambda x: x),
-            patch.object(service, "_diversify_results", side_effect=lambda x, k: x),
-        ):
-            results = service.search("test", mode="keyword")
+def _seeded_service(lib: Library, chunks: list[Chunk]) -> SearchService:
+    lib.books.add(
+        Book(id="a1b2c3", title="T", authors=[], file_hash="a" * 64, structure_source="toc")
+    )
+    lib.chunks.add_many(chunks)
+    return lib.service()
 
-        assert len(results) == 1
-        service._book_repo.list_by_collection.assert_not_called()
+
+def _chunk(content: str, kind: ContentType, path: list[str], seq: int) -> Chunk:
+    return Chunk(
+        book_id="a1b2c3",
+        content=content,
+        content_type=kind,
+        token_count=max(1, len(content) // 4),
+        section_path=path,
+        sequence=seq,
+    )
+
+
+class TestSectionMissUnderFilters:
+    """A section miss under a type or collection filter names the filter, not a typo."""
+
+    @pytest.fixture
+    def glossaries(self, library):
+        return _seeded_service(
+            library,
+            [
+                _chunk("An axiom is a statement. " * 8, ContentType.TEXT, ["Glossary"], 0),
+                _chunk("A lemma is a step. " * 8, ContentType.TEXT, ["Glossary of terms"], 1),
+                _chunk("def axiom(): ...", ContentType.CODE, ["Listings"], 2),
+            ],
+        )
+
+    def test_existing_section_excluded_by_type_says_so(self, glossaries):
+        response = glossaries.search(
+            "axiom", mode="keyword", section="Glossary", content_type="code"
+        )
+
+        assert response.empty_reason == EmptyReason(
+            "section_filtered_out",
+            'Section "Glossary" has no chunks matching content type "code".',
+        )
+
+    def test_suggestions_are_sections_the_filter_admits(self, glossaries):
+        response = glossaries.search(
+            "axiom", mode="keyword", section="Lisitngs", content_type="code"
+        )
+        assert response.empty_reason is not None
+        assert response.empty_reason.message.endswith('Did you mean: "Listings"?')
+
+        text_only = glossaries.search(
+            "axiom", mode="keyword", section="Glossary terms", content_type="code"
+        )
+        assert text_only.empty_reason == EmptyReason("no_match", "No results found for: axiom")
+
+
+class TestTerseHitContext:
+    """Small code, diagram and math hits come back with their neighbours."""
+
+    def test_small_code_hit_carries_its_neighbours(self, library):
+        intro = _chunk("Call head_view to draw attention maps. " * 4, ContentType.TEXT, ["Ch1"], 0)
+        code = _chunk("head_view(attention, tokens)", ContentType.CODE, ["Ch1"], 1)
+        service = _seeded_service(library, [intro, code])
+
+        response = service.search("head_view", mode="keyword", content_type="code")
+
+        assert [r.chunk_id for r in response.results] == [code.id]
+        context = response.context[code.id]
+        assert [c.id for c in context["chunks"]] == [intro.id, code.id]
+
+    def test_large_code_and_text_hits_carry_none(self, library):
+        service = _seeded_service(
+            library,
+            [
+                _chunk("def pipeline():\n    return 1\n" * 12, ContentType.CODE, ["Ch1"], 0),
+                _chunk("A pipeline note.", ContentType.TEXT, ["Ch1"], 1),
+            ],
+        )
+
+        response = service.search("pipeline", mode="keyword")
+
+        assert len(response.results) == 2
+        assert response.context == {}
+
+    def test_expanded_results_carry_none(self, library):
+        code = _chunk("head_view(attention, tokens)", ContentType.CODE, ["Ch1"], 0)
+        service = _seeded_service(library, [code])
+
+        response = service.search("head_view", mode="keyword", context_window=1)
+
+        assert response.context == {}
+        assert response.empty_reason is None

@@ -418,9 +418,8 @@ class FakeEmbedder:
     def embed_one(self, text):
         return [1.0] + [0.0] * 7
 
-svc = SearchService(db_path=db_path, chroma_path=chroma_path)
-svc._embedder = FakeEmbedder()
-hits = svc.search("hello", mode="semantic")
+svc = SearchService(db_path=db_path, chroma_path=chroma_path, embedder=FakeEmbedder())
+hits = svc.search("hello", mode="semantic").results
 print("hits", len(hits))
 
 import mnemo.ingest
