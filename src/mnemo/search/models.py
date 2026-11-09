@@ -90,7 +90,13 @@ class ExpandedResult(TypedDict):
     result: SearchResult
 
 
-EmptyKind = Literal["no_match", "section_without_query_words", "section_not_found"]
+EmptyKind = Literal[
+    "empty_query",
+    "no_match",
+    "section_without_query_words",
+    "section_filtered_out",
+    "section_not_found",
+]
 
 
 @dataclass(frozen=True)

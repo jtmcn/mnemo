@@ -245,8 +245,10 @@ class TestSearchServiceValidation:
 
     def test_empty_query_returns_empty(self, service):
         """Empty query returns empty list without error."""
-        assert service.search("").results == []
-        assert service.search("   ").results == []
+        for query in ("", "   "):
+            response = service.search(query)
+            assert response.results == []
+            assert response.empty_reason == EmptyReason("empty_query", "Query cannot be empty")
 
     def test_invalid_mode_raises(self, service):
         """Invalid mode raises ValueError."""
@@ -2715,22 +2717,40 @@ def _chunk(content: str, kind: ContentType, path: list[str], seq: int) -> Chunk:
 
 
 class TestSectionMissUnderFilters:
-    def test_a_section_is_not_suggested_as_itself(self, tmp_path):
-        """Filtered to code, "Glossary" admits nothing; suggesting it back would loop."""
-        service = _seeded_service(
+    """A section miss under a type or collection filter names the filter, not a typo."""
+
+    @pytest.fixture
+    def glossaries(self, tmp_path):
+        return _seeded_service(
             tmp_path,
             [
                 _chunk("An axiom is a statement. " * 8, ContentType.TEXT, ["Glossary"], 0),
                 _chunk("A lemma is a step. " * 8, ContentType.TEXT, ["Glossary of terms"], 1),
+                _chunk("def axiom(): ...", ContentType.CODE, ["Listings"], 2),
             ],
         )
 
-        response = service.search("axiom", mode="keyword", section="Glossary", content_type="code")
+    def test_existing_section_excluded_by_type_says_so(self, glossaries):
+        response = glossaries.search(
+            "axiom", mode="keyword", section="Glossary", content_type="code"
+        )
 
         assert response.empty_reason == EmptyReason(
-            "section_not_found",
-            'No results found for: axiom in section "Glossary". Did you mean: "Glossary of terms"?',
+            "section_filtered_out",
+            'Section "Glossary" has no chunks matching content type "code".',
         )
+
+    def test_suggestions_are_sections_the_filter_admits(self, glossaries):
+        response = glossaries.search(
+            "axiom", mode="keyword", section="Lisitngs", content_type="code"
+        )
+        assert response.empty_reason is not None
+        assert response.empty_reason.message.endswith('Did you mean: "Listings"?')
+
+        text_only = glossaries.search(
+            "axiom", mode="keyword", section="Glossary terms", content_type="code"
+        )
+        assert text_only.empty_reason == EmptyReason("no_match", "No results found for: axiom")
 
 
 class TestTerseHitContext:

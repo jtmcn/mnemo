@@ -86,6 +86,20 @@ pre-composed `message`, plus the counts and headline wording front ends show.
 
 A run is *ok* unless a row is `partial` or `failed`.
 
+## Empty Reason
+
+Why a search found nothing, composed by search so every front end says it the
+same way.
+
+- **`empty_query`** — the query was blank.
+- **`no_match`** — nothing matched.
+- **`section_without_query_words`** — the section has chunks, but none contains
+  a word of the query.
+- **`section_filtered_out`** — the section exists, but the content type or
+  Collection filter excludes all of it.
+- **`section_not_found`** — no such section; similar section names the filters
+  admit are suggested.
+
 ## Note
 
 An advisory finding attached to an Intake Outcome that does not change what

@@ -669,10 +669,6 @@ class TestSearchBooksIntegration:
 
         mock_service = MagicMock()
         mock_service.search.return_value = SearchResponse(
-            [], EmptyReason("no_match", "No results found for: test")
-        )
-
-        mock_service.search.return_value = SearchResponse(
             [], EmptyReason("no_match", "No results found for: nonexistent query")
         )
 
@@ -1773,7 +1769,7 @@ class TestSearchBooksSectionMessages:
             search_service=self._glossary_service(tmp_path),
         )
 
-        assert result == "No results found for: axiom"
+        assert result == 'Section "Glossary terms" has no chunks matching content type "code".'
 
     def test_section_count_applies_the_collection_filter(self, tmp_path):
         from mnemo.mcp.tools_search import _search_books_impl

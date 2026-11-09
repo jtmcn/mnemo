@@ -635,31 +635,6 @@ class ChunkRepository:
         rows = self.conn.execute(sql + " GROUP BY section_path", params).fetchall()
         return [(json.loads(row["section_path"]), row["n"]) for row in rows]
 
-    def get_distinct_sections(self, book_id: str | None = None) -> list[str]:
-        """Return unique section path elements across chunks.
-
-        Args:
-            book_id: Optional book ID to scope the query
-
-        Returns:
-            Sorted list of unique section names (individual path elements,
-            not full paths)
-        """
-        if book_id:
-            rows = self.conn.execute(
-                "SELECT DISTINCT section_path FROM chunks WHERE book_id = ?",
-                (book_id,),
-            ).fetchall()
-        else:
-            rows = self.conn.execute("SELECT DISTINCT section_path FROM chunks").fetchall()
-
-        sections: set[str] = set()
-        for row in rows:
-            for element in json.loads(row["section_path"]):
-                if element:
-                    sections.add(element)
-        return sorted(sections)
-
     def _row_to_chunk(self, row: sqlite3.Row) -> Chunk:
         """Convert a database row to a Chunk instance."""
         return Chunk(

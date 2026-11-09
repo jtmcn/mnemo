@@ -201,7 +201,7 @@ class SearchService:
         """
         # Validate inputs
         if not query or not query.strip():
-            return SearchResponse([], EmptyReason("no_match", "Query cannot be empty"))
+            return SearchResponse([], EmptyReason("empty_query", "Query cannot be empty"))
 
         if mode not in ("hybrid", "semantic", "keyword"):
             raise ValueError(f"Invalid mode: {mode}. Must be 'hybrid', 'semantic', or 'keyword'")
@@ -270,7 +270,7 @@ class SearchService:
         results = results[:top_k]
         if not results:
             reason = self._empty_reason(
-                query, section, book_id, content_type_enum, collection_book_ids
+                query, section, book_id, content_type_enum, collection, collection_book_ids
             )
             return SearchResponse([], reason)
 
@@ -292,6 +292,7 @@ class SearchService:
         section: str | None,
         book_id: str | None,
         content_type: ContentType | None,
+        collection: str | None,
         book_ids: set[str] | None,
     ) -> EmptyReason:
         """Say whether the section exists, under the same filters the search applied."""
@@ -307,9 +308,15 @@ class SearchService:
                     f'Section "{section}" has {in_section} {noun}, but none contains '
                     f"a word of: {query}.",
                 )
-            suggestions = [
-                s for s in self._suggest_sections(section, book_id) if s.lower() != section.lower()
-            ]
+            if (content_type or book_ids is not None) and self._section_counts(section, book_id):
+                limits = [f'content type "{content_type.value}"'] if content_type else []
+                limits += [f'collection "{collection}"'] if collection else []
+                return EmptyReason(
+                    "section_filtered_out",
+                    f'Section "{section}" has no chunks matching {" and ".join(limits)}.',
+                )
+            # The section itself is never among them: it would have matched, case aside.
+            suggestions = self._suggest_sections(section, book_id, content_type, book_ids)
             if suggestions:
                 quoted = ", ".join(f'"{s}"' for s in suggestions)
                 return EmptyReason(
@@ -774,23 +781,25 @@ class SearchService:
         ]
 
     def _suggest_sections(
-        self, section_query: str, book_id: str | None = None, max_suggestions: int = 5
+        self,
+        section_query: str,
+        book_id: str | None,
+        content_type: ContentType | None,
+        book_ids: set[str] | None,
+        max_suggestions: int = 5,
     ) -> list[str]:
-        """Section names like `section_query`: substring matches first, else fuzzy ones."""
+        """Section names the filters admit, like `section_query`: substrings first, else fuzzy."""
         assert self._chunk_repo is not None
-
-        all_sections = self._chunk_repo.get_distinct_sections(book_id)
+        counts = self._chunk_repo.count_by_section_path(book_id, content_type, book_ids)
+        all_sections = sorted({name for path, _ in counts for name in path if name})
         if not all_sections:
             return []
 
         query_lower = section_query.lower()
-        # First try substring containment (catches "Chapter 6" matching
-        # "Chapter 6. Enriching Knowledge Graphs")
+        # Catches "Chapter 6" matching "Chapter 6. Enriching Knowledge Graphs".
         contained = [s for s in all_sections if query_lower in s.lower()]
         if contained:
             return contained[:max_suggestions]
-
-        # Fall back to fuzzy matching
         return difflib.get_close_matches(section_query, all_sections, n=max_suggestions, cutoff=0.4)
 
     def _ensure_initialized(self) -> None:
