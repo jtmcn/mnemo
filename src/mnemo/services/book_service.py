@@ -1,8 +1,9 @@
 """Book intake: the one place that decides what happens to a book file.
 
 Both front ends call `intake()` (for `add`) and `reindex()`, and render the
-`IntakeOutcome` or `ReindexReport` they return. Everything that is a *decision* lives here (is this
-a duplicate, is the ISBN suspect, does a failed run leave a partial record);
+`IntakeOutcome` or `ReindexReport` they return. Everything that is a *decision*
+lives here (is this a duplicate, is the ISBN suspect, does a failed run leave a
+partial record);
 everything that is *presentation* stays in the caller (Rich colour, markdown,
 exit codes, the TTY prompt).
 
@@ -432,7 +433,7 @@ def reindex(
 def _reindex_plan(
     book: Book, source: Path, file_hashes: dict[str, str], db_path: Path | None
 ) -> _Plan | ReindexRow:
-    """Store `book` in place, absorbing any byte-identical entry, or say it already folded."""
+    """Plan storing `book` in place, absorbing any byte-identical entry, or say it folded."""
     parsed, blocks = parse_book(source)
     parsed = parsed.model_copy(
         update={"file_path": str(source.resolve()), "collection": book.collection}
@@ -449,7 +450,7 @@ def _reindex_plan(
         carry_over(parsed, previous, False) if previous else parsed,
         blocks,
         frozenset({book.id} | ({twin.id} if twin else set())),
-        (),
+        similar=(),
     )
 
 

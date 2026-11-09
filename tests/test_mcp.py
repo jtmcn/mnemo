@@ -2358,6 +2358,31 @@ class TestReindexAllBooks:
         assert "Gone Book" in result
         assert "Bad Book" in result
 
+    def test_reindex_text_is_pinned(self):
+        from mnemo.mcp.tools_books import _reindex_all_books_impl
+
+        report = ReindexReport(
+            (
+                ReindexRow("aaa111", "A", "success", 5),
+                ReindexRow("bbb222", "B", "partial", 4, "rate limited"),
+                ReindexRow("ccc333", "C", "merged", 0, "same file as aaa111"),
+                ReindexRow("ddd444", "D", "skipped", 0, "EPUB file not found"),
+                ReindexRow("eee555", "E", "failed", 0, "parse error"),
+            )
+        )
+        with patch("mnemo.services.book_service.reindex", return_value=report):
+            result = _reindex_all_books_impl()
+
+        assert result == (
+            "Reindex complete: 1 succeeded, 1 without embeddings, 1 merged, 1 skipped, "
+            "1 failed\n\n"
+            "- **A** (`aaa111`): 5 chunks\n"
+            "- **B** (`bbb222`): 4 chunks, no embeddings — rate limited\n"
+            "- **C** (`ccc333`): merged — same file as aaa111\n"
+            "- **D** (`ddd444`): skipped — EPUB file not found\n"
+            "- **E** (`eee555`): FAILED — parse error"
+        )
+
     def test_reindex_invalidates_search_cache(self):
         """Reindex clears the search service cache."""
         from mnemo.mcp.tools_books import _reindex_all_books_impl

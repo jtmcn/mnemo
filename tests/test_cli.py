@@ -454,6 +454,91 @@ class TestReindex:
     @patch("mnemo.storage.BookRepository.list_all")
     @patch("mnemo.storage.get_connection")
     @patch("mnemo.storage.init_db")
+    def test_reindex_json_shape_is_pinned(self, mock_init, mock_conn, mock_list, mock_reindex):
+        """Scripts parse this JSON, so every key and value is pinned."""
+        mock_list.return_value = [MagicMock()]
+        mock_reindex.return_value = ReindexReport(
+            (
+                ReindexRow("aaa111", "A", "success", 5),
+                ReindexRow("bbb222", "B", "partial", 4, "rate limited"),
+                ReindexRow("ccc333", "C", "merged", 0, "same file as aaa111"),
+                ReindexRow("ddd444", "D", "skipped", 0, "EPUB file not found"),
+                ReindexRow("eee555", "E", "failed", 0, "parse error"),
+            )
+        )
+        result = runner.invoke(app, ["reindex", "--json"])
+        assert json.loads(result.stdout) == {
+            "results": [
+                {
+                    "book_id": "aaa111",
+                    "title": "A",
+                    "status": "success",
+                    "chunks": 5,
+                    "error": None,
+                },
+                {
+                    "book_id": "bbb222",
+                    "title": "B",
+                    "status": "partial",
+                    "chunks": 4,
+                    "error": "rate limited",
+                },
+                {
+                    "book_id": "ccc333",
+                    "title": "C",
+                    "status": "merged",
+                    "chunks": 0,
+                    "error": "same file as aaa111",
+                },
+                {
+                    "book_id": "ddd444",
+                    "title": "D",
+                    "status": "skipped",
+                    "chunks": 0,
+                    "error": "EPUB file not found",
+                },
+                {
+                    "book_id": "eee555",
+                    "title": "E",
+                    "status": "failed",
+                    "chunks": 0,
+                    "error": "parse error",
+                },
+            ],
+            "success": 1,
+            "partial": 1,
+            "merged": 1,
+            "skipped": 1,
+            "failed": 1,
+        }
+
+    @patch("mnemo.services.book_service.reindex")
+    @patch("mnemo.storage.BookRepository.list_all")
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
+    def test_reindex_verbose_lines_are_pinned(self, mock_init, mock_conn, mock_list, mock_reindex):
+        mock_list.return_value = [MagicMock()]
+        mock_reindex.return_value = ReindexReport(
+            (
+                ReindexRow("aaa111", "A", "success", 5),
+                ReindexRow("bbb222", "B", "partial", 4, "rate limited"),
+                ReindexRow("eee555", "E", "failed", 0, "parse error"),
+            )
+        )
+        result = runner.invoke(app, ["reindex", "--verbose"])
+        out = _plain(result.stdout)
+        assert out == (
+            "Reindexing 1 book(s)... OK A (aaa111) - 5 chunks "
+            "PARTIAL B (bbb222) - 4 chunks, no embeddings: rate limited "
+            "FAIL E (eee555) - parse error "
+            "1 succeeded, 1 without embeddings, 0 skipped, 1 failed"
+        )
+        assert result.exit_code == 1
+
+    @patch("mnemo.services.book_service.reindex")
+    @patch("mnemo.storage.BookRepository.list_all")
+    @patch("mnemo.storage.get_connection")
+    @patch("mnemo.storage.init_db")
     def test_reindex_merged_exits_zero(self, mock_init, mock_conn, mock_list, mock_reindex) -> None:
         mock_list.return_value = [MagicMock(), MagicMock()]
         mock_reindex.return_value = ReindexReport(
