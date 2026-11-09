@@ -15,7 +15,7 @@ import os
 import re
 import unicodedata
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, overload
+from typing import TYPE_CHECKING, Literal, Protocol, overload
 
 from mnemo.embeddings.config import EmbeddingsNotConfigured
 from mnemo.models import Chunk, ContentType, is_boilerplate_section
@@ -23,7 +23,6 @@ from mnemo.search.hybrid import reciprocal_rank_fusion
 from mnemo.search.models import EmptyReason, ExpandedResult, SearchResponse, SearchResult
 
 if TYPE_CHECKING:
-    from mnemo.embeddings.client import Embedder
     from mnemo.storage.repository import BookRepository, ChunkRepository
     from mnemo.vectors.backend import VectorBackend
 
@@ -87,6 +86,12 @@ def normalize_unicode(s: str) -> str:
     return "".join(c for c in nfkd if not unicodedata.combining(c)).lower()
 
 
+class QueryEmbedder(Protocol):
+    """Turns a query into a vector; `Embedder` in production."""
+
+    def embed_one(self, text: str) -> list[float]: ...
+
+
 class SearchService:
     """Coordinates FTS5 and ChromaDB search with RRF fusion.
 
@@ -100,8 +105,8 @@ class SearchService:
 
     Example:
         >>> service = SearchService()
-        >>> results = service.search("async generators in Python", top_k=5)
-        >>> for r in results:
+        >>> response = service.search("async generators in Python", top_k=5)
+        >>> for r in response.results:
         ...     print(f"{r.book_title}: {r.section_path}")
     """
 
@@ -109,26 +114,36 @@ class SearchService:
         self,
         db_path: Path | None = None,
         chroma_path: Path | None = None,
+        *,
+        chunks: ChunkRepository | None = None,
+        books: BookRepository | None = None,
+        vectors: VectorBackend | None = None,
+        embedder: QueryEmbedder | None = None,
     ) -> None:
-        """Initialize search service with storage paths.
+        """Initialize search service with storage paths or ready dependencies.
 
         Args:
             db_path: Path to SQLite database (default: ~/.mnemo/mnemo.db)
             chroma_path: Path to ChromaDB storage (default: ~/.mnemo/chroma)
+            chunks, books: Repositories to search; opened from db_path if omitted.
+            vectors: Vector store; opened from chroma_path if omitted.
+            embedder: Query embedder; the configured provider if omitted.
 
         Note:
-            Connections are NOT created here - lazy initialization happens
-            on first search to avoid import-time side effects.
+            Nothing omitted is opened here: connections, the vector store and
+            the embedder are created on first use, so importing and
+            constructing need no credentials.
         """
+        if (chunks is None) != (books is None):
+            raise ValueError("Pass chunks and books together; they share a connection")
         self._db_path = db_path
         self._chroma_path = chroma_path
         self._min_semantic_score = _min_semantic_score()
 
-        # Lazy-initialized components
-        self._chunk_repo: ChunkRepository | None = None
-        self._book_repo: BookRepository | None = None
-        self._vector_store: VectorBackend | None = None
-        self._embedder: Embedder | None = None  # imported lazily
+        self._chunk_repo: ChunkRepository | None = chunks
+        self._book_repo: BookRepository | None = books
+        self._vector_store: VectorBackend | None = vectors
+        self._embedder: QueryEmbedder | None = embedder
 
         # Cache for book lookups to avoid repeated queries
         self._book_cache: dict[str, str] = {}  # book_id -> title

@@ -1724,15 +1724,13 @@ class TestSearchBooksSectionMessages:
 
     @staticmethod
     def _glossary_service(tmp_path):
-        from mnemo.search import SearchService
+        from tests.fixtures.library import Library
 
-        service = SearchService(db_path=tmp_path / "t.db", chroma_path=tmp_path / "chroma")
-        service._ensure_initialized()
-        assert service._chunk_repo is not None and service._book_repo is not None
-        service._book_repo.add(
+        lib = Library(tmp_path)
+        lib.books.add(
             Book(id="a1b2c3", title="T", authors=[], file_hash="a" * 64, structure_source="toc")
         )
-        service._chunk_repo.add_many(
+        lib.chunks.add_many(
             [
                 Chunk(
                     book_id="a1b2c3",
@@ -1744,7 +1742,7 @@ class TestSearchBooksSectionMessages:
                 )
             ]
         )
-        return service
+        return lib.service()
 
     def test_existing_section_says_no_chunk_holds_a_query_word(self, tmp_path):
         from mnemo.mcp.tools_search import _search_books_impl
