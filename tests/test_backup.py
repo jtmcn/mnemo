@@ -110,7 +110,7 @@ class TestBackup:
         extract_dir = tmp_path / "extracted"
         extract_dir.mkdir()
         with tarfile.open(output, "r:gz") as tar:
-            tar.extract("mnemo.db", path=extract_dir)
+            tar.extract("mnemo.db", path=extract_dir, filter="data")
 
         restored_db = extract_dir / "mnemo.db"
         conn = sqlite3.connect(restored_db)
@@ -289,7 +289,7 @@ class TestRestore:
         with tempfile.TemporaryDirectory() as staging:
             staging_path = Path(staging)
             with tarfile.open(archive, "r:gz") as tar:
-                tar.extractall(staging_path)  # noqa: S202 — test-only
+                tar.extractall(staging_path, filter="data")
 
             manifest_path = staging_path / "manifest.json"
             manifest = json.loads(manifest_path.read_text())
