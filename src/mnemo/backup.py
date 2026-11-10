@@ -45,7 +45,9 @@ def _safe_extract(tar: tarfile.TarFile, dest: Path) -> None:
     try:
         tar.extractall(dest, filter="data")
     except tarfile.FilterError as e:
-        raise ValueError(f"Archive has an unsafe member: {e}") from e
+        raise ValueError(
+            f"Archive has an unsafe member: {e.tarinfo.name!r} ({type(e).__name__})"
+        ) from e
 
 
 def backup_sqlite(source_path: Path, dest_path: Path) -> None:
