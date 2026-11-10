@@ -33,21 +33,21 @@ from mnemo.storage.migrations import LATEST_VERSION
 
 
 def _safe_extract(tar: tarfile.TarFile, dest: Path) -> None:
-    """Extract all members of a tar archive, rejecting path traversal attempts.
+    """Extract all members of a tar archive, rejecting any that escape ``dest``.
 
     Args:
         tar: Open tarfile to extract from.
         dest: Destination directory (must exist).
 
     Raises:
-        ValueError: If any member would extract outside ``dest``.
+        ValueError: If a member's path or link target lies outside ``dest``.
     """
-    resolved_dest = dest.resolve()
-    for member in tar.getmembers():
-        member_path = (resolved_dest / member.name).resolve()
-        if not str(member_path).startswith(str(resolved_dest)):
-            raise ValueError(f"Path traversal attempt detected in archive: {member.name!r}")
-    tar.extractall(dest, filter="data")
+    try:
+        tar.extractall(dest, filter="data")
+    except tarfile.FilterError as e:
+        raise ValueError(
+            f"Archive has an unsafe member: {e.tarinfo.name!r} ({type(e).__name__})"
+        ) from e
 
 
 def backup_sqlite(source_path: Path, dest_path: Path) -> None:
