@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from bs4 import BeautifulSoup, Tag, XMLParsedAsHTMLWarning
-from ebooklib import epub  # type: ignore[import-untyped]
+from ebooklib import epub
 
 # EPUB content is XHTML but lxml HTML parser handles real-world EPUBs better
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
@@ -23,7 +23,7 @@ from mnemo.models import Book  # noqa: E402
 from mnemo.parsing.models import ContentBlock  # noqa: E402
 
 if TYPE_CHECKING:
-    from ebooklib.epub import EpubBook  # type: ignore[import-untyped]
+    from ebooklib.epub import EpubBook
 
 logger = logging.getLogger(__name__)
 

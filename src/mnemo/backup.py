@@ -47,7 +47,7 @@ def _safe_extract(tar: tarfile.TarFile, dest: Path) -> None:
         member_path = (resolved_dest / member.name).resolve()
         if not str(member_path).startswith(str(resolved_dest)):
             raise ValueError(f"Path traversal attempt detected in archive: {member.name!r}")
-    tar.extractall(dest, filter="data")  # noqa: S202 — paths validated above
+    tar.extractall(dest, filter="data")
 
 
 def backup_sqlite(source_path: Path, dest_path: Path) -> None:

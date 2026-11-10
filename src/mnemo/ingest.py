@@ -6,8 +6,9 @@ components to provide a simple API for adding and removing books.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import logging
 from dataclasses import dataclass
+from itertools import batched
 from pathlib import Path
 from typing import Literal
 
@@ -16,7 +17,7 @@ from mnemo.models import Book, is_boilerplate_section
 from mnemo.parsing import ContentBlock
 from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_db
 
-logger = __import__("logging").getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class NothingToEmbed(ValueError):
@@ -25,12 +26,6 @@ class NothingToEmbed(ValueError):
     Re-running the embedding step can never produce vectors for this book,
     so callers must not advise a retry.
     """
-
-
-def _batch_items[T](items: list[T], batch_size: int = 50) -> Iterator[list[T]]:
-    """Yield successive batches of items."""
-    for i in range(0, len(items), batch_size):
-        yield items[i : i + batch_size]
 
 
 def embed_book(
@@ -95,7 +90,7 @@ def embed_book(
 
     # Process in batches
     embedded_count = 0
-    for batch in _batch_items(chunks, batch_size):
+    for batch in batched(chunks, batch_size, strict=False):
         texts = [chunk.content for chunk in batch]
         embeddings = embedder.embed_batch(texts)
 
