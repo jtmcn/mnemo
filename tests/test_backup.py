@@ -6,6 +6,7 @@ DATA-03 (restore and round-trip), and safety checks.
 
 from __future__ import annotations
 
+import io
 import json
 import sqlite3
 import tarfile
@@ -342,28 +343,60 @@ class TestRoundTrip:
 class TestSafety:
     """Security and safety tests."""
 
-    def test_safe_extract_rejects_path_traversal(self, tmp_path):
-        """_safe_extract raises ValueError on path traversal attempts."""
+    @pytest.mark.parametrize(
+        ("name", "linkname"),
+        [
+            ("../evil.txt", None),
+            # Shares dest's name as a prefix, which a string comparison misses.
+            ("../dest2/evil.txt", None),
+            ("link", "../dest2"),
+        ],
+        ids=["parent", "sibling-prefix", "symlink"],
+    )
+    def test_safe_extract_rejects_members_escaping_dest(self, tmp_path, name, linkname):
+        """_safe_extract raises ValueError and writes nothing outside dest."""
         from mnemo.backup import _safe_extract
 
-        # Build a tar with a traversal member name
-        archive = tmp_path / "evil.tar.gz"
-        payload = tmp_path / "payload.txt"
-        payload.write_text("evil content")
-
-        with tarfile.open(archive, "w:gz") as tar:
-            info = tarfile.TarInfo(name="../evil.txt")
-            data = b"evil"
-            import io
-
-            info.size = len(data)
-            tar.addfile(info, io.BytesIO(data))
-
-        dest = tmp_path / "safe_dest"
+        dest = tmp_path / "dest"
         dest.mkdir()
+        sibling = tmp_path / "dest2"
+        sibling.mkdir()
 
-        with tarfile.open(archive, "r:gz") as tar, pytest.raises(ValueError, match="traversal"):
+        archive = tmp_path / "evil.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            info = tarfile.TarInfo(name)
+            if linkname is None:
+                info.size = 4
+                tar.addfile(info, io.BytesIO(b"evil"))
+            else:
+                info.type = tarfile.SYMTYPE
+                info.linkname = linkname
+                tar.addfile(info)
+
+        with tarfile.open(archive, "r:gz") as tar, pytest.raises(ValueError, match="unsafe member"):
             _safe_extract(tar, dest)
+
+        assert list(sibling.iterdir()) == []
+
+    def test_safe_extract_contains_absolute_member_paths(self, tmp_path):
+        """An absolute member path loses its leading slash and lands inside dest."""
+        from mnemo.backup import _safe_extract
+
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        absolute = tmp_path / "outside" / "evil.txt"
+
+        archive = tmp_path / "evil.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            info = tarfile.TarInfo(str(absolute))
+            info.size = 4
+            tar.addfile(info, io.BytesIO(b"evil"))
+
+        with tarfile.open(archive, "r:gz") as tar:
+            _safe_extract(tar, dest)
+
+        assert not absolute.exists()
+        assert (dest / str(absolute).lstrip("/")).read_bytes() == b"evil"
 
 
 class TestNoneMetadataExport:
