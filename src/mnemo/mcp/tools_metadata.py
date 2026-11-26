@@ -5,17 +5,25 @@ Registers: list_available_books, get_book_info, update_book_metadata, enrich_boo
 
 import asyncio
 import logging
+from pathlib import Path
 
 from fastmcp import Context
 from fastmcp.dependencies import CurrentContext
 from mcp.types import ToolAnnotations
 
+from mnemo.epub.enrich import EnrichmentResult, same_text, validate_isbn
 from mnemo.mcp._deps import make_book_repo, make_chunk_repo, make_search_service
 from mnemo.mcp.server import mcp
+from mnemo.models import Book
 from mnemo.search import SearchService
 from mnemo.storage import BookRepository, ChunkRepository, get_connection, init_db
 
 logger = logging.getLogger(__name__)
+
+
+def _same_authors(a: list[str], b: list[str]) -> bool:
+    return len(a) == len(b) and all(any(same_text(x, y) for y in b) for x in a)
+
 
 # Implementation functions (testable directly via DI)
 
@@ -178,6 +186,31 @@ def _update_book_metadata_impl(
         return f"Error: {e}"
 
 
+_FRONT_MATTER_CHUNKS = 8  # copyright pages sit within the first few chunks
+_MIN_DESCRIPTION_CHARS = 40  # catalogue stubs like "2nd edition" aren't descriptions
+
+
+def plan_updates(book: Book, result: EnrichmentResult) -> dict[str, str]:
+    """Fields enrich_book would write: only empty ones, plus an ISBN that fails its checksum."""
+    plan: dict[str, str] = {}
+    isbn_ok, _ = validate_isbn(book.isbn)
+    if result.validated_isbn and result.validated_isbn != book.isbn and not isbn_ok:
+        plan["isbn"] = result.validated_isbn
+    if not result.metadata_trusted:
+        return plan
+    if result.publisher and result.publisher_confirmed and not book.publisher:
+        plan["publisher"] = result.publisher
+    if result.year and not book.year:
+        plan["year"] = result.year
+    if (
+        result.description
+        and len(result.description) >= _MIN_DESCRIPTION_CHARS
+        and not book.description
+    ):
+        plan["description"] = result.description
+    return plan
+
+
 def _enrich_book_impl(book_id: str, apply: bool = False) -> str:
     """Enrich a book's metadata via external lookup.
 
@@ -201,7 +234,16 @@ def _enrich_book_impl(book_id: str, apply: bool = False) -> str:
 
         from mnemo.epub.enrich import enrich_book_metadata
 
-        result = enrich_book_metadata(book.isbn, book.title, book.authors)
+        chunks = ChunkRepository(conn).get_chunk_range(
+            book_id, 0, _FRONT_MATTER_CHUNKS - 1, limit=_FRONT_MATTER_CHUNKS
+        )
+        result = enrich_book_metadata(
+            book.isbn,
+            book.title,
+            book.authors,
+            file_name=Path(book.file_path).name if book.file_path else None,
+            front_matter="\n".join(c.content for c in chunks),
+        )
 
         # Format output
         lines = [f"## Enrichment: {book.title}", ""]
@@ -216,16 +258,21 @@ def _enrich_book_impl(book_id: str, apply: bool = False) -> str:
         # Result
         if result.error:
             lines.append(f"**Lookup:** {result.error}")
+            lines.extend(f"Note: {note}" for note in result.notes)
             return "\n".join(lines)
 
-        if result.validated_isbn:
-            lines.append(f"**Found ISBN:** {result.validated_isbn} (via {result.source})")
-        if result.title:
-            lines.append(f"**Found title:** {result.title}")
-        if result.authors:
-            lines.append(f"**Found authors:** {', '.join(result.authors)}")
+        if result.validated_isbn and result.isbn_source != "stored":
+            origin = result.isbn_source or result.source
+            lines.append(f"**Found ISBN:** {result.validated_isbn} (from {origin})")
+        if result.title and not same_text(result.title, book.title):
+            lines.append(f"**Found title:** {result.title} (never applied)")
+        if result.authors and not _same_authors(result.authors, book.authors):
+            lines.append(f"**Found authors:** {', '.join(result.authors)} (never applied)")
         if result.publisher:
-            lines.append(f"**Publisher:** {result.publisher}")
+            unconfirmed = (
+                "" if result.publisher_confirmed else " (not named in the book, so not applied)"
+            )
+            lines.append(f"**Publisher:** {result.publisher}{unconfirmed}")
         if result.year:
             lines.append(f"**Year:** {result.year}")
         if result.description:
@@ -233,51 +280,33 @@ def _enrich_book_impl(book_id: str, apply: bool = False) -> str:
             if len(result.description) > 200:
                 desc_preview += "..."
             lines.append(f"**Description:** {desc_preview}")
-
-        # Apply if requested
-        if apply:
-            update_kwargs: dict[str, str] = {}
-            if result.validated_isbn and result.validated_isbn != book.isbn:
-                update_kwargs["isbn"] = result.validated_isbn
-            if result.publisher and result.publisher != book.publisher:
-                update_kwargs["publisher"] = result.publisher
-            if result.year and result.year != book.year:
-                update_kwargs["year"] = result.year
-            if result.description and result.description != book.description:
-                update_kwargs["description"] = result.description
-
-            if update_kwargs:
-                # Named rather than **kwargs: update() treats None as "leave
-                # alone", so .get() on the absent keys is equivalent and typed.
-                book_repo.update(
-                    book_id=book_id,
-                    isbn=update_kwargs.get("isbn"),
-                    publisher=update_kwargs.get("publisher"),
-                    year=update_kwargs.get("year"),
-                    description=update_kwargs.get("description"),
-                )
-
-                make_search_service().invalidate_cache()
-
-                fields = ", ".join(update_kwargs.keys())
-                lines.append("")
-                lines.append(f"Updated: {fields}.")
-            else:
-                lines.append("")
-                lines.append("All metadata is up to date — no changes needed.")
-        else:
-            has_updates = (
-                (result.validated_isbn and result.validated_isbn != book.isbn)
-                or (result.publisher and result.publisher != book.publisher)
-                or (result.year and result.year != book.year)
-                or (result.description and result.description != book.description)
+        if not result.metadata_trusted:
+            lines.append(
+                f"Note: publisher, year and description come from a title-search match "
+                f"({result.source}) for another ISBN, so they are not applied."
             )
-            if has_updates:
-                lines.append("")
-                lines.append(
-                    "Use `enrich_book` with `apply=true` to update, "
-                    "or `update_book_metadata` to set manually."
-                )
+        lines.extend(f"Note: {note}" for note in result.notes)
+
+        plan = plan_updates(book, result)
+        lines.append("")
+        if not plan:
+            lines.append("All metadata is up to date — no changes needed.")
+        elif apply:
+            # update() treats None as "leave alone".
+            book_repo.update(
+                book_id=book_id,
+                isbn=plan.get("isbn"),
+                publisher=plan.get("publisher"),
+                year=plan.get("year"),
+                description=plan.get("description"),
+            )
+            make_search_service().invalidate_cache()
+            lines.append(f"Updated: {', '.join(plan)}.")
+        else:
+            lines.append(
+                f"Would update: {', '.join(plan)}. Use `enrich_book` with `apply=true` "
+                "to update, or `update_book_metadata` to set manually."
+            )
 
         return "\n".join(lines)
 
@@ -391,15 +420,19 @@ async def enrich_book(
 ) -> str:
     """Enrich a book's metadata via Google Books and Open Library.
 
-    Validates the ISBN checksum, looks up or searches for the book in external
-    services, and returns any metadata found (publisher, year, description, authors).
-    Use apply=true to automatically update the book's metadata, or review first.
+    Validates the ISBN checksum, reads the ISBN printed on the book's copyright
+    page when the stored one is missing or invalid, and otherwise searches by
+    title, rejecting hits that don't confirm an edition the title or filename
+    states. The preview lists exactly the fields apply would change.
+
+    apply=true never replaces a valid ISBN, never overwrites a non-empty
+    publisher, year or description, and never changes title or authors.
 
     Returns enrichment results showing current vs. found ISBN, or an error message.
 
     Args:
         book_id: 6-character book identifier (from list_available_books)
-        apply: If true, automatically update the book's metadata with found values
+        apply: If true, write the changes the preview lists
     """
     await ctx.report_progress(0, message=f"Enriching metadata for book {book_id}...")
     return await asyncio.to_thread(_enrich_book_impl, book_id, apply)
